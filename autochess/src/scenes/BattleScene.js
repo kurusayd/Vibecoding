@@ -1,8 +1,17 @@
 import Phaser from 'phaser';
-import { hexToPixel, pixelToHex, hexCorners, hexDistance } from '../game/hex.js';
+import { hexToPixel, pixelToHex, hexCorners } from '../game/hex.js';
 import { createUnitSystem } from '../game/units.js';
 import { createFullscreenButton, positionFullscreenButton } from '../game/ui.js';
 import { attackIfPossible } from '../game/combat.js';
+import {
+  createBattleState,
+  addUnit,
+  getUnitAt as coreGetUnitAt,
+  moveUnit as coreMoveUnit,
+  attack as coreAttack,
+  hexDistance
+} from '../game/battleCore.js';
+
 
 export default class BattleScene extends Phaser.Scene {
   constructor() {
@@ -15,6 +24,8 @@ export default class BattleScene extends Phaser.Scene {
 
   create() {
     this.cameras.main.setBackgroundColor('#1e1e1e');
+    this.battleState = createBattleState();
+    this.nextUnitId = 1;
 
     // фон
     this.bg = this.add.image(0, 0, 'battleBg')
@@ -57,16 +68,35 @@ export default class BattleScene extends Phaser.Scene {
     this.drawGrid();
 
     // spawn test units
-    this.unitSys.spawnUnitOnBoard(4, 3, { label: 'A', color: 0xff7777, team: 'player' });
-    this.activeUnit = this.unitSys.state.units[0];
+    const playerId = this.nextUnitId++;
+    addUnit(this.battleState, {
+      id: playerId,
+      q: 4,
+      r: 3,
+      hp: 100,
+      atk: 25,
+      team: 'player'
+    });
 
-    this.unitSys.spawnUnitOnBoard(7, 3, { label: 'E', color: 0x66ccff, team: 'enemy' });
+    this.activeUnitId = playerId;
+
+    const enemyId = this.nextUnitId++;
+    addUnit(this.battleState, {
+      id: enemyId,
+      q: 7,
+      r: 3,
+      hp: 100,
+      atk: 20,
+      team: 'enemy'
+    });
 
     this.resizeBackground(); //Вызываем арт БГ
 
     // UI
     createFullscreenButton(this);
     positionFullscreenButton(this);
+
+    this.renderFromState();
   }
 
   resizeBackground() {
@@ -91,6 +121,30 @@ export default class BattleScene extends Phaser.Scene {
 
     this.unitSys.relayoutUnits();
   }
+
+  renderFromState() {     // удаляем старые визуальные юниты
+      if (this.unitSys) {
+        for (const u of this.unitSys.state.units) {
+          u.circle.destroy();
+          u.label.destroy();
+          u.hpBar.destroy();
+        }
+      }
+
+      // создаём новый unitSystem
+      this.unitSys = createUnitSystem(this);
+
+      // перерисовываем из core state
+      for (const u of this.battleState.units) {
+        this.unitSys.spawnUnitOnBoard(u.q, u.r, {
+          label: u.team === 'player' ? 'P' : 'E',
+          color: u.team === 'enemy' ? 0x66ccff : 0xff7777,
+          team: u.team,
+          hp: u.hp,
+          atk: u.atk
+        });
+      }
+  }  
 
   // ===== Drawing =====
   drawHex(cx, cy, lineColor = 0xffffff, alpha = 0.5) {
@@ -179,35 +233,41 @@ export default class BattleScene extends Phaser.Scene {
     const x = pointer.worldX;
     const y = pointer.worldY;
 
+    // 1) сначала определяем, куда ткнули
     const hit = this.tryPickBoard(x, y);
-    if (hit) {
-      this.selected = { area: 'board', ...hit };
-
-      const targetUnit = this.unitSys.getUnitAt(hit.q, hit.r);
-
-      // атака по врагу
-      if (targetUnit && this.activeUnit && targetUnit.team === 'enemy') {
-        const did = attackIfPossible(this, this.activeUnit, targetUnit, hexDistance);
-        if (did && targetUnit.hp <= 0) {
-          this.unitSys.removeUnit(targetUnit);
-        }
+    if (!hit) {
+      const benchHit = this.tryPickBench(x, y);
+      if (benchHit) {
+        this.selected = { area: 'bench', ...benchHit };
         this.drawGrid();
-        return;
       }
-
-      // перемещение на пустую
-      if (!targetUnit && this.activeUnit) {
-        this.unitSys.moveUnit(this.activeUnit, hit.q, hit.r);
-      }
-
-      this.drawGrid();
       return;
     }
 
-    const benchHit = this.tryPickBench(x, y);
-    if (benchHit) {
-      this.selected = { area: 'bench', ...benchHit };
-      this.drawGrid();
+    // 2) если ткнули в поле — сохраняем выделение
+    this.selected = { area: 'board', ...hit };
+
+    // 3) смотрим, есть ли юнит в этой клетке
+    const targetCore = coreGetUnitAt(this.battleState, hit.q, hit.r);
+
+    // 4) атака (если есть цель и выбран атакующий)
+    if (targetCore && this.activeUnitId) {
+      const result = coreAttack(this.battleState, this.activeUnitId, targetCore.id);
+      if (result.success) {
+        this.renderFromState();
+        this.drawGrid();
+        return;
+      }
     }
+
+    // 5) движение (если клетки пустая и выбран юнит)
+    if (!targetCore && this.activeUnitId) {
+      const moved = coreMoveUnit(this.battleState, this.activeUnitId, hit.q, hit.r);
+      if (moved) {
+        this.renderFromState();
+      }
+    }
+
+    this.drawGrid();
   }
 }
