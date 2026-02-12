@@ -19,7 +19,6 @@ export function attackIfPossible(scene, attacker, target, distanceFn) {
   });
 
   updateHpBar(scene, target);
-  startHpLag(scene, target);
 
   return true;
 }

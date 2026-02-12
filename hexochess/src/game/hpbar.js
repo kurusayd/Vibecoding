@@ -1,55 +1,59 @@
-export function updateHpBar(state, unit) {
-  const barW = Math.max(18, Math.floor(state.hexSize * 1.0));
-  const barH = Math.max(4, Math.floor(state.hexSize * 0.16));
-  const yOffset = state.hexSize * 0.70;
+// Рисуем HP бар над юнитом.
+// unit.hpInstant — “мгновенный” (основной) hp
+// unit.hpLag     — “догоняющий” (жёлтый хвост)
+// unit.hp        — логическое (может совпадать с hpInstant)
 
-  const p = state.hexToPixel(unit.q, unit.r);
-  const x = p.x - barW / 2;
-  const y = p.y - yOffset;
+export function updateHpBar(scene, unit) {
+  if (!unit || !unit.hpBar) return;
 
-  const pctNow = Math.max(0, Math.min(1, unit.hp / unit.maxHp));
-  const pctShown = Math.max(0, Math.min(1, (unit.hpShown ?? unit.hp) / unit.maxHp));
+  const g = unit.hpBar;
+  g.clear();
 
-  const wNow = Math.floor(barW * pctNow);
-  const wShown = Math.floor(barW * pctShown);
+  const maxHp = Math.max(1, unit.maxHp ?? 1);
+  const hpInstant = clamp(unit.hpInstant ?? unit.hp ?? maxHp, 0, maxHp);
+  const hpLag = clamp(unit.hpLag ?? hpInstant, 0, maxHp);
 
-  unit.hpBar.clear();
+  // размеры бара
+  const w = Math.floor(scene.hexSize * 1.1);     // ширина
+  const h = Math.max(6, Math.floor(scene.hexSize * 0.18)); // высота
+  const yOffset = Math.floor(scene.hexSize * 0.75); // насколько выше центра юнита
 
-  // рамка
-  unit.hpBar.fillStyle(0x000000, 0.6);
-  unit.hpBar.fillRoundedRect(x - 1, y - 1, barW + 2, barH + 2, 2);
+  // позиция относительно юнита (абсолютные координаты)
+  const cx = unit.circle?.x ?? 0;
+  const cy = unit.circle?.y ?? 0;
+  const x = Math.round(cx - w / 2);
+  const y = Math.round(cy - yOffset);
 
-  // серый max
-  unit.hpBar.fillStyle(0x555555, 1);
-  unit.hpBar.fillRoundedRect(x, y, barW, barH, 2);
+  // цвета
+  const bg = 0x111111;
+  const border = 0x000000;
+  const lagColor = 0xffcc33; // жёлтый хвост
+  const mainColor = (unit.team === 'enemy') ? 0xff4444 : 0x44ff66; // красн/зел
 
-  // жёлтый lag
-  if (wShown > wNow) {
-    unit.hpBar.fillStyle(0xffd34d, 1);
-    unit.hpBar.fillRoundedRect(x, y, wShown, barH, 2);
+  const lagW = Math.round((hpLag / maxHp) * w);
+  const instW = Math.round((hpInstant / maxHp) * w);
+
+  // фон
+  g.fillStyle(bg, 0.85);
+  g.fillRect(x, y, w, h);
+
+  // жёлтый “хвост” (сначала он)
+  if (lagW > 0) {
+    g.fillStyle(lagColor, 0.85);
+    g.fillRect(x, y, lagW, h);
   }
 
-  // текущий hp
-  unit.hpBar.fillStyle(unit.hpColor, 1);
-  unit.hpBar.fillRoundedRect(x, y, wNow, barH, 2);
+  // основной бар (поверх хвоста)
+  if (instW > 0) {
+    g.fillStyle(mainColor, 0.95);
+    g.fillRect(x, y, instW, h);
+  }
+
+  // обводка
+  g.lineStyle(1, border, 0.9);
+  g.strokeRect(x, y, w, h);
 }
 
-export function startHpLag(scene, unit) {
-  // hpShown догоняет hp с задержкой
-  if (unit.hpLag) {
-    unit.hpLag.stop();
-    unit.hpLag = null;
-  }
-
-  if (unit.hpShown < unit.hp) unit.hpShown = unit.hp;
-
-  unit.hpLag = scene.tweens.add({
-    targets: unit,
-    hpShown: unit.hp,
-    duration: 250,
-    delay: 140,
-    ease: 'Linear',
-    onUpdate: () => updateHpBar(scene, unit),
-    onComplete: () => { unit.hpLag = null; },
-  });
+function clamp(v, a, b) {
+  return Math.max(a, Math.min(b, v));
 }

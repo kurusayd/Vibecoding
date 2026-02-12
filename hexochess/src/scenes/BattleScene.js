@@ -2,7 +2,6 @@ import Phaser from 'phaser';
 import { hexToPixel, pixelToHex, hexCorners } from '../game/hex.js';
 import { createUnitSystem } from '../game/units.js';
 import { createFullscreenButton, positionFullscreenButton } from '../game/ui.js';
-import { attackIfPossible } from '../game/combat.js';
 import {
   createBattleState,
   addUnit,
@@ -122,29 +121,48 @@ export default class BattleScene extends Phaser.Scene {
     this.unitSys.relayoutUnits();
   }
 
-  renderFromState() {     // удаляем старые визуальные юниты
-      if (this.unitSys) {
-        for (const u of this.unitSys.state.units) {
-          u.circle.destroy();
-          u.label.destroy();
-          u.hpBar.destroy();
-        }
+  renderFromState() {
+    // 1) Индекс текущих визуальных юнитов по id
+    const byId = new Map();
+    for (const vu of this.unitSys.state.units) {
+      byId.set(vu.id, vu);
+    }
+
+    // 2) Помечаем кого надо удалить
+    const aliveIds = new Set(this.battleState.units.map(u => u.id));
+
+    // удалить тех, кого нет в core state
+    for (const vu of this.unitSys.state.units.slice()) {
+      if (!aliveIds.has(vu.id)) {
+        this.unitSys.destroyUnit(vu.id);
       }
+    }
 
-      // создаём новый unitSystem
-      this.unitSys = createUnitSystem(this);
+    // 3) Создать новых и обновить существующих
+    for (const u of this.battleState.units) {
+      const existing = byId.get(u.id);
 
-      // перерисовываем из core state
-      for (const u of this.battleState.units) {
+      if (!existing) {
+        // создать нового
         this.unitSys.spawnUnitOnBoard(u.q, u.r, {
+          id: u.id,                    // ВАЖНО: прокидываем id
           label: u.team === 'player' ? 'P' : 'E',
           color: u.team === 'enemy' ? 0x66ccff : 0xff7777,
           team: u.team,
           hp: u.hp,
+          maxHp: u.maxHp ?? u.hp,
           atk: u.atk
         });
+      } else {
+        // обновить позицию
+        this.unitSys.setUnitPos(u.id, u.q, u.r);
+
+        // обновить HP (запускает анимацию)
+        this.unitSys.setUnitHp(u.id, u.hp, u.maxHp ?? existing.maxHp);
       }
-  }  
+    }
+  }
+
 
   // ===== Drawing =====
   drawHex(cx, cy, lineColor = 0xffffff, alpha = 0.5) {
@@ -229,28 +247,22 @@ export default class BattleScene extends Phaser.Scene {
     return { row, col: 0, screen: { x: bx, y: by } };
   }
 
+  update(time, delta) {
+    const dt = delta / 1000;
+    this.unitSys.update(delta / 1000);
+  }
+
+
   onPointerDown(pointer) {
     const x = pointer.worldX;
     const y = pointer.worldY;
 
-    // 1) сначала определяем, куда ткнули
     const hit = this.tryPickBoard(x, y);
-    if (!hit) {
-      const benchHit = this.tryPickBench(x, y);
-      if (benchHit) {
-        this.selected = { area: 'bench', ...benchHit };
-        this.drawGrid();
-      }
-      return;
-    }
+    if (!hit) return;
 
-    // 2) если ткнули в поле — сохраняем выделение
-    this.selected = { area: 'board', ...hit };
-
-    // 3) смотрим, есть ли юнит в этой клетке
     const targetCore = coreGetUnitAt(this.battleState, hit.q, hit.r);
 
-    // 4) атака (если есть цель и выбран атакующий)
+    // атака
     if (targetCore && this.activeUnitId) {
       const result = coreAttack(this.battleState, this.activeUnitId, targetCore.id);
       if (result.success) {
@@ -260,14 +272,14 @@ export default class BattleScene extends Phaser.Scene {
       }
     }
 
-    // 5) движение (если клетки пустая и выбран юнит)
+    // движение
     if (!targetCore && this.activeUnitId) {
       const moved = coreMoveUnit(this.battleState, this.activeUnitId, hit.q, hit.r);
-      if (moved) {
-        this.renderFromState();
-      }
+      if (moved) this.renderFromState();
     }
 
+    this.selected = { area: 'board', ...hit };
     this.drawGrid();
   }
+
 }

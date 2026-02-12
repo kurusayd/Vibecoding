@@ -10,6 +10,10 @@ export function createUnitSystem(scene) {
     occupied: new Set(),
   };
 
+  function findUnit(id) {
+    return state.units.find(u => u.id === id) ?? null;
+  }
+
   function getUnitAt(q, r) {
     return state.units.find(u => u.q === q && u.r === r) ?? null;
   }
@@ -29,28 +33,27 @@ export function createUnitSystem(scene) {
       color: '#000',
     }).setOrigin(0.5).setDepth(1001);
 
-    const team = opts.team ?? 'neutral';
     const hp = opts.hp ?? 100;
-    const maxHp = opts.hp ?? 100;
+    const maxHp = opts.maxHp ?? hp;
 
     const hpBar = scene.add.graphics().setDepth(1002);
-    const hpColor = team === 'enemy' ? 0xff4444 : 0x44ff66;
 
     const unit = {
+      id: opts.id ?? crypto.randomUUID?.() ?? String(Date.now()),
+
       q, r,
-      team,
-      circle,
-      label,
+      team: opts.team ?? 'neutral',
 
       hp,
       maxHp,
-      hpShown: hp,
-      hpLag: null,
 
+      // визуальные значения для анимации
+      hpInstant: hp,
+      hpLag: hp,
+
+      circle,
+      label,
       hpBar,
-      hpColor,
-
-      atk: opts.atk ?? 25,
     };
 
     state.units.push(unit);
@@ -58,6 +61,54 @@ export function createUnitSystem(scene) {
 
     updateHpBar(scene, unit);
     return unit;
+  }
+
+  function destroyUnit(id) {
+    const u = findUnit(id);
+    if (!u) return;
+
+    state.occupied.delete(cellKey(u.q, u.r));
+
+    u.circle.destroy();
+    u.label.destroy();
+    u.hpBar.destroy();
+
+    state.units = state.units.filter(x => x.id !== id);
+  }
+
+  function setUnitPos(id, q, r) {
+    const u = findUnit(id);
+    if (!u) return;
+
+    // обновляем occupied
+    state.occupied.delete(cellKey(u.q, u.r));
+    state.occupied.add(cellKey(q, r));
+
+    u.q = q;
+    u.r = r;
+
+    const p = scene.hexToPixel(q, r);
+    u.circle.setPosition(p.x, p.y);
+    u.label.setPosition(p.x, p.y);
+
+    updateHpBar(scene, u);
+  }
+
+  function setUnitHp(id, hp, maxHp) {
+    const u = findUnit(id);
+    if (!u) return;
+
+    if (typeof maxHp === 'number') u.maxHp = maxHp;
+    u.hp = Math.max(0, Math.min(hp, u.maxHp));
+
+    // красный (мгновенный) сразу прыгает на текущее hp
+    u.hpInstant = u.hp;
+
+    // жёлтый (догоняющий) НЕ прыгает вниз при уроне
+    // но при хиле можно сразу поднять
+    if (u.hpLag < u.hpInstant) u.hpLag = u.hpInstant;
+
+    updateHpBar(scene, u);
   }
 
   function moveUnit(unit, newQ, newR) {
@@ -80,15 +131,7 @@ export function createUnitSystem(scene) {
   }
 
   function removeUnit(unit) {
-    state.occupied.delete(cellKey(unit.q, unit.r));
-
-    if (unit.hpLag) unit.hpLag.stop();
-
-    unit.circle.destroy();
-    unit.label.destroy();
-    unit.hpBar.destroy();
-
-    state.units = state.units.filter(u => u !== unit);
+    destroyUnit(unit.id);
   }
 
   function relayoutUnits() {
@@ -100,12 +143,29 @@ export function createUnitSystem(scene) {
     }
   }
 
+  function update(dt) {
+    const lagSpeed = 80; // hp/сек
+
+    for (const u of state.units) {
+      // жёлтый догоняет вниз к красному
+      if (u.hpLag > u.hpInstant) {
+        u.hpLag = Math.max(u.hpInstant, u.hpLag - lagSpeed * dt);
+        updateHpBar(scene, u);
+      }
+    }
+  }
+
   return {
     state,
     getUnitAt,
+    findUnit,
     spawnUnitOnBoard,
+    destroyUnit,
+    setUnitPos,
+    setUnitHp,
     moveUnit,
     removeUnit,
     relayoutUnits,
+    update,
   };
 }
