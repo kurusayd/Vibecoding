@@ -1,10 +1,10 @@
 import Phaser from 'phaser';
 import { hexToPixel, pixelToHex, hexCorners } from '../game/hex.js';
 import { createUnitSystem } from '../game/units.js';
+import { WSClient } from '../net/wsClient.js';
 import { createFullscreenButton, positionFullscreenButton } from '../game/ui.js';
 import {
   createBattleState,
-  addUnit,
   getUnitAt as coreGetUnitAt,
   moveUnit as coreMoveUnit,
   attack as coreAttack,
@@ -23,8 +23,7 @@ export default class BattleScene extends Phaser.Scene {
 
   create() {
     this.cameras.main.setBackgroundColor('#1e1e1e');
-    this.battleState = createBattleState();
-    this.nextUnitId = 1;
+    this.battleState = createBattleState();   // core state (пока пустой, ждём сервер)
 
     // фон
     this.bg = this.add.image(0, 0, 'battleBg')
@@ -53,6 +52,31 @@ export default class BattleScene extends Phaser.Scene {
     // units system
     this.unitSys = createUnitSystem(this);
 
+    // --- SERVER CONNECTION ---
+  this.ws = new WSClient('ws://localhost:3001');
+
+  this.ws.onInit = (msg) => {
+    // сервер прислал начальный state и сказал, каким юнитом ты управляешь
+    this.battleState = msg.state;
+    this.activeUnitId = msg.you.unitId;
+
+    this.renderFromState();
+    this.drawGrid();
+  };
+
+  this.ws.onState = (state) => {
+    // сервер прислал обновлённый state после чьего-то хода
+    this.battleState = state;
+
+    this.renderFromState();
+    this.drawGrid();
+  };
+
+  this.ws.onError = (err) => {
+    console.warn('Server error:', err);
+  };
+
+  this.ws.connect();
     // input
     this.input.on('pointerdown', (p) => this.onPointerDown(p));
 
@@ -65,19 +89,6 @@ export default class BattleScene extends Phaser.Scene {
 
     this.layout();
     this.drawGrid();
-
-    // spawn test units
-    const playerId = this.nextUnitId++;
-    addUnit(this.battleState, {
-      id: playerId,
-      q: 4,
-      r: 3,
-      hp: 100,
-      atk: 25,
-      team: 'player'
-    });
-
-    this.activeUnitId = playerId;
 
     const enemyId = this.nextUnitId++;
     addUnit(this.battleState, {
@@ -95,7 +106,7 @@ export default class BattleScene extends Phaser.Scene {
     createFullscreenButton(this);
     positionFullscreenButton(this);
 
-    this.renderFromState();
+    this.renderFromState();  // отрисуем то что есть (пока пусто)
   }
 
   resizeBackground() {
