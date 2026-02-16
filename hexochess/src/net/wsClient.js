@@ -54,6 +54,12 @@ export class WSClient {
     };
   }
 
+  close() {
+    if (!this.ws) return;
+    try { this.ws.close(); } catch {}
+    this.ws = null;
+    }
+
   sendIntentMove(q, r) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 

@@ -50,30 +50,39 @@ export default class BattleScene extends Phaser.Scene {
     this.unitSys = createUnitSystem(this);
 
     // --- SERVER CONNECTION ---
-  this.ws = new WSClient('ws://localhost:3001');
+    this.ws = new WSClient('ws://localhost:3001');
 
-  this.ws.onInit = (msg) => {
-    // сервер прислал начальный state и сказал, каким юнитом ты управляешь
-    this.battleState = msg.state;
-    this.activeUnitId = msg.you.unitId;
+    this.ws.onInit = (msg) => {
+      // сервер прислал начальный state и сказал, каким юнитом ты управляешь
+      this.battleState = msg.state;
+      this.activeUnitId = msg.you.unitId;
 
-    this.renderFromState();
-    this.drawGrid();
-  };
+      this.renderFromState();
+      this.drawGrid();
+    };
 
-  this.ws.onState = (state) => {
-    // сервер прислал обновлённый state после чьего-то хода
-    this.battleState = state;
+    this.ws.onState = (state) => {
+      // сервер прислал обновлённый state после чьего-то хода
+      this.battleState = state;
 
-    this.renderFromState();
-    this.drawGrid();
-  };
+      this.renderFromState();
+      this.drawGrid();
+    };
 
-  this.ws.onError = (err) => {
-    console.warn('Server error:', err);
-  };
+    this.ws.onError = (err) => {
+      console.warn('Server error:', err);
+    };
 
-  this.ws.connect();
+    this.ws.connect();
+
+    this.events.once('shutdown', () => {
+      this.ws?.close();
+    });
+
+    this.events.once('destroy', () => {
+      this.ws?.close();
+    });
+
     // input
     this.input.on('pointerdown', (p) => this.onPointerDown(p));
 

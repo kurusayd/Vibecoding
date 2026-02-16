@@ -114,6 +114,7 @@ const wss = new WebSocketServer({ server });
 
 wss.on('connection', (ws) => {
   const clientId = crypto.randomUUID();
+    console.log('CONNECT', clientId);
   clients.set(clientId, ws);
 
   // чтобы в игре всегда был хоть кто-то для удара
@@ -145,10 +146,12 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     clients.delete(clientId);
+    console.log('CLOSE', clientId);
 
     // опционально: удаляем юнит отключившегося игрока
     const uid = clientToUnit.get(clientId);
     clientToUnit.delete(clientId);
+
     if (uid) {
       state.units = state.units.filter(u => u.id !== uid);
       broadcast(makeStateMessage(state));
