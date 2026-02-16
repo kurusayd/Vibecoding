@@ -55,14 +55,14 @@ export class WSClient {
   }
 
   sendIntentMove(q, r) {
-    if (!this.ws) return;
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
     const msg = makeMoveIntent(q, r);
     this.ws.send(JSON.stringify(msg));
   }
 
   sendIntentAttack(targetId) {
-    if (!this.ws) return;
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
     const msg = makeAttackIntent(targetId);
     this.ws.send(JSON.stringify(msg));

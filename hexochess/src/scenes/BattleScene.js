@@ -5,11 +5,8 @@ import { WSClient } from '../net/wsClient.js';
 import { createFullscreenButton, positionFullscreenButton } from '../game/ui.js';
 import {
   createBattleState,
-  getUnitAt as coreGetUnitAt,
-  moveUnit as coreMoveUnit,
-  attack as coreAttack,
-  hexDistance
-} from '../game/battleCore.js';
+  getUnitAt as coreGetUnitAt
+} from '../../shared/battleCore.js';
 
 
 export default class BattleScene extends Phaser.Scene {
@@ -89,16 +86,6 @@ export default class BattleScene extends Phaser.Scene {
 
     this.layout();
     this.drawGrid();
-
-    const enemyId = this.nextUnitId++;
-    addUnit(this.battleState, {
-      id: enemyId,
-      q: 7,
-      r: 3,
-      hp: 100,
-      atk: 20,
-      team: 'enemy'
-    });
 
     this.resizeBackground(); //Вызываем арт БГ
 
@@ -273,21 +260,20 @@ export default class BattleScene extends Phaser.Scene {
 
     const targetCore = coreGetUnitAt(this.battleState, hit.q, hit.r);
 
-    // атака
-    if (targetCore && this.activeUnitId) {
-      const result = coreAttack(this.battleState, this.activeUnitId, targetCore.id);
-      if (result.success) {
-        this.renderFromState();
-        this.drawGrid();
-        return;
-      }
+    // НЕТ activeUnitId или ещё нет ws — ничего не делаем
+    if (!this.activeUnitId || !this.ws) return;
+    console.log('INTENT', targetCore ? 'attack' : 'move', targetCore ? targetCore.id : [hit.q, hit.r]);
+
+    // Если кликнули по юниту — это intent "attack"
+    if (targetCore) {
+      console.log('INTENT attack targetId=', targetCore.id);
+      this.ws.sendIntentAttack(targetCore.id);
+      return;
     }
 
-    // движение
-    if (!targetCore && this.activeUnitId) {
-      const moved = coreMoveUnit(this.battleState, this.activeUnitId, hit.q, hit.r);
-      if (moved) this.renderFromState();
-    }
+    // Если кликнули по пустой клетке — intent "move"
+    this.ws.sendIntentMove(hit.q, hit.r);
+
 
     this.selected = { area: 'board', ...hit };
     this.drawGrid();

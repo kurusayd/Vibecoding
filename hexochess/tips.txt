@@ -1,0 +1,2 @@
+npm run dev:server - запуск сервера
+npm run dev:client - запуск клиента в разных терминалах.
