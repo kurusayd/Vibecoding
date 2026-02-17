@@ -44,8 +44,8 @@ function ensureDefaultEnemy() {
 
   addUnit(state, {
     id: 999,
-    q: 7,
-    r: 3,
+    q: 4,
+    r: 2,
     hp: 100,
     atk: 20,
     team: 'enemy',
@@ -58,7 +58,7 @@ function spawnPlayerUnitFor(clientId) {
   // простая раскладка по стартовым клеткам (чтобы не спавнились в одном месте)
   const idx = unitId - 1;
   const startQ = 2 + (idx % 2);
-  const startR = 3 + Math.floor(idx / 2);
+  const startR = 2 + Math.floor(idx / 2);
 
   addUnit(state, {
     id: unitId,

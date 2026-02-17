@@ -3,14 +3,15 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  
+
   "scripts": {
     "build": "vite build",
     "dev:client": "vite",
-    "dev:server": "node server/index.js",
+    "dev:server": "nodemon server/index.js",
     "start": "node server/index.js"
   },
   "devDependencies": {
+    "nodemon": "^3.1.11",
     "vite": "^8.0.0-beta.13"
   },
   "overrides": {

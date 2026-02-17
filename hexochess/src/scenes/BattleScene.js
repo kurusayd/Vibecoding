@@ -28,15 +28,15 @@ export default class BattleScene extends Phaser.Scene {
     .setDepth(-1000);
 
     // --- HEX SETTINGS ---
-    this.hexSize = 34;
+    this.hexSize = 32; //размер гекса
     this.gridCols = 12;
     this.gridRows = 8;
 
     this.benchRows = this.gridRows;
-    this.benchGap = 130;
+    this.benchGap = 90;
 
-    this.originX = this.scale.width / 2 - 260;
-    this.originY = this.scale.height / 2 - 160;
+    this.originX = this.scale.width / 2 - 270;
+    this.originY = this.scale.height / 2 - 120;
 
     // пробрасываем функции как "методы", чтобы старый код был простым
     this.hexToPixel = (q, r) => hexToPixel(this, q, r);
@@ -129,8 +129,8 @@ export default class BattleScene extends Phaser.Scene {
   layout() {
     this.resizeBackground();
 
-    this.originX = this.scale.width / 2 - 260;
-    this.originY = this.scale.height / 2 - 160;
+    this.originX = this.scale.width / 2 - 270;
+    this.originY = this.scale.height / 2 - 120;
 
     this.unitSys.relayoutUnits();
   }
