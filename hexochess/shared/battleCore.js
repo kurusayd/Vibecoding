@@ -2,7 +2,9 @@
 
 export function createBattleState() {
   return {
-    units: [], // массив юнитов
+    phase: 'prep',     // 'prep' | 'battle'
+    result: null,      // null | 'victory' | 'defeat' | 'draw'
+    units: [],
   };
 }
 

@@ -53,3 +53,11 @@ export function makeAttackIntent(targetId) {
     targetId
   };
 }
+
+// Клиент просит начать бой
+export function makeStartBattleIntent() {
+  return {
+    type: 'intent',
+    action: 'startBattle',
+  };
+}

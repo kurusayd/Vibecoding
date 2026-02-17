@@ -66,6 +66,7 @@ export default class BattleScene extends Phaser.Scene {
 
       this.renderFromState();
       this.drawGrid();
+      this.syncPhaseUI();
     };
 
     this.ws.onState = (state) => {
@@ -74,6 +75,7 @@ export default class BattleScene extends Phaser.Scene {
 
       this.renderFromState();
       this.drawGrid();
+      this.syncPhaseUI();
     };
 
     this.ws.onError = (err) => {
@@ -90,13 +92,17 @@ export default class BattleScene extends Phaser.Scene {
       this.ws?.close();
     });
 
-    // input
-    this.input.on('pointerdown', (p) => this.onPointerDown(p));
+    // input - пока что убрали, чтобы автоматизировать боёвку
+    //this.input.on('pointerdown', (p) => this.onPointerDown(p));
 
     // resize
     this.scale.on('resize', () => {
       this.layout();
       this.drawGrid();
+
+      if (this.battleBtn) this.battleBtn.setPosition(this.scale.width / 2, 14);
+      if (this.resultText) this.resultText.setPosition(this.scale.width / 2, 16);
+
       positionFullscreenButton(this);
     });
 
@@ -108,6 +114,32 @@ export default class BattleScene extends Phaser.Scene {
     // UI
     createFullscreenButton(this);
     positionFullscreenButton(this);
+
+    // --- TOP CENTER UI ---
+    this.battleBtn = this.add.text(this.scale.width / 2, 14, 'БОЙ', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '22px',
+      color: '#ffffff',
+      backgroundColor: 'rgba(0,0,0,0.55)',
+      padding: { left: 14, right: 14, top: 8, bottom: 8 },
+    })
+    .setOrigin(0.5, 0)
+    .setDepth(9999)
+    .setInteractive({ useHandCursor: true });
+
+    this.battleBtn.on('pointerdown', () => {
+      this.ws?.sendIntentStartBattle();
+    });
+
+    this.resultText = this.add.text(this.scale.width / 2, 16, '', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '34px',
+      color: '#ffffff',
+    })
+    .setOrigin(0.5, 0)
+    .setDepth(9999)
+    .setVisible(false);
+
 
     this.renderFromState();  // отрисуем то что есть (пока пусто)
   }
@@ -174,6 +206,36 @@ export default class BattleScene extends Phaser.Scene {
         // обновить HP (запускает анимацию)
         this.unitSys.setUnitHp(u.id, u.hp, u.maxHp ?? existing.maxHp);
       }
+    }
+  }
+
+  syncPhaseUI() {
+    const phase = this.battleState?.phase ?? 'prep';
+    const result = this.battleState?.result ?? null;
+
+    // если есть результат — показываем текст и прячем кнопку
+    if (result) {
+      this.battleBtn?.setVisible(false);
+
+      const map = {
+        victory: 'Победа',
+        defeat: 'Поражение',
+        draw: 'Ничья',
+      };
+
+      this.resultText?.setText(map[result] ?? String(result));
+      this.resultText?.setVisible(true);
+      return;
+    }
+
+    // результата нет
+    this.resultText?.setVisible(false);
+
+    // в prep показываем кнопку, в battle — прячем
+    if (phase === 'prep') {
+      this.battleBtn?.setVisible(true);
+    } else {
+      this.battleBtn?.setVisible(false);
     }
   }
 

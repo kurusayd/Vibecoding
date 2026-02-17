@@ -9,8 +9,10 @@ import { fileURLToPath } from 'url';
 import {
   createBattleState,
   addUnit,
+  getUnitAt,
   moveUnit,
   attack,
+  hexDistance,
 } from '../shared/battleCore.js';
 
 import {
@@ -31,6 +33,55 @@ const clientToUnit = new Map();
 /** @type {Map<string, import('ws').WebSocket>} */
 const clients = new Map();
 
+// ---- board limits (должны совпадать с клиентом) ----
+const GRID_COLS = 12;
+const GRID_ROWS = 8;
+
+// axial (q,r) -> "col" как на клиенте: col = q + floor(r/2)
+function isInsideBoard(q, r) {
+  if (r < 0 || r >= GRID_ROWS) return false;
+  const col = q + Math.floor(r / 2);
+  return col >= 0 && col < GRID_COLS;
+}
+
+const NEIGHBORS = [
+  { dq: 1, dr: 0 },
+  { dq: 1, dr: -1 },
+  { dq: 0, dr: -1 },
+  { dq: -1, dr: 0 },
+  { dq: -1, dr: 1 },
+  { dq: 0, dr: 1 },
+];
+
+function findEnemyUnit() {
+  return state.units.find(u => u.team === 'enemy') ?? null;
+}
+
+function findUnitById(id) {
+  return state.units.find(u => u.id === id) ?? null;
+}
+
+function pickBestStepToward(attacker, target) {
+  let best = null;
+  let bestDist = Infinity;
+
+  for (const n of NEIGHBORS) {
+    const nq = attacker.q + n.dq;
+    const nr = attacker.r + n.dr;
+
+    if (!isInsideBoard(nq, nr)) continue;
+    if (getUnitAt(state, nq, nr)) continue;
+
+    const d = hexDistance(nq, nr, target.q, target.r);
+    if (d < bestDist) {
+      bestDist = d;
+      best = { q: nq, r: nr };
+    }
+  }
+
+  return best;
+}
+
 function broadcast(obj) {
   const data = JSON.stringify(obj);
   for (const ws of clients.values()) {
@@ -44,8 +95,8 @@ function ensureDefaultEnemy() {
 
   addUnit(state, {
     id: 999,
-    q: 4,
-    r: 2,
+    q: 6,
+    r: 5,
     hp: 100,
     atk: 20,
     team: 'enemy',
@@ -57,8 +108,8 @@ function spawnPlayerUnitFor(clientId) {
 
   // простая раскладка по стартовым клеткам (чтобы не спавнились в одном месте)
   const idx = unitId - 1;
-  const startQ = 2 + (idx % 2);
-  const startR = 2 + Math.floor(idx / 2);
+  const startR = 0;
+  const startQ = 0; // всегда самый левый верхний
 
   addUnit(state, {
     id: unitId,
@@ -81,6 +132,17 @@ function handleIntent(clientId, msg, ws) {
   }
 
   if (!msg || msg.type !== 'intent') return;
+
+  if (msg.action === 'startBattle') {
+    // стартует только из prep
+    if (state.phase !== 'prep') {
+      ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'Battle can start only from prep')));
+      return;
+    }
+    startBattle();
+    return;
+  }
+
 
   if (msg.action === 'move') {
     const ok = moveUnit(state, unitId, msg.q, msg.r);
@@ -145,18 +207,140 @@ wss.on('connection', (ws) => {
   // и обновлённый state всем (чтобы все видели нового игрока)
   broadcast(makeStateMessage(state));
 
+  // --- battle loop (per-connection timer handle) ---
+  let battleTimer = null;
+  let finishTimeout = null;
+
+  function stopBattleTimers() {
+    if (battleTimer) {
+      clearInterval(battleTimer);
+      battleTimer = null;
+    }
+    if (finishTimeout) {
+      clearTimeout(finishTimeout);
+      finishTimeout = null;
+    }
+  }
+
+  function computeResult() {
+    const hasPlayer = state.units.some(u => u.team === 'player');
+    const hasEnemy = state.units.some(u => u.team === 'enemy');
+
+    if (hasPlayer && !hasEnemy) return 'victory';
+    if (!hasPlayer && hasEnemy) return 'defeat';
+    if (!hasPlayer && !hasEnemy) return 'draw';
+
+    return null; // бой ещё не закончен
+  }
+
+  function resetToPrep() {
+    // вернуться в подготовку: сброс фаз/результата
+    state.phase = 'prep';
+    state.result = null;
+
+    // на этом этапе можно:
+    // - ресетать позиции
+    // - пересоздавать врага
+    // мы пока делаем минимально: гарантируем врага если его нет
+    ensureDefaultEnemy();
+
+    broadcast(makeStateMessage(state));
+  }
+
+  function finishBattle(result) {
+    stopBattleTimers();
+
+    state.phase = 'prep'; // ФАЗА боя заканчивается, но результат показываем
+    state.result = result;
+
+    broadcast(makeStateMessage(state));
+
+    // через 3 секунды сброс обратно в prep (и убрать надпись)
+    finishTimeout = setTimeout(() => {
+      resetToPrep();
+    }, 3000);
+  }
+
+  function startBattle() {
+    // не стартуем повторно
+    if (state.phase === 'battle') return;
+
+    // перейти в бой
+    state.phase = 'battle';
+    state.result = null;
+    broadcast(makeStateMessage(state));
+
+    const tickMs = 450;
+
+    battleTimer = setInterval(() => {
+      // если уже не бой — не делаем ничего
+      if (state.phase !== 'battle') return;
+
+      const me = findUnitById(unitId);
+      const enemy = findEnemyUnit();
+
+      // если кто-то исчез — проверяем результат
+      const resNow = computeResult();
+      if (resNow) {
+        finishBattle(resNow);
+        return;
+      }
+
+      // защита от пустого enemy (вдруг)
+      if (!me || !enemy) return;
+
+      const dist = hexDistance(me.q, me.r, enemy.q, enemy.r);
+
+      // рядом — удар
+      if (dist <= 1) {
+        const res = attack(state, me.id, enemy.id);
+        if (res.success) {
+          broadcast(makeStateMessage(state));
+        }
+
+        const resAfter = computeResult();
+        if (resAfter) {
+          finishBattle(resAfter);
+        }
+        return;
+      }
+
+      // шаг к врагу
+      const step = pickBestStepToward(me, enemy);
+      if (!step) return;
+
+      const moved = moveUnit(state, me.id, step.q, step.r);
+      if (moved) broadcast(makeStateMessage(state));
+
+      const resAfterMove = computeResult();
+      if (resAfterMove) finishBattle(resAfterMove);
+    }, tickMs);
+  }
+
   ws.on('message', (raw) => {
     let msg = null;
     try {
-      msg = JSON.parse(raw.toString());
+        msg = JSON.parse(raw.toString());
     } catch {
-      ws.send(JSON.stringify(makeErrorMessage('BAD_JSON', 'Cannot parse JSON')));
+    ws.send(JSON.stringify(makeErrorMessage('BAD_JSON', 'Cannot parse JSON')));
+        return;
+    }
+
+    if (msg?.type === 'intent' && msg.action === 'startBattle') {
+      if (state.phase !== 'prep') {
+        ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'Battle can start only from prep')));
+        return;
+      }
+      startBattle();
       return;
     }
+
     handleIntent(clientId, msg, ws);
   });
 
   ws.on('close', () => {
+    stopBattleTimers();
+    clearInterval(timer);
     clients.delete(clientId);
     console.log('CLOSE', clientId);
 
