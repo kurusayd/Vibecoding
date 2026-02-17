@@ -50,7 +50,14 @@ export default class BattleScene extends Phaser.Scene {
     this.unitSys = createUnitSystem(this);
 
     // --- SERVER CONNECTION ---
-    this.ws = new WSClient('ws://localhost:3001');
+    const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+    const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
+
+    // локально WS на 3001, в проде WS на том же домене (потому что сервер раздаёт dist)
+    const wsHost = isLocal ? `${location.hostname}:3001` : location.host;
+
+    const wsUrl = `${wsProto}://${wsHost}`;
+    this.ws = new WSClient(wsUrl);
 
     this.ws.onInit = (msg) => {
       // сервер прислал начальный state и сказал, каким юнитом ты управляешь
@@ -255,7 +262,6 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   update(time, delta) {
-    const dt = delta / 1000;
     this.unitSys.update(delta / 1000);
   }
 

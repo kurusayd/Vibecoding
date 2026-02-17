@@ -2,6 +2,9 @@
 import http from 'http';
 import { WebSocketServer } from 'ws';
 import crypto from 'crypto';
+import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 import {
   createBattleState,
@@ -15,8 +18,6 @@ import {
   makeStateMessage,
   makeErrorMessage,
 } from '../shared/messages.js';
-
-const PORT = 3001;
 
 // ---- game state (authoritative) ----
 const state = createBattleState();
@@ -104,11 +105,22 @@ function handleIntent(clientId, msg, ws) {
   ws.send(JSON.stringify(makeErrorMessage('BAD_INTENT', 'Unknown intent action')));
 }
 
-// ---- server ----
-const server = http.createServer((req, res) => {
-  res.writeHead(200);
-  res.end('Hexochess WS server is running\n');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const app = express();
+
+// раздаём Vite build
+const distPath = path.join(__dirname, '..', 'dist');
+app.use(express.static(distPath));
+
+// SPA fallback (чтобы обновление страницы не давало 404)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(distPath, 'index.html'));
 });
+
+// ---- server ----
+const server = http.createServer(app);
 
 const wss = new WebSocketServer({ server });
 
@@ -159,6 +171,7 @@ wss.on('connection', (ws) => {
   });
 });
 
+const PORT = Number(process.env.PORT || 3001);
 server.listen(PORT, () => {
-  console.log(`WS server listening on ws://localhost:${PORT}`);
+  console.log(`Server listening on port ${PORT}`);
 });
