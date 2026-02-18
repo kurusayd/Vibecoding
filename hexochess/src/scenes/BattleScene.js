@@ -16,7 +16,7 @@ export default class BattleScene extends Phaser.Scene {
 
   preload() {
     this.load.image('battleBg', '/assets/bg.jpg');
-    }
+  }
 
   create() {
     this.cameras.main.setBackgroundColor('#1e1e1e');
@@ -55,11 +55,15 @@ export default class BattleScene extends Phaser.Scene {
     // --- SERVER CONNECTION ---
     const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
 
-    // можно переопределить через .env
     const WS_PORT = import.meta.env.VITE_WS_PORT || '3001';
-    const WS_HOST = import.meta.env.VITE_WS_HOST || location.hostname;
+    const ENV_HOST = import.meta.env.VITE_WS_HOST;
 
-    // DEV: ws на отдельном порту, PROD: обычно тот же host (если хочешь — тоже можно env-ом)
+    // если открыто через localhost — всегда ходим WS на localhost
+    const isLocalhost =
+      location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+
+    const WS_HOST = isLocalhost ? 'localhost' : (ENV_HOST || location.hostname);
+
     const wsHost = import.meta.env.DEV
       ? `${WS_HOST}:${WS_PORT}`
       : location.host;
@@ -124,18 +128,40 @@ export default class BattleScene extends Phaser.Scene {
 
       const vu = this.unitSys.findUnit(uid);
 
-
-
       if (vu) {
         vu.label.setPosition(dragX, dragY);
         // НЕ relayoutUnits() — он возвращает в гекс и ломает drag
       }
+      
     });
 
     this.input.on('dragend', (pointer, gameObject) => {
+      if (this.battleState?.phase !== 'prep') return;
+
       const uid = gameObject?.data?.get?.('unitId');
       if (!uid || uid !== this.activeUnitId) return;
 
+      // 1) сначала проверяем скамейку
+      const hitBench = this.tryPickBench(pointer.worldX, pointer.worldY);
+      if (hitBench) {
+        const slot = hitBench.row; // 0..7
+
+        const p = this.benchSlotToScreen(slot);
+        gameObject.setPosition(p.x, p.y);
+
+        const vu = this.unitSys.findUnit(uid);
+        if (vu) {
+          vu.label.setPosition(p.x, p.y);
+          if (vu.hpBar) vu.hpBar.setVisible(true);
+          // ВАЖНО: не трогаем unitSys.setUnitPos по гексам доски, иначе утащит на поле
+          if (vu.hpBar?.setPosition) vu.hpBar.setPosition(p.x, p.y);
+        }
+        
+        this.ws?.sendIntentSetBench(slot);
+        return;
+      }
+
+      // 2) иначе — обычная доска
       const hit = this.tryPickBoard(pointer.worldX, pointer.worldY);
       if (!hit) {
         this.renderFromState();
@@ -148,13 +174,13 @@ export default class BattleScene extends Phaser.Scene {
       const vu = this.unitSys.findUnit(uid);
       if (vu) {
         vu.label.setPosition(p.x, p.y);
-
         if (vu.hpBar) vu.hpBar.setVisible(true);
-        this.unitSys.setUnitPos(uid, hit.q, hit.r); // это обновит hpBar позицию через updateHpBar
+        this.unitSys.setUnitPos(uid, hit.q, hit.r);
       }
 
       this.ws?.sendIntentSetStart(hit.q, hit.r);
     });
+
 
 
     // input - пока что убрали, чтобы автоматизировать боёвку
@@ -221,7 +247,7 @@ export default class BattleScene extends Phaser.Scene {
     const scale = Math.max(scaleX, scaleY);
 
     this.bg.setScale(scale);
-    }
+  }
 
   layout() {
     this.resizeBackground();
@@ -248,28 +274,29 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   renderFromState() {
-    // 2) Помечаем кого надо удалить
-    const aliveIds = new Set(this.battleState.units.map(u => u.id));
+    // 1) кого оставляем
+    const aliveIds = new Set((this.battleState?.units ?? []).map(u => u.id));
 
-    // удалить тех, кого нет в core state
+    // 2) удалить тех, кого нет в core state
     for (const vu of this.unitSys.state.units.slice()) {
       if (!aliveIds.has(vu.id)) {
         this.unitSys.destroyUnit(vu.id);
       }
     }
 
-    // индекс визуальных юнитов по id (после удаления)
+    // 3) индекс визуальных юнитов по id (после удаления)
     const byId = new Map();
     for (const vu of this.unitSys.state.units) {
       byId.set(vu.id, vu);
     }
 
-    // 3) Создать новых и обновить существующих
-    for (const u of this.battleState.units) {
+    // 4) создать новых и обновить существующих
+    for (const u of (this.battleState?.units ?? [])) {
       const existing = byId.get(u.id);
 
+      // ---- CREATE ----
       if (!existing) {
-        // создать нового
+        // создаём как раньше (на доске), это нужно для твоей текущей unitSys
         const created = this.unitSys.spawnUnitOnBoard(u.q, u.r, {
           id: u.id,
           label: u.team === 'player' ? 'P' : 'E',
@@ -277,7 +304,7 @@ export default class BattleScene extends Phaser.Scene {
           team: u.team,
           hp: u.hp,
           maxHp: u.maxHp ?? u.hp,
-          atk: u.atk
+          atk: u.atk,
         });
 
         if (!created) {
@@ -286,43 +313,61 @@ export default class BattleScene extends Phaser.Scene {
             team: u.team,
             q: u.q,
             r: u.r,
+            zone: u.zone,
+            benchSlot: u.benchSlot,
             reason: 'cell occupied or invalid',
           });
           continue;
         }
 
-        if (created) {
-          // пометим gameObject, чтобы в drag handler понять чей это юнит
-          created.sprite.setDataEnabled();
-          created.sprite.data.set('unitId', created.id);
+        created.sprite.setDataEnabled();
+        created.sprite.data.set('unitId', created.id);
 
-          const isMine = (this.activeUnitId != null) && (u.id === this.activeUnitId);
-          const canDrag = isMine && (this.battleState?.phase === 'prep') && !this.battleState?.result;
+        // если этот юнит мой — включаем drag по фазе
+        const isMine = (this.activeUnitId != null) && (u.id === this.activeUnitId);
+        const canDrag = isMine && (this.battleState?.phase === 'prep') && !this.battleState?.result;
+        if (isMine) this.setSpriteDraggable(created.sprite, canDrag);
 
-          if (isMine) {
-            this.setSpriteDraggable(created.sprite, canDrag);
-          }
+        // если сервер сказал "bench" — сразу переставим на скамейку
+        if (u.zone === 'bench') {
+          const slot = Number.isInteger(u.benchSlot) ? u.benchSlot : 0;
+          const p = this.benchSlotToScreen(slot);
 
-        };
-      } else {
-        // обновить позицию
-        this.unitSys.setUnitPos(u.id, u.q, u.r);
+          created.sprite.setPosition(p.x, p.y);
+          created.label?.setPosition(p.x, p.y);
+          if (created.hpBar?.setPosition) created.hpBar.setPosition(p.x, p.y);
+        }
 
-        // обновить HP (запускает анимацию)
-        this.unitSys.setUnitHp(u.id, u.hp, u.maxHp ?? existing.maxHp);
+        continue;
+      }
+
+      // ---- UPDATE ----
+      // позиция: доска или скамейка
+      if (u.zone === 'bench') {
+        const slot = Number.isInteger(u.benchSlot) ? u.benchSlot : 0;
+        const p = this.benchSlotToScreen(slot);
 
         const vu = this.unitSys.findUnit(u.id);
-        if (vu?.sprite) {
-          const isMine = (this.activeUnitId != null) && (u.id === this.activeUnitId);
-          const canDrag = isMine && (this.battleState?.phase === 'prep') && !this.battleState?.result;
+        if (vu?.sprite) vu.sprite.setPosition(p.x, p.y);
+        if (vu?.label) vu.label.setPosition(p.x, p.y);
+        if (vu?.hpBar?.setPosition) vu.hpBar.setPosition(p.x, p.y);
+      } else {
+        this.unitSys.setUnitPos(u.id, u.q, u.r);
+      }
 
-          if (isMine) {
-            this.setSpriteDraggable(vu.sprite, canDrag);
-          }
-        }
+      // HP
+      this.unitSys.setUnitHp(u.id, u.hp, u.maxHp ?? existing.maxHp);
+
+      // draggable (только мой)
+      const vu2 = this.unitSys.findUnit(u.id);
+      if (vu2?.sprite) {
+        const isMine = (this.activeUnitId != null) && (u.id === this.activeUnitId);
+        const canDrag = isMine && (this.battleState?.phase === 'prep') && !this.battleState?.result;
+        if (isMine) this.setSpriteDraggable(vu2.sprite, canDrag);
       }
     }
   }
+
 
   syncPhaseUI() {
     const phase = this.battleState?.phase ?? 'prep';
@@ -422,6 +467,21 @@ export default class BattleScene extends Phaser.Scene {
     if (col < 0 || col >= this.gridCols) return null;
 
     return { q, r, row, col };
+  }
+
+  benchSlotToScreen(slot) {
+    const leftTop = this.hexToPixel(0 - Math.floor(0 / 2), 0);
+    const benchOriginX = leftTop.x - this.benchGap;
+
+    const dx = (this.originX - benchOriginX);
+
+    const row = slot; // слот = ряд (0..7)
+    const p = this.hexToPixel(0 - Math.floor(row / 2), row);
+
+    const bx = p.x - dx;
+    const by = p.y;
+
+    return { x: bx, y: by };
   }
 
   tryPickBench(x, y) {

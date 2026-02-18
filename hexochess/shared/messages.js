@@ -70,3 +70,7 @@ export function makeSetStartIntent(q, r) {
     r,
   };
 }
+
+export function makeSetBenchIntent(slot) {
+  return { type: 'intent', action: 'setBench', slot };
+}

@@ -28,6 +28,22 @@ let nextUnitId = 1;
 // слепок расстановки на момент старта боя (для возврата в prep)
 let prepSnapshot = null; // Array of units
 
+// ---- battle timers (GLOBAL, not per connection) ----
+let battleTimer = null;
+let finishTimeout = null;
+
+function stopBattleTimers() {
+  if (battleTimer) {
+    clearInterval(battleTimer);
+    battleTimer = null;
+  }
+  if (finishTimeout) {
+    clearTimeout(finishTimeout);
+    finishTimeout = null;
+  }
+}
+
+
 // кто каким юнитом управляет
 /** @type {Map<string, number>} */
 const clientToUnit = new Map();
@@ -39,6 +55,7 @@ const clients = new Map();
 // ---- board limits (должны совпадать с клиентом) ----
 const GRID_COLS = 12;
 const GRID_ROWS = 8;
+const BENCH_SLOTS = 8;
 
 // axial (q,r) -> "col" как на клиенте: col = q + floor(r/2)
 function isInsideBoard(q, r) {
@@ -57,11 +74,15 @@ const NEIGHBORS = [
 ];
 
 function findEnemyUnit() {
-  return state.units.find(u => u.team === 'enemy') ?? null;
+  return state.units.find(u => u.team === 'enemy' && u.zone === 'board') ?? null;
 }
 
 function findUnitById(id) {
   return state.units.find(u => u.id === id) ?? null;
+}
+
+function getUnitInBenchSlot(slot) {
+  return state.units.find(u => u.zone === 'bench' && u.benchSlot === slot) ?? null;
 }
 
 function pickBestStepToward(attacker, target) {
@@ -93,7 +114,7 @@ function broadcast(obj) {
 }
 
 function ensureDefaultEnemy() {
-  const hasEnemy = state.units.some(u => u.team === 'enemy');
+  const hasEnemy = state.units.some(u => u.team === 'enemy' && u.zone === 'board');
   if (hasEnemy) return;
 
   addUnit(state, {
@@ -103,6 +124,8 @@ function ensureDefaultEnemy() {
     hp: 100,
     atk: 20,
     team: 'enemy',
+    zone: 'board',
+    benchSlot: null,
   });
 }
 
@@ -121,11 +144,117 @@ function spawnPlayerUnitFor(clientId) {
     hp: 100,
     atk: 25,
     team: 'player',
+    zone: 'board',
+    benchSlot: null,
   });
 
   clientToUnit.set(clientId, unitId);
   return unitId;
 }
+
+function computeResult() {
+  const hasPlayer = state.units.some(u => u.team === 'player' && u.zone === 'board');
+  const hasEnemy = state.units.some(u => u.team === 'enemy' && u.zone === 'board');
+
+  if (hasPlayer && !hasEnemy) return 'victory';
+  if (!hasPlayer && hasEnemy) return 'defeat';
+  if (!hasPlayer && !hasEnemy) return 'draw';
+  return null;
+}
+
+function resetToPrep() {
+  state.phase = 'prep';
+  state.result = null;
+
+  if (prepSnapshot && prepSnapshot.length > 0) {
+    state.units = prepSnapshot.map(u => ({ ...u }));
+  } else {
+    ensureDefaultEnemy();
+  }
+
+  broadcast(makeStateMessage(state));
+}
+
+function finishBattle(result) {
+  stopBattleTimers();
+
+  // показываем результат, но возвращаем в prep после таймера
+  state.phase = 'prep';
+  state.result = result;
+
+  broadcast(makeStateMessage(state));
+
+  finishTimeout = setTimeout(() => {
+    resetToPrep();
+  }, 3000);
+}
+
+function startBattle() {
+  if (state.phase === 'battle') return;
+
+  // 1) если на доске нет игроков — мгновенное поражение (НЕ меняем фазу на battle)
+  const hasPlayersOnBoard = state.units.some(u => u.team === 'player' && u.zone === 'board');
+  if (!hasPlayersOnBoard) {
+    // показываем результат, остаёмся в prep
+    finishBattle('defeat');
+    return;
+  }
+
+  // 2) только теперь сохраняем snapshot и стартуем бой
+  prepSnapshot = state.units.map(u => ({ ...u }));
+
+  state.phase = 'battle';
+  state.result = null;
+  broadcast(makeStateMessage(state));
+
+  const tickMs = 450;
+
+  battleTimer = setInterval(() => {
+    if (state.phase !== 'battle') return;
+
+    ensureDefaultEnemy();
+
+    const resNow = computeResult();
+    if (resNow) {
+      finishBattle(resNow);
+      return;
+    }
+
+    const enemy = findEnemyUnit();
+    if (!enemy) return;
+
+    const players = state.units.filter(u => u.team === 'player' && u.zone === 'board');
+
+    let didSomething = false;
+
+    for (const me of players) {
+      // если кто-то исчез
+      if (!findUnitById(me.id)) continue;
+
+      const dist = hexDistance(me.q, me.r, enemy.q, enemy.r);
+
+      if (dist <= 1) {
+        const res = attack(state, me.id, enemy.id);
+        if (res.success) didSomething = true;
+        continue;
+      }
+
+      const step = pickBestStepToward(me, enemy);
+      if (!step) continue;
+
+      const moved = moveUnit(state, me.id, step.q, step.r);
+      if (moved) didSomething = true;
+    }
+
+    if (didSomething) {
+      broadcast(makeStateMessage(state));
+    }
+
+    const resAfter = computeResult();
+    if (resAfter) finishBattle(resAfter);
+  }, tickMs);
+}
+
 
 function handleIntent(clientId, msg, ws) {
   const unitId = clientToUnit.get(clientId);
@@ -148,14 +277,28 @@ function handleIntent(clientId, msg, ws) {
 
 
   if (msg.action === 'move') {
+    // move разрешён только если юнит уже на доске
+    const me = findUnitById(unitId);
+    if (!me) {
+      ws.send(JSON.stringify(makeErrorMessage('NO_UNIT', 'Unit not found')));
+      return;
+    }
+
+    if (me.zone !== 'board') {
+      ws.send(JSON.stringify(makeErrorMessage('MOVE_DENIED', 'Unit is on bench')));
+      return;
+    }
+
     const ok = moveUnit(state, unitId, msg.q, msg.r);
     if (!ok) {
       ws.send(JSON.stringify(makeErrorMessage('MOVE_DENIED', 'Move is not allowed')));
       return;
     }
+
     broadcast(makeStateMessage(state));
     return;
   }
+
 
   if (msg.action === 'attack') {
     const res = attack(state, unitId, msg.targetId);
@@ -210,122 +353,6 @@ wss.on('connection', (ws) => {
   // и обновлённый state всем (чтобы все видели нового игрока)
   broadcast(makeStateMessage(state));
 
-  // --- battle loop (per-connection timer handle) ---
-  let battleTimer = null;
-  let finishTimeout = null;
-
-  function stopBattleTimers() {
-    if (battleTimer) {
-      clearInterval(battleTimer);
-      battleTimer = null;
-    }
-    if (finishTimeout) {
-      clearTimeout(finishTimeout);
-      finishTimeout = null;
-    }
-  }
-
-  function computeResult() {
-    const hasPlayer = state.units.some(u => u.team === 'player');
-    const hasEnemy = state.units.some(u => u.team === 'enemy');
-
-    if (hasPlayer && !hasEnemy) return 'victory';
-    if (!hasPlayer && hasEnemy) return 'defeat';
-    if (!hasPlayer && !hasEnemy) return 'draw';
-
-    return null; // бой ещё не закончен
-  }
-
-  function resetToPrep() {
-    state.phase = 'prep';
-    state.result = null;
-
-    // восстановить расстановку как в начале последнего боя
-    if (prepSnapshot && prepSnapshot.length > 0) {
-      state.units = prepSnapshot.map(u => ({ ...u }));
-    } else {
-      // если по какой-то причине боя ещё не было — просто гарантируем врага
-      ensureDefaultEnemy();
-    }
-
-    broadcast(makeStateMessage(state));
-  }
-
-
-  function finishBattle(result) {
-    stopBattleTimers();
-
-    state.phase = 'prep'; // ФАЗА боя заканчивается, но результат показываем
-    state.result = result;
-
-    broadcast(makeStateMessage(state));
-
-    // через 3 секунды сброс обратно в prep (и убрать надпись)
-    finishTimeout = setTimeout(() => {
-      resetToPrep();
-    }, 3000);
-  }
-
-  function startBattle() {
-    // не стартуем повторно
-    if (state.phase === 'battle') return;
-
-    // сохраняем расстановку на момент старта боя
-    // важно: делаем копии объектов, чтобы бой не изменял snapshot
-    prepSnapshot = state.units.map(u => ({ ...u }));
-
-    // перейти в бой
-    state.phase = 'battle';
-    state.result = null;
-    broadcast(makeStateMessage(state));
-
-    const tickMs = 450;
-
-    battleTimer = setInterval(() => {
-      // если уже не бой — не делаем ничего
-      if (state.phase !== 'battle') return;
-
-      const me = findUnitById(unitId);
-      const enemy = findEnemyUnit();
-
-      // если кто-то исчез — проверяем результат
-      const resNow = computeResult();
-      if (resNow) {
-        finishBattle(resNow);
-        return;
-      }
-
-      // защита от пустого enemy (вдруг)
-      if (!me || !enemy) return;
-
-      const dist = hexDistance(me.q, me.r, enemy.q, enemy.r);
-
-      // рядом — удар
-      if (dist <= 1) {
-        const res = attack(state, me.id, enemy.id);
-        if (res.success) {
-          broadcast(makeStateMessage(state));
-        }
-
-        const resAfter = computeResult();
-        if (resAfter) {
-          finishBattle(resAfter);
-        }
-        return;
-      }
-
-      // шаг к врагу
-      const step = pickBestStepToward(me, enemy);
-      if (!step) return;
-
-      const moved = moveUnit(state, me.id, step.q, step.r);
-      if (moved) broadcast(makeStateMessage(state));
-
-      const resAfterMove = computeResult();
-      if (resAfterMove) finishBattle(resAfterMove);
-    }, tickMs);
-  }
-
   ws.on('message', (raw) => {
     let msg = null;
     try {
@@ -334,6 +361,47 @@ wss.on('connection', (ws) => {
     ws.send(JSON.stringify(makeErrorMessage('BAD_JSON', 'Cannot parse JSON')));
         return;
     }
+
+
+    // --- setBench: разрешено только в prep ---
+    if (msg?.type === 'intent' && msg.action === 'setBench') {
+      if (state.phase !== 'prep') {
+        ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'setBench allowed only in prep')));
+        return;
+      }
+
+      const unitId = clientToUnit.get(clientId);
+      if (!unitId) {
+        ws.send(JSON.stringify(makeErrorMessage('NO_UNIT', 'No unit assigned to this client')));
+        return;
+      }
+
+      const slot = Number(msg.slot);
+      if (!Number.isInteger(slot) || slot < 0 || slot >= BENCH_SLOTS) {
+        ws.send(JSON.stringify(makeErrorMessage('BAD_ARGS', 'slot must be integer 0..7')));
+        return;
+      }
+
+      const me = findUnitById(unitId);
+      if (!me) {
+        ws.send(JSON.stringify(makeErrorMessage('NO_UNIT', 'Unit not found')));
+        return;
+      }
+
+      const occupied = getUnitInBenchSlot(slot);
+      if (occupied && occupied.id !== unitId) {
+        ws.send(JSON.stringify(makeErrorMessage('OCCUPIED', 'Bench slot occupied')));
+        return;
+      }
+
+      me.zone = 'bench';
+      me.benchSlot = slot;
+      console.log('SET_BENCH', { clientId, unitId, slot });
+
+      broadcast(makeStateMessage(state));
+      return;
+    }
+
 
     // --- setStart: разрешено только в prep ---
     if (msg?.type === 'intent' && msg.action === 'setStart') {
@@ -367,6 +435,17 @@ wss.on('connection', (ws) => {
         return;
       }
 
+      const me = findUnitById(unitId);
+      if (!me) {
+        ws.send(JSON.stringify(makeErrorMessage('NO_UNIT', 'Unit not found')));
+        return;
+      }
+
+      // setStart = явное выставление на поле (если был на скамейке — снимаем)
+      me.zone = 'board';
+      me.benchSlot = null;
+
+      console.log('SET_START', { clientId, unitId, q, r });
       // применяем: переносим своего юнита
       const ok = moveUnit(state, unitId, q, r);
       if (!ok) {
@@ -391,11 +470,9 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('close', () => {
-    stopBattleTimers();
     clients.delete(clientId);
     console.log('CLOSE', clientId);
 
-    // опционально: удаляем юнит отключившегося игрока
     const uid = clientToUnit.get(clientId);
     clientToUnit.delete(clientId);
 
@@ -403,7 +480,16 @@ wss.on('connection', (ws) => {
       state.units = state.units.filter(u => u.id !== uid);
       broadcast(makeStateMessage(state));
     }
+
+    // если никого не осталось — можно остановить таймеры
+    const hasPlayers = state.units.some(u => u.team === 'player');
+    if (!hasPlayers) {
+      stopBattleTimers();
+      state.phase = 'prep';
+      state.result = null;
+    }
   });
+
 });
 
 const PORT = Number(process.env.PORT || 3001);

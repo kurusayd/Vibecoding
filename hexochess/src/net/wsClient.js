@@ -62,6 +62,12 @@ export class WSClient {
     this.ws = null;
   }
 
+  sendIntentSetBench(slot) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.ws.send(JSON.stringify({ type: 'intent', action: 'setBench', slot }));
+  }
+
+
   sendIntentSetStart(q, r) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     const msg = makeSetStartIntent(q, r);
