@@ -392,7 +392,6 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     stopBattleTimers();
-    clearInterval(timer);
     clients.delete(clientId);
     console.log('CLOSE', clientId);
 

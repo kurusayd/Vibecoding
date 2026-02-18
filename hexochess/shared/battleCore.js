@@ -29,7 +29,7 @@ export function moveUnit(state, unitId, q, r) {
   if (!unit) return false;
 
   const occupied = getUnitAt(state, q, r);
-  if (occupied) return false;
+  if (occupied && occupied.id !== unitId) return false;
 
   unit.q = q;
   unit.r = r;

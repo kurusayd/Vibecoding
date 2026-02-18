@@ -53,14 +53,20 @@ export default class BattleScene extends Phaser.Scene {
     this.draggingUnitId = null;
 
     // --- SERVER CONNECTION ---
-    const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
     const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
 
-    // локально WS на 3001, в проде WS на том же домене (потому что сервер раздаёт dist)
-    const wsHost = isLocal ? `${location.hostname}:3001` : location.host;
+    // можно переопределить через .env
+    const WS_PORT = import.meta.env.VITE_WS_PORT || '3001';
+    const WS_HOST = import.meta.env.VITE_WS_HOST || location.hostname;
+
+    // DEV: ws на отдельном порту, PROD: обычно тот же host (если хочешь — тоже можно env-ом)
+    const wsHost = import.meta.env.DEV
+      ? `${WS_HOST}:${WS_PORT}`
+      : location.host;
 
     const wsUrl = `${wsProto}://${wsHost}`;
     this.ws = new WSClient(wsUrl);
+
 
     this.ws.onInit = (msg) => {
       // сервер прислал начальный state и сказал, каким юнитом ты управляешь

@@ -123,7 +123,7 @@ export function createUnitSystem(scene) {
     unit.r = newR;
 
     const p = scene.hexToPixel(newQ, newR);
-    unit.circle.setPosition(p.x, p.y);
+    unit.sprite.setPosition(p.x, p.y);
     unit.label.setPosition(p.x, p.y);
 
     updateHpBar(scene, unit);
