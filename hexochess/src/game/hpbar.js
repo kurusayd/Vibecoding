@@ -19,8 +19,8 @@ export function updateHpBar(scene, unit) {
   const yOffset = Math.floor(scene.hexSize * 0.75); // насколько выше центра юнита
 
   // позиция относительно юнита (абсолютные координаты)
-  const cx = unit.circle?.x ?? 0;
-  const cy = unit.circle?.y ?? 0;
+  const cx = unit.sprite?.x ?? 0;
+  const cy = unit.sprite?.y ?? 0;
   const x = Math.round(cx - w / 2);
   const y = Math.round(cy - yOffset);
 

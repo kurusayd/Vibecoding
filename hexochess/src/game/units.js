@@ -25,7 +25,7 @@ export function createUnitSystem(scene) {
     const p = scene.hexToPixel(q, r);
 
     const radius = Math.max(10, Math.floor(scene.hexSize * 0.45));
-    const circle = scene.add.circle(p.x, p.y, radius, opts.color ?? 0x66ccff).setDepth(1000);
+    const sprite = scene.add.circle(p.x, p.y, radius, opts.color ?? 0x66ccff).setDepth(1000);
 
     const label = scene.add.text(p.x, p.y, opts.label ?? '1', {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
@@ -51,7 +51,7 @@ export function createUnitSystem(scene) {
       hpInstant: hp,
       hpLag: hp,
 
-      circle,
+      sprite,
       label,
       hpBar,
     };
@@ -69,7 +69,7 @@ export function createUnitSystem(scene) {
 
     state.occupied.delete(cellKey(u.q, u.r));
 
-    u.circle.destroy();
+    u.sprite.destroy();
     u.label.destroy();
     u.hpBar.destroy();
 
@@ -88,7 +88,7 @@ export function createUnitSystem(scene) {
     u.r = r;
 
     const p = scene.hexToPixel(q, r);
-    u.circle.setPosition(p.x, p.y);
+    u.sprite.setPosition(p.x, p.y);
     u.label.setPosition(p.x, p.y);
 
     updateHpBar(scene, u);
@@ -137,7 +137,7 @@ export function createUnitSystem(scene) {
   function relayoutUnits() {
     for (const u of state.units) {
       const p = scene.hexToPixel(u.q, u.r);
-      u.circle.setPosition(p.x, p.y);
+      u.sprite.setPosition(p.x, p.y);
       u.label.setPosition(p.x, p.y);
       updateHpBar(scene, u);
     }

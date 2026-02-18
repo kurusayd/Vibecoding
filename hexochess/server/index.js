@@ -25,6 +25,9 @@ import {
 const state = createBattleState();
 let nextUnitId = 1;
 
+// слепок расстановки на момент старта боя (для возврата в prep)
+let prepSnapshot = null; // Array of units
+
 // кто каким юнитом управляет
 /** @type {Map<string, number>} */
 const clientToUnit = new Map();
@@ -234,18 +237,20 @@ wss.on('connection', (ws) => {
   }
 
   function resetToPrep() {
-    // вернуться в подготовку: сброс фаз/результата
     state.phase = 'prep';
     state.result = null;
 
-    // на этом этапе можно:
-    // - ресетать позиции
-    // - пересоздавать врага
-    // мы пока делаем минимально: гарантируем врага если его нет
-    ensureDefaultEnemy();
+    // восстановить расстановку как в начале последнего боя
+    if (prepSnapshot && prepSnapshot.length > 0) {
+      state.units = prepSnapshot.map(u => ({ ...u }));
+    } else {
+      // если по какой-то причине боя ещё не было — просто гарантируем врага
+      ensureDefaultEnemy();
+    }
 
     broadcast(makeStateMessage(state));
   }
+
 
   function finishBattle(result) {
     stopBattleTimers();
@@ -264,6 +269,10 @@ wss.on('connection', (ws) => {
   function startBattle() {
     // не стартуем повторно
     if (state.phase === 'battle') return;
+
+    // сохраняем расстановку на момент старта боя
+    // важно: делаем копии объектов, чтобы бой не изменял snapshot
+    prepSnapshot = state.units.map(u => ({ ...u }));
 
     // перейти в бой
     state.phase = 'battle';

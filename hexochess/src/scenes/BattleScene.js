@@ -217,19 +217,19 @@ export default class BattleScene extends Phaser.Scene {
     this.unitSys.relayoutUnits();
   }
 
-  setCircleDraggable(circle, enabled) {
-    if (!circle || !circle.active) return;
+  setCircleDraggable(sprite, enabled) {
+    if (!sprite || !sprite.active) return;
 
     if (enabled) {
-      // ВКЛ: сначала делаем интерактивным (создаст circle.input), потом draggable
-      circle.setInteractive({ useHandCursor: true });
-      this.input.setDraggable(circle, true);
+      // ВКЛ: сначала делаем интерактивным (создаст sprite.input), потом draggable
+      sprite.setInteractive({ useHandCursor: true });
+      this.input.setDraggable(sprite, true);
     } else {
-      // ВЫКЛ: если circle никогда не был interactive, circle.input === null
+      // ВЫКЛ: если sprite никогда не был interactive, sprite.input === null
       // значит setDraggable трогать нельзя — оно упадёт
-      if (circle.input) {
-        this.input.setDraggable(circle, false);
-        circle.disableInteractive();
+      if (sprite.input) {
+        this.input.setDraggable(sprite, false);
+        sprite.disableInteractive();
       }
     }
   }
@@ -280,14 +280,14 @@ export default class BattleScene extends Phaser.Scene {
 
         if (created) {
           // пометим gameObject, чтобы в drag handler понять чей это юнит
-          created.circle.setDataEnabled();
-          created.circle.data.set('unitId', created.id);
+          created.sprite.setDataEnabled();
+          created.sprite.data.set('unitId', created.id);
 
           const isMine = (this.activeUnitId != null) && (u.id === this.activeUnitId);
           const canDrag = isMine && (this.battleState?.phase === 'prep') && !this.battleState?.result;
 
           if (isMine) {
-            this.setCircleDraggable(created.circle, canDrag);
+            this.setCircleDraggable(created.sprite, canDrag);
           }
 
         };
@@ -299,12 +299,12 @@ export default class BattleScene extends Phaser.Scene {
         this.unitSys.setUnitHp(u.id, u.hp, u.maxHp ?? existing.maxHp);
 
         const vu = this.unitSys.findUnit(u.id);
-        if (vu?.circle) {
+        if (vu?.sprite) {
           const isMine = (this.activeUnitId != null) && (u.id === this.activeUnitId);
           const canDrag = isMine && (this.battleState?.phase === 'prep') && !this.battleState?.result;
 
           if (isMine) {
-            this.setCircleDraggable(vu.circle, canDrag);
+            this.setCircleDraggable(vu.sprite, canDrag);
           }
         }
       }
