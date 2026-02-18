@@ -103,23 +103,26 @@ export default class BattleScene extends Phaser.Scene {
       if (uid !== this.activeUnitId) return;
 
       this.draggingUnitId = uid;
+
+      const vu = this.unitSys.findUnit(uid);
+      if (vu?.hpBar) vu.hpBar.setVisible(false);
     });
 
     this.input.on('drag', (pointer, gameObject, dragX, dragY) => {
       if (this.battleState?.phase !== 'prep') return;
+
       const uid = gameObject?.data?.get?.('unitId');
       if (!uid || uid !== this.activeUnitId) return;
 
-      // двигаем кружок прямо за мышкой
       gameObject.setPosition(dragX, dragY);
 
-      // двигаем текст и hpbar вместе
       const vu = this.unitSys.findUnit(uid);
+
+
+
       if (vu) {
         vu.label.setPosition(dragX, dragY);
-        // hpbar обновится через updateHpBar внутри unitSys.setUnitPos,
-        // но тут у нас "временное", так что просто дернем relayout для бара:
-        this.unitSys.relayoutUnits();
+        // НЕ relayoutUnits() — он возвращает в гекс и ломает drag
       }
     });
 
@@ -127,17 +130,23 @@ export default class BattleScene extends Phaser.Scene {
       const uid = gameObject?.data?.get?.('unitId');
       if (!uid || uid !== this.activeUnitId) return;
 
-      this.draggingUnitId = null;
-
-      // куда отпустили: ближайший гекс на поле
       const hit = this.tryPickBoard(pointer.worldX, pointer.worldY);
       if (!hit) {
-        // если отпустили мимо поля — вернуть на место из state (сервер пришлёт, но лучше сразу)
         this.renderFromState();
         return;
       }
 
-      // отправляем серверу "поставь старт сюда"
+      const p = this.hexToPixel(hit.q, hit.r);
+      gameObject.setPosition(p.x, p.y);
+
+      const vu = this.unitSys.findUnit(uid);
+      if (vu) {
+        vu.label.setPosition(p.x, p.y);
+
+        if (vu.hpBar) vu.hpBar.setVisible(true);
+        this.unitSys.setUnitPos(uid, hit.q, hit.r); // это обновит hpBar позицию через updateHpBar
+      }
+
       this.ws?.sendIntentSetStart(hit.q, hit.r);
     });
 
@@ -217,16 +226,14 @@ export default class BattleScene extends Phaser.Scene {
     this.unitSys.relayoutUnits();
   }
 
-  setCircleDraggable(sprite, enabled) {
+  setSpriteDraggable(sprite, enabled) {
     if (!sprite || !sprite.active) return;
 
     if (enabled) {
-      // ВКЛ: сначала делаем интерактивным (создаст sprite.input), потом draggable
       sprite.setInteractive({ useHandCursor: true });
       this.input.setDraggable(sprite, true);
     } else {
-      // ВЫКЛ: если sprite никогда не был interactive, sprite.input === null
-      // значит setDraggable трогать нельзя — оно упадёт
+      // выключаем только если есть input (иначе Phaser может упасть)
       if (sprite.input) {
         this.input.setDraggable(sprite, false);
         sprite.disableInteractive();
@@ -287,7 +294,7 @@ export default class BattleScene extends Phaser.Scene {
           const canDrag = isMine && (this.battleState?.phase === 'prep') && !this.battleState?.result;
 
           if (isMine) {
-            this.setCircleDraggable(created.sprite, canDrag);
+            this.setSpriteDraggable(created.sprite, canDrag);
           }
 
         };
@@ -304,7 +311,7 @@ export default class BattleScene extends Phaser.Scene {
           const canDrag = isMine && (this.battleState?.phase === 'prep') && !this.battleState?.result;
 
           if (isMine) {
-            this.setCircleDraggable(vu.sprite, canDrag);
+            this.setSpriteDraggable(vu.sprite, canDrag);
           }
         }
       }
@@ -342,9 +349,9 @@ export default class BattleScene extends Phaser.Scene {
 
     // включить/выключить drag для моего юнита по фазе
     const me = this.unitSys.findUnit(this.activeUnitId);
-    if (me?.circle) {
+    if (me?.sprite) {
       const canDrag = (phase === 'prep') && !result;
-      this.setCircleDraggable(me.circle, canDrag);
+      this.setSpriteDraggable(me.sprite, canDrag);
     }
   }
 
