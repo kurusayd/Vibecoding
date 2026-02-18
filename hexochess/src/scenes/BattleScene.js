@@ -49,6 +49,9 @@ export default class BattleScene extends Phaser.Scene {
     // units system
     this.unitSys = createUnitSystem(this);
 
+    // drag state
+    this.draggingUnitId = null;
+
     // --- SERVER CONNECTION ---
     const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
     const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -91,6 +94,53 @@ export default class BattleScene extends Phaser.Scene {
     this.events.once('destroy', () => {
       this.ws?.close();
     });
+
+    // --- DRAG HANDLERS ---
+    this.input.on('dragstart', (pointer, gameObject) => {
+      if (this.battleState?.phase !== 'prep') return;
+      const uid = gameObject?.data?.get?.('unitId');
+      if (!uid) return;
+      if (uid !== this.activeUnitId) return;
+
+      this.draggingUnitId = uid;
+    });
+
+    this.input.on('drag', (pointer, gameObject, dragX, dragY) => {
+      if (this.battleState?.phase !== 'prep') return;
+      const uid = gameObject?.data?.get?.('unitId');
+      if (!uid || uid !== this.activeUnitId) return;
+
+      // двигаем кружок прямо за мышкой
+      gameObject.setPosition(dragX, dragY);
+
+      // двигаем текст и hpbar вместе
+      const vu = this.unitSys.findUnit(uid);
+      if (vu) {
+        vu.label.setPosition(dragX, dragY);
+        // hpbar обновится через updateHpBar внутри unitSys.setUnitPos,
+        // но тут у нас "временное", так что просто дернем relayout для бара:
+        this.unitSys.relayoutUnits();
+      }
+    });
+
+    this.input.on('dragend', (pointer, gameObject) => {
+      const uid = gameObject?.data?.get?.('unitId');
+      if (!uid || uid !== this.activeUnitId) return;
+
+      this.draggingUnitId = null;
+
+      // куда отпустили: ближайший гекс на поле
+      const hit = this.tryPickBoard(pointer.worldX, pointer.worldY);
+      if (!hit) {
+        // если отпустили мимо поля — вернуть на место из state (сервер пришлёт, но лучше сразу)
+        this.renderFromState();
+        return;
+      }
+
+      // отправляем серверу "поставь старт сюда"
+      this.ws?.sendIntentSetStart(hit.q, hit.r);
+    });
+
 
     // input - пока что убрали, чтобы автоматизировать боёвку
     //this.input.on('pointerdown', (p) => this.onPointerDown(p));
@@ -167,13 +217,24 @@ export default class BattleScene extends Phaser.Scene {
     this.unitSys.relayoutUnits();
   }
 
-  renderFromState() {
-    // 1) Индекс текущих визуальных юнитов по id
-    const byId = new Map();
-    for (const vu of this.unitSys.state.units) {
-      byId.set(vu.id, vu);
-    }
+  setCircleDraggable(circle, enabled) {
+    if (!circle || !circle.active) return;
 
+    if (enabled) {
+      // ВКЛ: сначала делаем интерактивным (создаст circle.input), потом draggable
+      circle.setInteractive({ useHandCursor: true });
+      this.input.setDraggable(circle, true);
+    } else {
+      // ВЫКЛ: если circle никогда не был interactive, circle.input === null
+      // значит setDraggable трогать нельзя — оно упадёт
+      if (circle.input) {
+        this.input.setDraggable(circle, false);
+        circle.disableInteractive();
+      }
+    }
+  }
+
+  renderFromState() {
     // 2) Помечаем кого надо удалить
     const aliveIds = new Set(this.battleState.units.map(u => u.id));
 
@@ -184,14 +245,20 @@ export default class BattleScene extends Phaser.Scene {
       }
     }
 
+    // индекс визуальных юнитов по id (после удаления)
+    const byId = new Map();
+    for (const vu of this.unitSys.state.units) {
+      byId.set(vu.id, vu);
+    }
+
     // 3) Создать новых и обновить существующих
     for (const u of this.battleState.units) {
       const existing = byId.get(u.id);
 
       if (!existing) {
         // создать нового
-        this.unitSys.spawnUnitOnBoard(u.q, u.r, {
-          id: u.id,                    // ВАЖНО: прокидываем id
+        const created = this.unitSys.spawnUnitOnBoard(u.q, u.r, {
+          id: u.id,
           label: u.team === 'player' ? 'P' : 'E',
           color: u.team === 'enemy' ? 0x66ccff : 0xff7777,
           team: u.team,
@@ -199,12 +266,47 @@ export default class BattleScene extends Phaser.Scene {
           maxHp: u.maxHp ?? u.hp,
           atk: u.atk
         });
+
+        if (!created) {
+          console.warn('FAILED SPAWN VISUAL', {
+            id: u.id,
+            team: u.team,
+            q: u.q,
+            r: u.r,
+            reason: 'cell occupied or invalid',
+          });
+          continue;
+        }
+
+        if (created) {
+          // пометим gameObject, чтобы в drag handler понять чей это юнит
+          created.circle.setDataEnabled();
+          created.circle.data.set('unitId', created.id);
+
+          const isMine = (this.activeUnitId != null) && (u.id === this.activeUnitId);
+          const canDrag = isMine && (this.battleState?.phase === 'prep') && !this.battleState?.result;
+
+          if (isMine) {
+            this.setCircleDraggable(created.circle, canDrag);
+          }
+
+        };
       } else {
         // обновить позицию
         this.unitSys.setUnitPos(u.id, u.q, u.r);
 
         // обновить HP (запускает анимацию)
         this.unitSys.setUnitHp(u.id, u.hp, u.maxHp ?? existing.maxHp);
+
+        const vu = this.unitSys.findUnit(u.id);
+        if (vu?.circle) {
+          const isMine = (this.activeUnitId != null) && (u.id === this.activeUnitId);
+          const canDrag = isMine && (this.battleState?.phase === 'prep') && !this.battleState?.result;
+
+          if (isMine) {
+            this.setCircleDraggable(vu.circle, canDrag);
+          }
+        }
       }
     }
   }
@@ -237,8 +339,14 @@ export default class BattleScene extends Phaser.Scene {
     } else {
       this.battleBtn?.setVisible(false);
     }
-  }
 
+    // включить/выключить drag для моего юнита по фазе
+    const me = this.unitSys.findUnit(this.activeUnitId);
+    if (me?.circle) {
+      const canDrag = (phase === 'prep') && !result;
+      this.setCircleDraggable(me.circle, canDrag);
+    }
+  }
 
   // ===== Drawing =====
   drawHex(cx, cy, lineColor = 0xffffff, alpha = 0.5) {

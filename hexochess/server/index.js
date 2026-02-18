@@ -326,6 +326,49 @@ wss.on('connection', (ws) => {
         return;
     }
 
+    // --- setStart: разрешено только в prep ---
+    if (msg?.type === 'intent' && msg.action === 'setStart') {
+      if (state.phase !== 'prep') {
+        ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'setStart allowed only in prep')));
+        return;
+      }
+
+      const unitId = clientToUnit.get(clientId);
+      if (!unitId) {
+        ws.send(JSON.stringify(makeErrorMessage('NO_UNIT', 'No unit assigned to this client')));
+        return;
+      }
+
+      const q = Number(msg.q);
+      const r = Number(msg.r);
+
+      if (!Number.isFinite(q) || !Number.isFinite(r)) {
+        ws.send(JSON.stringify(makeErrorMessage('BAD_ARGS', 'q/r must be numbers')));
+        return;
+      }
+
+      if (!isInsideBoard(q, r)) {
+        ws.send(JSON.stringify(makeErrorMessage('OUT_OF_BOUNDS', 'Cell is outside board')));
+        return;
+      }
+
+      const occupied = getUnitAt(state, q, r);
+      if (occupied && occupied.id !== unitId) {
+        ws.send(JSON.stringify(makeErrorMessage('OCCUPIED', 'Cell is occupied')));
+        return;
+      }
+
+      // применяем: переносим своего юнита
+      const ok = moveUnit(state, unitId, q, r);
+      if (!ok) {
+        ws.send(JSON.stringify(makeErrorMessage('MOVE_DENIED', 'Cannot set start there')));
+        return;
+      }
+
+      broadcast(makeStateMessage(state));
+      return;
+    }
+
     if (msg?.type === 'intent' && msg.action === 'startBattle') {
       if (state.phase !== 'prep') {
         ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'Battle can start only from prep')));

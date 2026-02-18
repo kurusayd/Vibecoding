@@ -4,6 +4,7 @@ import {
   makeMoveIntent,
   makeAttackIntent,
   makeStartBattleIntent,
+  makeSetStartIntent,
 } from '../../shared/messages.js';
 
 export class WSClient {
@@ -59,6 +60,12 @@ export class WSClient {
     if (!this.ws) return;
     try { this.ws.close(); } catch {}
     this.ws = null;
+  }
+
+  sendIntentSetStart(q, r) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    const msg = makeSetStartIntent(q, r);
+    this.ws.send(JSON.stringify(msg));
   }
 
   sendIntentStartBattle() {

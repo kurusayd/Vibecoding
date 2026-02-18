@@ -32,7 +32,6 @@ export function makeErrorMessage(code, message) {
 }
 
 
-
 // ===== Типы сообщений от клиента к серверу =====
 
 // Клиент хочет походить
@@ -59,5 +58,15 @@ export function makeStartBattleIntent() {
   return {
     type: 'intent',
     action: 'startBattle',
+  };
+}
+
+// Клиент просит выставить стартовую позицию юнита (только в prep)
+export function makeSetStartIntent(q, r) {
+  return {
+    type: 'intent',
+    action: 'setStart',
+    q,
+    r,
   };
 }
