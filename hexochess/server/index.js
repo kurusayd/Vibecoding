@@ -367,17 +367,48 @@ function handleIntent(clientId, msg, ws) {
       return;
     }
 
-    const occupied = getUnitInBenchSlot(slot);
-    if (occupied && occupied.id !== requestedUnitId) {
+  // запоминаем откуда пришёл
+  const prev = {
+    zone: me.zone,
+    q: me.q,
+    r: me.r,
+    benchSlot: me.benchSlot,
+  };
+
+  const occupied = getUnitInBenchSlot(slot);
+  if (occupied && occupied.id !== requestedUnitId) {
+    // ✅ swap только если занято МОИМ юнитом
+    if (occupied.team !== 'player' || !owned.has(occupied.id)) {
       ws.send(JSON.stringify(makeErrorMessage('OCCUPIED', 'Bench slot occupied')));
       return;
     }
 
+    // me -> target bench slot
     me.zone = 'bench';
     me.benchSlot = slot;
 
+    // occupied -> old place of me
+    if (prev.zone === 'bench') {
+      occupied.zone = 'bench';
+      occupied.benchSlot = prev.benchSlot;
+    } else {
+      occupied.zone = 'board';
+      occupied.benchSlot = null;
+      occupied.q = prev.q;
+      occupied.r = prev.r;
+    }
+
     broadcast(makeStateMessage(state));
     return;
+  }
+
+  // обычная установка (слот свободен)
+  me.zone = 'bench';
+  me.benchSlot = slot;
+
+  broadcast(makeStateMessage(state));
+  return;
+
   }
 
   if (msg.action === 'setStart') {
@@ -400,18 +431,51 @@ function handleIntent(clientId, msg, ws) {
       return;
     }
 
-    const occupied = getUnitAt(state, q, r);
-    if (occupied && occupied.id !== requestedUnitId) {
-      ws.send(JSON.stringify(makeErrorMessage('OCCUPIED', 'Cell is occupied')));
-      return;
-    }
-
     const me = findUnitById(requestedUnitId);
     if (!me) {
       ws.send(JSON.stringify(makeErrorMessage('NO_UNIT', 'Unit not found')));
       return;
     }
 
+    // запоминаем откуда юнит пришёл (чтобы было куда "вытолкнуть" второго)
+    const prev = {
+      zone: me.zone,
+      q: me.q,
+      r: me.r,
+      benchSlot: me.benchSlot,
+    };
+
+    const occupied = getUnitAt(state, q, r);
+    if (occupied && occupied.id !== requestedUnitId) {
+      // ✅ swap только если занято МОИМ юнитом
+      if (occupied.team !== 'player' || !owned.has(occupied.id)) {
+        ws.send(JSON.stringify(makeErrorMessage('OCCUPIED', 'Cell is occupied')));
+        return;
+      }
+
+      // me -> target cell
+      me.zone = 'board';
+      me.benchSlot = null;
+      me.q = q;
+      me.r = r;
+
+      // occupied -> old place of me
+      if (prev.zone === 'board') {
+        occupied.zone = 'board';
+        occupied.benchSlot = null;
+        occupied.q = prev.q;
+        occupied.r = prev.r;
+      } else {
+        // me был на bench → occupied уезжает на его слот
+        occupied.zone = 'bench';
+        occupied.benchSlot = prev.benchSlot;
+      }
+
+      broadcast(makeStateMessage(state));
+      return;
+    }
+
+    // обычная установка (клетка свободна)
     me.zone = 'board';
     me.benchSlot = null;
 
@@ -533,6 +597,7 @@ function handleIntent(clientId, msg, ws) {
   }
 
   ws.send(JSON.stringify(makeErrorMessage('BAD_INTENT', 'Unknown intent action')));
+
 }
 
 const __filename = fileURLToPath(import.meta.url);
