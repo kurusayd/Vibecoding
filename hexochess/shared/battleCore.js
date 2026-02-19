@@ -28,10 +28,8 @@ export function addUnit(state, unit) {
     maxHp: unit.maxHp ?? unit.hp,
     atk: unit.atk,
     team: unit.team,
-
-    // ВАЖНО: роль/класс юнита
-    type: unit.type ?? null,
-
+    rank: unit.rank ?? 1, // ⭐ ранг (1..3)
+    type: unit.type ?? null, // ВАЖНО: роль/класс юнита
     zone: unit.zone ?? 'board',
     benchSlot: unit.benchSlot ?? null,
   });

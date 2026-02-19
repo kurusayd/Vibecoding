@@ -14,10 +14,13 @@ export default class BattleScene extends Phaser.Scene {
     super('BattleScene');
   }
 
-  preload() {
+  preload() { //Подгружаем пулл картинок
     this.load.image('battleBg', '/assets/bg.jpg');
     this.load.image('king', '/assets/king.png');
     this.load.image('coin', '/assets/coin.png');
+    this.load.image('rank1', '/assets/rank1.png');
+    this.load.image('rank2', '/assets/rank2.png');
+    this.load.image('rank3', '/assets/rank3.png');
   }
 
   create() {
@@ -617,6 +620,8 @@ export default class BattleScene extends Phaser.Scene {
     // 1) кого оставляем
     const phase = this.battleState?.phase ?? 'prep';
 
+    const showRanks = this.battleState?.phase === 'prep';
+
     // в prep скрываем enemy, в battle показываем всех
     const visibleUnits = (this.battleState?.units ?? []).filter(u => {
       if (phase === 'prep' && u.team === 'enemy') return false;
@@ -663,6 +668,7 @@ export default class BattleScene extends Phaser.Scene {
             team: u.team,
             hp: u.hp,
             maxHp: u.maxHp ?? u.hp,
+            rank: u.rank ?? 1,
             atk: u.atk,
           });
         } else {
@@ -677,6 +683,7 @@ export default class BattleScene extends Phaser.Scene {
             color: u.team === 'enemy' ? 0x66ccff : 0xff7777,
             team: u.team,
             hp: u.hp,
+            rank: u.rank ?? 1,
             maxHp: u.maxHp ?? u.hp,
             atk: u.atk,
           });
@@ -713,6 +720,7 @@ export default class BattleScene extends Phaser.Scene {
 
           // на скамейке hpBar не показываем
           if (created.hpBar) created.hpBar.setVisible(false);
+          if (created.rankIcon) created.rankIcon.setVisible(false);
         }
 
         continue;
@@ -730,13 +738,18 @@ export default class BattleScene extends Phaser.Scene {
 
         // на скамейке hpBar не показываем
         if (vu?.hpBar) vu.hpBar.setVisible(false);
+        if (vu?.rankIcon) vu.rankIcon.setVisible(false); // на bench всегда скрыто
       } else {
         this.unitSys.setUnitPos(u.id, u.q, u.r);
 
         // на доске hpBar показываем обратно (если был скрыт)
         const vu = this.unitSys.findUnit(u.id);
         if (vu?.hpBar) vu.hpBar.setVisible(true);
+        if (vu?.rankIcon) vu.rankIcon.setVisible(showRanks);
       }
+
+      const vuRank = this.unitSys.findUnit(u.id);
+      if (vuRank) vuRank.rank = u.rank ?? 1;
 
       // HP
       this.unitSys.setUnitHp(u.id, u.hp, u.maxHp ?? existing.maxHp);

@@ -38,6 +38,16 @@ export function createUnitSystem(scene) {
 
     const hpBar = scene.add.graphics().setDepth(1002);
 
+    const rank = opts.rank ?? 1;
+    const rankKey = `rank${Math.max(1, Math.min(3, rank))}`;
+
+    // ⭐ иконка ранга (позицию выставит updateHpBar)
+    const rankIcon = scene.add.image(p.x, p.y, rankKey)
+      .setDepth(1003)
+      .setOrigin(0.5, 1)
+      .setScale(0.10); //Скейл иконки звёздочки
+
+
     const unit = {
       id: opts.id ?? crypto.randomUUID?.() ?? String(Date.now()),
 
@@ -46,11 +56,11 @@ export function createUnitSystem(scene) {
 
       hp,
       maxHp,
-
       // визуальные значения для анимации
       hpInstant: hp,
       hpLag: hp,
-
+      rank,
+      rankIcon,
       sprite,
       label,
       hpBar,
@@ -78,6 +88,14 @@ export function createUnitSystem(scene) {
 
     const hpBar = scene.add.graphics().setDepth(1002);
 
+    const rank = opts.rank ?? 1;
+    const rankKey = `rank${Math.max(1, Math.min(3, rank))}`;
+
+    const rankIcon = scene.add.image(x, y, rankKey)
+      .setDepth(1003)
+      .setOrigin(0.5, 1)
+      .setScale(0.10);
+
     const unit = {
       id: opts.id ?? crypto.randomUUID?.() ?? String(Date.now()),
 
@@ -92,7 +110,8 @@ export function createUnitSystem(scene) {
 
       hpInstant: hp,
       hpLag: hp,
-
+      rank,
+      rankIcon,
       sprite,
       label,
       hpBar,
@@ -118,6 +137,7 @@ export function createUnitSystem(scene) {
     u.sprite.destroy();
     u.label.destroy();
     u.hpBar.destroy();
+    u.rankIcon?.destroy(); 
 
     state.units = state.units.filter(x => x.id !== id);
   }

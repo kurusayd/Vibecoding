@@ -124,6 +124,7 @@ function spawnBotArmy() {
       atk: base.atk,
       team: 'enemy',
       type: base.type, 
+      rank: 1,
       zone: 'board',
       benchSlot: null,
     });
@@ -149,6 +150,26 @@ const NEIGHBORS = [
 
 function findEnemyUnit() {
   return state.units.find(u => u.team === 'enemy' && u.zone === 'board') ?? null;
+}
+
+function findClosestOpponent(attacker) {
+  const opponentTeam = attacker.team === 'player' ? 'enemy' : 'player';
+
+  let best = null;
+  let bestDist = Infinity;
+
+  for (const u of state.units) {
+    if (u.zone !== 'board') continue;
+    if (u.team !== opponentTeam) continue;
+
+    const d = hexDistance(attacker.q, attacker.r, u.q, u.r);
+    if (d < bestDist) {
+      bestDist = d;
+      best = u;
+    }
+  }
+
+  return best;
 }
 
 function findUnitById(id) {
@@ -282,26 +303,30 @@ function startBattle() {
       return;
     }
 
-    const enemy = findEnemyUnit();
-    if (!enemy) return;
-
-    const players = state.units.filter(u => u.team === 'player' && u.zone === 'board');
-
     let didSomething = false;
 
-    for (const me of players) {
-      // если кто-то исчез
-      if (!findUnitById(me.id)) continue;
+    // ходят все юниты на доске (player + enemy)
+    const actors = state.units
+      .filter(u => u.zone === 'board' && (u.team === 'player' || u.team === 'enemy'))
+      .slice()
+      .sort((a, b) => a.id - b.id);
 
-      const dist = hexDistance(me.q, me.r, enemy.q, enemy.r);
+    for (const a of actors) {
+      const me = findUnitById(a.id);
+      if (!me) continue;
+
+      const target = findClosestOpponent(me);
+      if (!target) continue;
+
+      const dist = hexDistance(me.q, me.r, target.q, target.r);
 
       if (dist <= 1) {
-        const res = attack(state, me.id, enemy.id);
+        const res = attack(state, me.id, target.id);
         if (res.success) didSomething = true;
         continue;
       }
 
-      const step = pickBestStepToward(me, enemy);
+      const step = pickBestStepToward(me, target);
       if (!step) continue;
 
       const moved = moveUnit(state, me.id, step.q, step.r);
@@ -314,6 +339,7 @@ function startBattle() {
 
     const resAfter = computeResult();
     if (resAfter) finishBattle(resAfter);
+
   }, tickMs);
 }
 
@@ -582,6 +608,7 @@ function handleIntent(clientId, msg, ws) {
       atk: offer.atk,
       team: 'player',
       type: offer.type, 
+      rank: 1,
       zone: 'bench',
       benchSlot: freeSlot,
     });

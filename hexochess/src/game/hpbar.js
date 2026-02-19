@@ -24,6 +24,23 @@ export function updateHpBar(scene, unit) {
   const x = Math.round(cx - w / 2);
   const y = Math.round(cy - yOffset);
 
+  // ⭐ rank icon (над полоской HP)
+  if (unit.rankIcon) {
+    const rank = Math.max(1, Math.min(3, unit.rank ?? 1));
+    const key = `rank${rank}`;
+
+    // если текстура есть — обновим (на случай изменения ранга)
+    if (scene.textures?.exists?.(key)) {
+      unit.rankIcon.setTexture(key);
+    }
+
+    // над HP баром
+    unit.rankIcon.setPosition(cx, y - 2);
+
+    // если hpBar скрыт (например на bench) — звёзды тоже скрыть
+    unit.rankIcon.setVisible(!!unit.hpBar.visible && scene.battleState?.phase === 'prep');
+  }
+
   // цвета
   const bg = 0x111111;
   const border = 0x000000;
