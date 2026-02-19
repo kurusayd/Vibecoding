@@ -819,14 +819,17 @@ export default class BattleScene extends Phaser.Scene {
     this.g.clear();
 
     // поле
+    const visibleCols = (this.battleState?.phase === 'prep') ? 6 : this.gridCols;
+
     for (let row = 0; row < this.gridRows; row++) {
-      for (let col = 0; col < this.gridCols; col++) {
+      for (let col = 0; col < visibleCols; col++) {
         const q = col - Math.floor(row / 2);
         const r = row;
         const p = this.hexToPixel(q, r);
         this.drawHex(p.x, p.y, 0xffffff, 0.35);
       }
     }
+
 
     // затемнение занятых гексов (доска + скамейка)
     for (const u of (this.battleState?.units ?? [])) {
@@ -849,6 +852,12 @@ export default class BattleScene extends Phaser.Scene {
       }
 
       if (u.zone === 'board') {
+        // ✅ в prep не рисуем тени в скрытых колонках
+        if (this.battleState?.phase === 'prep') {
+          const col = u.q + Math.floor(u.r / 2);
+          if (col >= 6) continue;
+        }
+
         const p = this.hexToPixel(u.q, u.r);
         this.drawHexFilled(p.x, p.y, 0x000000, 0.35);
         continue;
@@ -909,8 +918,12 @@ export default class BattleScene extends Phaser.Scene {
     if (row < 0 || row >= this.gridRows) return null;
     if (col < 0 || col >= this.gridCols) return null;
 
+    // ✅ В prep разрешаем только первые 6 колонок
+    if (this.battleState?.phase === 'prep' && col >= 6) return null;
+
     return { q, r, row, col };
   }
+
 
   benchSlotToScreen(slot) {
     const leftTop = this.hexToPixel(0 - Math.floor(0 / 2), 0);
