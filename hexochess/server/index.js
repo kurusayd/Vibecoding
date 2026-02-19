@@ -334,7 +334,6 @@ const wss = new WebSocketServer({ server });
 
 wss.on('connection', (ws) => {
   const clientId = crypto.randomUUID();
-    console.log('CONNECT', clientId);
   clients.set(clientId, ws);
 
   // чтобы в игре всегда был хоть кто-то для удара
@@ -396,7 +395,6 @@ wss.on('connection', (ws) => {
 
       me.zone = 'bench';
       me.benchSlot = slot;
-      console.log('SET_BENCH', { clientId, unitId, slot });
 
       broadcast(makeStateMessage(state));
       return;
@@ -445,7 +443,6 @@ wss.on('connection', (ws) => {
       me.zone = 'board';
       me.benchSlot = null;
 
-      console.log('SET_START', { clientId, unitId, q, r });
       // применяем: переносим своего юнита
       const ok = moveUnit(state, unitId, q, r);
       if (!ok) {
@@ -471,8 +468,7 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     clients.delete(clientId);
-    console.log('CLOSE', clientId);
-
+    
     const uid = clientToUnit.get(clientId);
     clientToUnit.delete(clientId);
 

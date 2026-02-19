@@ -274,7 +274,15 @@ export default class BattleScene extends Phaser.Scene {
 
   renderFromState() {
     // 1) кого оставляем
-    const aliveIds = new Set((this.battleState?.units ?? []).map(u => u.id));
+    const phase = this.battleState?.phase ?? 'prep';
+
+    // в prep скрываем enemy, в battle показываем всех
+    const visibleUnits = (this.battleState?.units ?? []).filter(u => {
+      if (phase === 'prep' && u.team === 'enemy') return false;
+      return true;
+    });
+
+    const aliveIds = new Set(visibleUnits.map(u => u.id));
 
     // 2) удалить тех, кого нет в core state
     for (const vu of this.unitSys.state.units.slice()) {
@@ -290,7 +298,7 @@ export default class BattleScene extends Phaser.Scene {
     }
 
     // 4) создать новых и обновить существующих
-    for (const u of (this.battleState?.units ?? [])) {
+    for (const u of visibleUnits) {
       const existing = byId.get(u.id);
 
       // ---- CREATE ----
