@@ -152,9 +152,8 @@ export default class BattleScene extends Phaser.Scene {
         const vu = this.unitSys.findUnit(uid);
         if (vu) {
           vu.label.setPosition(p.x, p.y);
-          if (vu.hpBar) vu.hpBar.setVisible(true);
-          // ВАЖНО: не трогаем unitSys.setUnitPos по гексам доски, иначе утащит на поле
-          if (vu.hpBar?.setPosition) vu.hpBar.setPosition(p.x, p.y);
+          // на скамейке hpBar не показываем
+          if (vu.hpBar) vu.hpBar.setVisible(false);
         }
         
         this.ws?.sendIntentSetBench(slot);
@@ -335,7 +334,9 @@ export default class BattleScene extends Phaser.Scene {
 
           created.sprite.setPosition(p.x, p.y);
           created.label?.setPosition(p.x, p.y);
-          if (created.hpBar?.setPosition) created.hpBar.setPosition(p.x, p.y);
+
+          // на скамейке hpBar не показываем
+          if (created.hpBar) created.hpBar.setVisible(false);
         }
 
         continue;
@@ -350,9 +351,15 @@ export default class BattleScene extends Phaser.Scene {
         const vu = this.unitSys.findUnit(u.id);
         if (vu?.sprite) vu.sprite.setPosition(p.x, p.y);
         if (vu?.label) vu.label.setPosition(p.x, p.y);
-        if (vu?.hpBar?.setPosition) vu.hpBar.setPosition(p.x, p.y);
+
+        // на скамейке hpBar не показываем
+        if (vu?.hpBar) vu.hpBar.setVisible(false);
       } else {
         this.unitSys.setUnitPos(u.id, u.q, u.r);
+
+        // на доске hpBar показываем обратно (если был скрыт)
+        const vu = this.unitSys.findUnit(u.id);
+        if (vu?.hpBar) vu.hpBar.setVisible(true);
       }
 
       // HP
@@ -520,11 +527,9 @@ export default class BattleScene extends Phaser.Scene {
 
     // НЕТ activeUnitId или ещё нет ws — ничего не делаем
     if (!this.activeUnitId || !this.ws) return;
-    console.log('INTENT', targetCore ? 'attack' : 'move', targetCore ? targetCore.id : [hit.q, hit.r]);
-
+    
     // Если кликнули по юниту — это intent "attack"
     if (targetCore) {
-      console.log('INTENT attack targetId=', targetCore.id);
       this.ws.sendIntentAttack(targetCore.id);
       return;
     }
