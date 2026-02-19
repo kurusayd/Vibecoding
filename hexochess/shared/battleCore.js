@@ -5,6 +5,12 @@ export function createBattleState() {
     phase: 'prep',     // 'prep' | 'battle'
     result: null,      // null | 'victory' | 'defeat' | 'draw'
     units: [],
+
+    // короли: UI + условия окончания (позже сюда ляжет урон/награды)
+    kings: {
+      player: { hp: 100, maxHp: 100, coins: 0 },
+      enemy:  { hp: 100, maxHp: 100, coins: 0, visible: false },
+    },
   };
 }
 

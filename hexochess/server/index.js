@@ -156,6 +156,13 @@ function computeResult() {
   const hasPlayer = state.units.some(u => u.team === 'player' && u.zone === 'board');
   const hasEnemy = state.units.some(u => u.team === 'enemy' && u.zone === 'board');
 
+  // смерть короля = конец
+  const pKing = state.kings?.player;
+  const eKing = state.kings?.enemy;
+
+  if (pKing && pKing.hp <= 0) return 'defeat';
+  if (eKing && eKing.visible && eKing.hp <= 0) return 'victory';
+
   if (hasPlayer && !hasEnemy) return 'victory';
   if (!hasPlayer && hasEnemy) return 'defeat';
   if (!hasPlayer && !hasEnemy) return 'draw';
@@ -165,6 +172,8 @@ function computeResult() {
 function resetToPrep() {
   state.phase = 'prep';
   state.result = null;
+  // enemy king скрыт в prep
+  if (state.kings?.enemy) state.kings.enemy.visible = false;
 
   if (prepSnapshot && prepSnapshot.length > 0) {
     state.units = prepSnapshot.map(u => ({ ...u }));
@@ -205,6 +214,8 @@ function startBattle() {
 
   state.phase = 'battle';
   state.result = null;
+  // enemy king появляется только в бою
+  if (state.kings?.enemy) state.kings.enemy.visible = true;
   broadcast(makeStateMessage(state));
 
   const tickMs = 450;

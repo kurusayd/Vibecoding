@@ -16,6 +16,8 @@ export default class BattleScene extends Phaser.Scene {
 
   preload() {
     this.load.image('battleBg', '/assets/bg.jpg');
+    this.load.image('king', '/assets/king.png');
+    this.load.image('coin', '/assets/coin.png');
   }
 
   create() {
@@ -38,6 +40,78 @@ export default class BattleScene extends Phaser.Scene {
     this.originX = this.scale.width / 2 - 270;
     this.originY = this.scale.height / 2 - 120;
 
+    // --- KINGS UI (лево/право) ---
+    this.kingWidth = 120;
+    this.kingHeight = 120;
+
+    // HP bars
+    this.kingLeftHpBg = this.add.graphics().setDepth(52);
+    this.kingLeftHpFill = this.add.graphics().setDepth(53);
+
+    this.kingRightHpBg = this.add.graphics().setDepth(52);
+    this.kingRightHpFill = this.add.graphics().setDepth(53);
+
+    this.kingLeft = this.add.image(0, 0, 'king').setDepth(50);
+    this.kingLeft.setDisplaySize(this.kingWidth, this.kingHeight);
+
+    this.kingRight = this.add.image(0, 0, 'king').setDepth(50).setFlipX(true);
+    this.kingRight.setDisplaySize(this.kingWidth, this.kingHeight);
+
+    const kingTextStyle = {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '16px',
+      color: '#ffffff',
+    };
+
+    // --- COINS UI ---
+    this.coinSize = 20;
+
+    // левый
+    this.kingLeftCoinIcon = this.add.image(0, 0, 'coin')
+      .setDisplaySize(this.coinSize, this.coinSize)
+      .setDepth(51);
+
+    this.kingLeftCoinText = this.add.text(0, 0, '', kingTextStyle)
+      .setDepth(51)
+      .setOrigin(0, 0.5);
+
+    // правый
+    this.kingRightCoinIcon = this.add.image(0, 0, 'coin')
+      .setDisplaySize(this.coinSize, this.coinSize)
+      .setDepth(51);
+
+    this.kingRightCoinText = this.add.text(0, 0, '', kingTextStyle)
+      .setDepth(51)
+      .setOrigin(0, 0.5);
+
+    // врагу монеты скрываем
+    this.kingRightCoinIcon.setVisible(false);
+    this.kingRightCoinText.setVisible(false);
+
+
+    const hpTextStyle = { //вставляем текст НР бара короля поверх полоски
+      fontFamily: kingTextStyle.fontFamily,
+      fontSize: '12px',
+      color: '#ffffff',
+    };
+
+    this.kingLeftHpText = this.add.text(0, 0, '', hpTextStyle)
+      .setDepth(54)
+      .setOrigin(0.5, 0.5)
+      .setShadow(0, 0, '#000000', 4, true, true);
+
+    this.kingRightHpText = this.add.text(0, 0, '', hpTextStyle)
+      .setDepth(54)
+      .setOrigin(0.5, 0.5)
+      .setShadow(0, 0, '#000000', 4, true, true);
+
+    this.kingRightHpText.setVisible(false);
+
+
+
+    // enemy king по умолчанию скрыт (покажем в syncKingsUI по фазе)
+    this.kingRight.setVisible(false);
+
     // пробрасываем функции как "методы", чтобы старый код был простым
     this.hexToPixel = (q, r) => hexToPixel(this, q, r);
     this.pixelToHex = (x, y) => pixelToHex(this, x, y);
@@ -51,6 +125,7 @@ export default class BattleScene extends Phaser.Scene {
 
     // drag state
     this.draggingUnitId = null;
+    this.dragHover = null; // { zone:'board', q,r } | { zone:'bench', slot }
 
     // --- SERVER CONNECTION ---
     const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -80,15 +155,18 @@ export default class BattleScene extends Phaser.Scene {
       this.renderFromState();
       this.drawGrid();
       this.syncPhaseUI();
+      this.syncKingsUI();
     };
 
     this.ws.onState = (state) => {
       // сервер прислал обновлённый state после чьего-то хода
       this.battleState = state;
+      this.shadowOverride = null;
 
       this.renderFromState();
       this.drawGrid();
       this.syncPhaseUI();
+      this.syncKingsUI();
     };
 
     this.ws.onError = (err) => {
@@ -114,8 +192,22 @@ export default class BattleScene extends Phaser.Scene {
 
       this.draggingUnitId = uid;
 
+      // при поднятии сразу выставляем "куда целимся", чтобы не было мигания
+      const hitBench = this.tryPickBench(pointer.worldX, pointer.worldY);
+      if (hitBench) {
+        this.dragHover = { zone: 'bench', slot: hitBench.row };
+      } else {
+        const hitBoard = this.tryPickBoard(pointer.worldX, pointer.worldY);
+        this.dragHover = hitBoard ? { zone: 'board', q: hitBoard.q, r: hitBoard.r } : null;
+      }
+
+      // локальный override тени сбрасываем (дальше выставится в dragend)
+      this.shadowOverride = null;
+
       const vu = this.unitSys.findUnit(uid);
       if (vu?.hpBar) vu.hpBar.setVisible(false);
+
+      this.drawGrid();
     });
 
     this.input.on('drag', (pointer, gameObject, dragX, dragY) => {
@@ -125,6 +217,17 @@ export default class BattleScene extends Phaser.Scene {
       if (!uid || uid !== this.activeUnitId) return;
 
       gameObject.setPosition(dragX, dragY);
+
+      // подсветка клетки под курсором
+      const hitBench = this.tryPickBench(pointer.worldX, pointer.worldY);
+      if (hitBench) {
+        this.dragHover = { zone: 'bench', slot: hitBench.row };
+      } else {
+        const hitBoard = this.tryPickBoard(pointer.worldX, pointer.worldY);
+        this.dragHover = hitBoard ? { zone: 'board', q: hitBoard.q, r: hitBoard.r } : null;
+      }
+
+      this.drawGrid();
 
       const vu = this.unitSys.findUnit(uid);
 
@@ -141,6 +244,11 @@ export default class BattleScene extends Phaser.Scene {
       const uid = gameObject?.data?.get?.('unitId');
       if (!uid || uid !== this.activeUnitId) return;
 
+       // больше не тащим — можно снова рисовать "занято" тень
+      this.draggingUnitId = null;
+      this.dragHover = null;
+      this.shadowOverride = null; // локальная позиция тени для моего юнита до прихода state
+
       // 1) сначала проверяем скамейку
       const hitBench = this.tryPickBench(pointer.worldX, pointer.worldY);
       if (hitBench) {
@@ -155,7 +263,8 @@ export default class BattleScene extends Phaser.Scene {
           // на скамейке hpBar не показываем
           if (vu.hpBar) vu.hpBar.setVisible(false);
         }
-        
+
+        this.shadowOverride = { zone: 'bench', slot };
         this.ws?.sendIntentSetBench(slot);
         return;
       }
@@ -177,7 +286,9 @@ export default class BattleScene extends Phaser.Scene {
         this.unitSys.setUnitPos(uid, hit.q, hit.r);
       }
 
+      this.shadowOverride = { zone: 'board', q: hit.q, r: hit.r };
       this.ws?.sendIntentSetStart(hit.q, hit.r);
+      this.drawGrid();
     });
 
 
@@ -255,7 +366,135 @@ export default class BattleScene extends Phaser.Scene {
     this.originY = this.scale.height / 2 - 120;
 
     this.unitSys.relayoutUnits();
+
+    this.positionKings();
   }
+
+  positionKings() {
+    if (!this.kingLeft || !this.kingRight) return;
+
+    // считаем bounds поля через центры гексов
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+
+    for (let r = 0; r < this.gridRows; r++) {
+      for (let col = 0; col < this.gridCols; col++) {
+        const q = col - Math.floor(r / 2);
+        const p = this.hexToPixel(q, r);
+        if (!p) continue;
+
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.y > maxY) maxY = p.y;
+      }
+    }
+
+    if (!Number.isFinite(minX) || !Number.isFinite(maxX)) return;
+
+    const midY = (minY + maxY) / 2 - 40; // подняли выше
+
+    const pad = 30;
+    const halfW = this.kingWidth / 2;
+    const halfH = this.kingHeight / 2;
+
+    const leftX = minX - halfW - pad - 70;   // левый король ещё левее на 40px;
+    const rightX = maxX + halfW + pad - 20;  // правый король левее на 20px;
+
+    this.kingLeft.setPosition(leftX, midY);
+    this.kingRight.setPosition(rightX, midY);
+
+    // внизу оставляем только Coins (HP будет поверх бара)
+    const coinY = midY + halfH + 14;
+
+    // левый
+    this.kingLeftCoinIcon.setPosition(leftX - 15, coinY);
+    this.kingLeftCoinText.setPosition(leftX, coinY);
+
+    // правый
+    this.kingRightCoinIcon.setPosition(rightX - 15, coinY);
+    this.kingRightCoinText.setPosition(rightX, coinY);
+
+
+  }
+
+  syncKingsUI() {
+    const kings = this.battleState?.kings;
+
+    const p = kings?.player ?? { hp: 100, maxHp: 100, coins: 0 };
+    this.kingLeftCoinText?.setText(`x ${p.coins}`);
+
+    const phase = this.battleState?.phase ?? 'prep';
+    const result = this.battleState?.result ?? null;
+
+    const e = kings?.enemy ?? { hp: 100, maxHp: 100, coins: 0, visible: false };
+
+    // считаем "всё ещё battle", пока показывается результат
+    const isBattleView = (phase === 'battle') || (result != null);
+
+    const showEnemy = isBattleView && (e.visible !== false);
+
+
+    this.kingRight?.setVisible(showEnemy);
+
+    this.drawKingHpBars();
+  }
+
+  drawKingHpBars() {
+    const kings = this.battleState?.kings;
+    if (!kings) return;
+
+    const barWidth = 70;
+    const barHeight = 10;
+
+    const drawBar = (kingSprite, hpBg, hpFill, kingData) => {
+      if (!kingSprite || !kingData) return;
+
+      const x = kingSprite.x - barWidth / 2;
+      const y = kingSprite.y - this.kingHeight / 2 - 20;
+
+      hpBg.clear();
+      hpFill.clear();
+
+      hpBg.fillStyle(0x222222, 1);
+      hpBg.fillRect(x, y, barWidth, barHeight);
+
+      const ratio = Phaser.Math.Clamp(
+        kingData.hp / kingData.maxHp,
+        0,
+        1
+      );
+
+      hpFill.fillStyle(0x00ff00, 1);
+      hpFill.fillRect(x, y, barWidth * ratio, barHeight);
+
+      // текст HP поверх полоски
+      const hpText = (kingSprite === this.kingLeft) ? this.kingLeftHpText : this.kingRightHpText;
+      if (hpText) {
+        hpText.setPosition(kingSprite.x, y + barHeight / 2);
+        hpText.setText(`${kingData.hp}/${kingData.maxHp}`);
+        hpText.setVisible(true);
+      }
+
+    };
+
+    drawBar(this.kingLeft, this.kingLeftHpBg, this.kingLeftHpFill, kings.player);
+
+    const phase = this.battleState?.phase ?? 'prep';
+    const result = this.battleState?.result ?? null;
+
+    const isBattleView = (phase === 'battle') || (result != null);
+    const showEnemy = isBattleView && kings.enemy?.visible !== false;
+
+    if (showEnemy) {
+      drawBar(this.kingRight, this.kingRightHpBg, this.kingRightHpFill, kings.enemy);
+    } else {
+      this.kingRightHpBg.clear();
+      this.kingRightHpFill.clear();
+      this.kingRightHpText?.setVisible(false);
+    }
+  }
+
 
   setSpriteDraggable(sprite, enabled) {
     if (!sprite || !sprite.active) return;
@@ -432,6 +671,16 @@ export default class BattleScene extends Phaser.Scene {
     this.g.strokePath();
   }
 
+  drawHexFilled(cx, cy, fillColor = 0x000000, fillAlpha = 0.25) {
+    const pts = this.hexCorners(cx, cy);
+    this.g.fillStyle(fillColor, fillAlpha);
+    this.g.beginPath();
+    this.g.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) this.g.lineTo(pts[i].x, pts[i].y);
+    this.g.closePath();
+    this.g.fillPath();
+  }
+
   drawGrid() {
     this.g.clear();
 
@@ -442,6 +691,51 @@ export default class BattleScene extends Phaser.Scene {
         const r = row;
         const p = this.hexToPixel(q, r);
         this.drawHex(p.x, p.y, 0xffffff, 0.35);
+      }
+    }
+
+    // затемнение занятых гексов (доска + скамейка)
+    for (const u of (this.battleState?.units ?? [])) {
+      // в prep врагов не затемняем (они скрыты)
+      if (this.battleState?.phase === 'prep' && u.team === 'enemy') continue;
+
+      // если это юнит, который сейчас тащим — не рисуем старую "занятую" тень
+      if (this.draggingUnitId != null && u.id === this.draggingUnitId) continue;
+
+      // если это мой юнит и есть локальный override — тень рисуем по override, а не по battleState
+      if (this.activeUnitId != null && u.id === this.activeUnitId && this.shadowOverride) {
+        if (this.shadowOverride.zone === 'board') {
+          const p = this.hexToPixel(this.shadowOverride.q, this.shadowOverride.r);
+          this.drawHexFilled(p.x, p.y, 0x000000, 0.35);
+        } else if (this.shadowOverride.zone === 'bench') {
+          const p = this.benchSlotToScreen(this.shadowOverride.slot);
+          this.drawHexFilled(p.x, p.y, 0x000000, 0.35);
+        }
+        continue;
+      }
+
+      if (u.zone === 'board') {
+        const p = this.hexToPixel(u.q, u.r);
+        this.drawHexFilled(p.x, p.y, 0x000000, 0.35);
+        continue;
+      }
+
+      if (u.zone === 'bench') {
+        const slot = Number.isInteger(u.benchSlot) ? u.benchSlot : 0;
+        const p = this.benchSlotToScreen(slot);
+        this.drawHexFilled(p.x, p.y, 0x000000, 0.35);
+        continue;
+      }
+    }
+
+    // тень под курсором во время drag (куда кладём)
+    if (this.dragHover && this.battleState?.phase === 'prep' && !this.battleState?.result) {
+      if (this.dragHover.zone === 'board') {
+        const p = this.hexToPixel(this.dragHover.q, this.dragHover.r);
+        this.drawHexFilled(p.x, p.y, 0x000000, 0.55);
+      } else if (this.dragHover.zone === 'bench') {
+        const p = this.benchSlotToScreen(this.dragHover.slot);
+        this.drawHexFilled(p.x, p.y, 0x000000, 0.55);
       }
     }
 
