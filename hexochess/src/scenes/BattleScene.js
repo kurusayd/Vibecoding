@@ -323,6 +323,12 @@ export default class BattleScene extends Phaser.Scene {
 
     // resize
     this.scale.on('resize', () => {
+      // если браузер/фуллскрин дёрнул resize в момент каких-то pointer events —
+      // лучше сбросить локальные рисовалки тени
+      this.dragHover = null;
+      this.draggingUnitId = null;
+      this.shadowOverride = null;
+
       this.layout();
       this.drawGrid();
 
@@ -420,10 +426,14 @@ export default class BattleScene extends Phaser.Scene {
     this.originX = this.scale.width / 2 - 270;
     this.originY = this.scale.height / 2 - 120;
 
-    this.unitSys.relayoutUnits();
+    // ВАЖНО: позиции юнитов пересчитываем от core-state (zone board/bench),
+    // а не из unitSys.q/r, иначе bench улетает при resize.
+    this.renderFromState();
 
     this.positionKings();
+    this.drawKingHpBars(); // чтобы бары не остались в старых координатах
   }
+
 
   positionShop() {
     if (!this.shopButtons?.length) return;
