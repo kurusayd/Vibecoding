@@ -45,8 +45,8 @@ function stopBattleTimers() {
 
 
 // кто каким юнитом управляет
-/** @type {Map<string, number>} */
-const clientToUnit = new Map();
+/** @type {Map<string, Set<number>>} */
+const clientToUnits = new Map(); // clientId -> Set(unitIds)
 
 // держим список сокетов
 /** @type {Map<string, import('ws').WebSocket>} */
@@ -56,6 +56,80 @@ const clients = new Map();
 const GRID_COLS = 12;
 const GRID_ROWS = 8;
 const BENCH_SLOTS = 8;
+
+// ---- SHOP + UNIT CATALOG (MVP) ----
+const UNIT_CATALOG = [
+  { type: 'Swordsman', cost: 10, hp: 60, atk: 20 },
+  { type: 'Archer',   cost: 12, hp: 40, atk: 25 },
+  { type: 'Tank',     cost: 18, hp: 120, atk: 12 },
+];
+
+function randInt(n) {
+  return Math.floor(Math.random() * n);
+}
+
+function makeRandomOffer() {
+  const base = UNIT_CATALOG[randInt(UNIT_CATALOG.length)];
+  return {
+    type: base.type,
+    cost: base.cost,
+    hp: base.hp,
+    maxHp: base.hp,
+    atk: base.atk,
+  };
+}
+
+function generateShopOffers() {
+  state.shop = state.shop ?? { offers: [] };
+  state.shop.offers = [];
+  for (let i = 0; i < 5; i++) state.shop.offers.push(makeRandomOffer());
+}
+
+function findFirstFreeBenchSlot() {
+  for (let slot = 0; slot < BENCH_SLOTS; slot++) {
+    if (!getUnitInBenchSlot(slot)) return slot;
+  }
+  return null;
+}
+
+// ---- BOT ARMY (MVP) ----
+function clearEnemyUnits() {
+  state.units = state.units.filter(u => u.team !== 'enemy');
+}
+
+function spawnBotArmy() {
+  clearEnemyUnits();
+
+  // фикс-армия бота (пока хардкод)
+  const botUnits = [
+    { q: 6, r: 5, type: 'Swordsman' },
+    { q: 7, r: 5, type: 'Swordsman' },
+    { q: 6, r: 6, type: 'Archer'   },
+    { q: 7, r: 6, type: 'Archer'   },
+    { q: 8, r: 6, type: 'Tank'     },
+  ];
+
+  for (const b of botUnits) {
+    // safety: если клетка занята или вне поля — просто пропускаем
+    if (!isInsideBoard(b.q, b.r)) continue;
+    if (getUnitAt(state, b.q, b.r)) continue;
+
+    const base = UNIT_CATALOG.find(x => x.type === b.type) ?? UNIT_CATALOG[0];
+    addUnit(state, {
+      id: nextUnitId++,
+      q: b.q,
+      r: b.r,
+      hp: base.hp,
+      maxHp: base.hp,
+      atk: base.atk,
+      team: 'enemy',
+      type: base.type, 
+      zone: 'board',
+      benchSlot: null,
+    });
+  }
+}
+
 
 // axial (q,r) -> "col" как на клиенте: col = q + floor(r/2)
 function isInsideBoard(q, r) {
@@ -113,44 +187,13 @@ function broadcast(obj) {
   }
 }
 
-function ensureDefaultEnemy() {
-  const hasEnemy = state.units.some(u => u.team === 'enemy' && u.zone === 'board');
-  if (hasEnemy) return;
-
-  addUnit(state, {
-    id: 999,
-    q: 6,
-    r: 5,
-    hp: 100,
-    atk: 20,
-    team: 'enemy',
-    zone: 'board',
-    benchSlot: null,
-  });
-}
-
 function spawnPlayerUnitFor(clientId) {
-  const unitId = nextUnitId++;
-
-  // простая раскладка по стартовым клеткам (чтобы не спавнились в одном месте)
-  const idx = unitId - 1;
-  const startR = 0;
-  const startQ = 0; // всегда самый левый верхний
-
-  addUnit(state, {
-    id: unitId,
-    q: startQ,
-    r: startR,
-    hp: 100,
-    atk: 25,
-    team: 'player',
-    zone: 'board',
-    benchSlot: null,
-  });
-
-  clientToUnit.set(clientId, unitId);
-  return unitId;
+  // старт игры: пусто. юниты появляются только через магазин.
+  // ownership set создаём заранее, чтобы shopBuy мог добавлять туда новые unitId.
+  if (!clientToUnits.get(clientId)) clientToUnits.set(clientId, new Set());
+  return null;
 }
+
 
 function computeResult() {
   const hasPlayer = state.units.some(u => u.team === 'player' && u.zone === 'board');
@@ -177,9 +220,10 @@ function resetToPrep() {
 
   if (prepSnapshot && prepSnapshot.length > 0) {
     state.units = prepSnapshot.map(u => ({ ...u }));
-  } else {
-    ensureDefaultEnemy();
   }
+
+  // каждый prep — новый магазин
+  generateShopOffers();
 
   broadcast(makeStateMessage(state));
 }
@@ -187,9 +231,10 @@ function resetToPrep() {
 function finishBattle(result) {
   stopBattleTimers();
 
-  // показываем результат, но возвращаем в prep после таймера
-  state.phase = 'prep';
+  // показываем результат, остаёмся в battle-view до resetToPrep()
+  state.phase = 'battle';
   state.result = result;
+
 
   broadcast(makeStateMessage(state));
 
@@ -210,10 +255,18 @@ function startBattle() {
   }
 
   // 2) только теперь сохраняем snapshot и стартуем бой
-  prepSnapshot = state.units.map(u => ({ ...u }));
+  // snapshot только игрока (бота спавним в battle и не тащим обратно в prep)
+  prepSnapshot = state.units
+    .filter(u => u.team === 'player')
+    .map(u => ({ ...u }));
+
 
   state.phase = 'battle';
   state.result = null;
+
+  // спавним армию бота только на старт боя
+  spawnBotArmy();
+
   // enemy king появляется только в бою
   if (state.kings?.enemy) state.kings.enemy.visible = true;
   broadcast(makeStateMessage(state));
@@ -222,8 +275,6 @@ function startBattle() {
 
   battleTimer = setInterval(() => {
     if (state.phase !== 'battle') return;
-
-    ensureDefaultEnemy();
 
     const resNow = computeResult();
     if (resNow) {
@@ -266,15 +317,26 @@ function startBattle() {
   }, tickMs);
 }
 
-
 function handleIntent(clientId, msg, ws) {
-  const unitId = clientToUnit.get(clientId);
-  if (!unitId) {
+  if (!msg || msg.type !== 'intent') return;
+
+  const owned = clientToUnits.get(clientId) ?? new Set();
+  if (!clientToUnits.get(clientId)) clientToUnits.set(clientId, owned);
+
+  // shopBuy разрешаем даже когда owned пустой
+  if (msg.action !== 'shopBuy' && owned.size === 0) {
     ws.send(JSON.stringify(makeErrorMessage('NO_UNIT', 'No unit assigned to this client')));
     return;
   }
 
-  if (!msg || msg.type !== 'intent') return;
+  const requestedUnitId = Number(msg.unitId);
+  const requireOwnedUnit = () => {
+    if (!Number.isInteger(requestedUnitId) || !owned.has(requestedUnitId)) {
+      ws.send(JSON.stringify(makeErrorMessage('NOT_OWNER', 'You do not own this unitId')));
+      return false;
+    }
+    return true;
+  };
 
   if (msg.action === 'startBattle') {
     // стартует только из prep
@@ -286,21 +348,111 @@ function handleIntent(clientId, msg, ws) {
     return;
   }
 
+  if (msg.action === 'setBench') {
+    if (state.phase !== 'prep') {
+      ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'setBench allowed only in prep')));
+      return;
+    }
+    if (!requireOwnedUnit()) return;
+
+    const slot = Number(msg.slot);
+    if (!Number.isInteger(slot) || slot < 0 || slot >= BENCH_SLOTS) {
+      ws.send(JSON.stringify(makeErrorMessage('BAD_ARGS', 'slot must be integer 0..7')));
+      return;
+    }
+
+    const me = findUnitById(requestedUnitId);
+    if (!me) {
+      ws.send(JSON.stringify(makeErrorMessage('NO_UNIT', 'Unit not found')));
+      return;
+    }
+
+    const occupied = getUnitInBenchSlot(slot);
+    if (occupied && occupied.id !== requestedUnitId) {
+      ws.send(JSON.stringify(makeErrorMessage('OCCUPIED', 'Bench slot occupied')));
+      return;
+    }
+
+    me.zone = 'bench';
+    me.benchSlot = slot;
+
+    broadcast(makeStateMessage(state));
+    return;
+  }
+
+  if (msg.action === 'setStart') {
+    if (state.phase !== 'prep') {
+      ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'setStart allowed only in prep')));
+      return;
+    }
+    if (!requireOwnedUnit()) return;
+
+    const q = Number(msg.q);
+    const r = Number(msg.r);
+
+    if (!Number.isFinite(q) || !Number.isFinite(r) || !Number.isInteger(q) || !Number.isInteger(r)) {
+      ws.send(JSON.stringify(makeErrorMessage('BAD_ARGS', 'q/r must be integers')));
+      return;
+    }
+
+    if (!isInsideBoard(q, r)) {
+      ws.send(JSON.stringify(makeErrorMessage('OUT_OF_BOUNDS', 'Cell is outside board')));
+      return;
+    }
+
+    const occupied = getUnitAt(state, q, r);
+    if (occupied && occupied.id !== requestedUnitId) {
+      ws.send(JSON.stringify(makeErrorMessage('OCCUPIED', 'Cell is occupied')));
+      return;
+    }
+
+    const me = findUnitById(requestedUnitId);
+    if (!me) {
+      ws.send(JSON.stringify(makeErrorMessage('NO_UNIT', 'Unit not found')));
+      return;
+    }
+
+    me.zone = 'board';
+    me.benchSlot = null;
+
+    const ok = moveUnit(state, requestedUnitId, q, r);
+    if (!ok) {
+      ws.send(JSON.stringify(makeErrorMessage('MOVE_DENIED', 'Cannot set start there')));
+      return;
+    }
+
+    broadcast(makeStateMessage(state));
+    return;
+  }
 
   if (msg.action === 'move') {
-    // move разрешён только если юнит уже на доске
-    const me = findUnitById(unitId);
+    if (!requireOwnedUnit()) return;
+
+    const me = findUnitById(requestedUnitId);
     if (!me) {
       ws.send(JSON.stringify(makeErrorMessage('NO_UNIT', 'Unit not found')));
       return;
     }
 
     if (me.zone !== 'board') {
-      ws.send(JSON.stringify(makeErrorMessage('MOVE_DENIED', 'Unit is on bench')));
+      ws.send(JSON.stringify(makeErrorMessage('MOVE_DENIED', 'Unit is on bench'))); // оставим правило
       return;
     }
 
-    const ok = moveUnit(state, unitId, msg.q, msg.r);
+    const q = Number(msg.q);
+    const r = Number(msg.r);
+
+    if (!Number.isFinite(q) || !Number.isFinite(r) || !Number.isInteger(q) || !Number.isInteger(r)) {
+      ws.send(JSON.stringify(makeErrorMessage('BAD_ARGS', 'q/r must be integers')));
+      return;
+    }
+
+    if (!isInsideBoard(q, r)) {
+      ws.send(JSON.stringify(makeErrorMessage('OUT_OF_BOUNDS', 'Cell is outside board')));
+      return;
+    }
+
+    const ok = moveUnit(state, requestedUnitId, q, r);
     if (!ok) {
       ws.send(JSON.stringify(makeErrorMessage('MOVE_DENIED', 'Move is not allowed')));
       return;
@@ -310,13 +462,72 @@ function handleIntent(clientId, msg, ws) {
     return;
   }
 
-
   if (msg.action === 'attack') {
-    const res = attack(state, unitId, msg.targetId);
+    if (!requireOwnedUnit()) return;
+
+    const res = attack(state, requestedUnitId, msg.targetId);
     if (!res.success) {
       ws.send(JSON.stringify(makeErrorMessage('ATTACK_DENIED', 'Attack is not allowed')));
       return;
     }
+    broadcast(makeStateMessage(state));
+    return;
+  }
+
+  if (msg.action === 'shopBuy') {
+    if (state.phase !== 'prep' || state.result) {
+      ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'shopBuy allowed only in prep (no result)')));
+      return;
+    }
+
+    const idx = Number(msg.offerIndex);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= 5) {
+      ws.send(JSON.stringify(makeErrorMessage('BAD_ARGS', 'offerIndex must be 0..4')));
+      return;
+    }
+
+    const offer = state.shop?.offers?.[idx];
+    if (!offer) {
+      ws.send(JSON.stringify(makeErrorMessage('NO_OFFER', 'Offer not found')));
+      return;
+    }
+
+    const coins = state.kings?.player?.coins ?? 0;
+    if (coins < offer.cost) {
+      ws.send(JSON.stringify(makeErrorMessage('NO_COINS', 'Not enough coins')));
+      return;
+    }
+
+    const freeSlot = findFirstFreeBenchSlot();
+    if (freeSlot == null) {
+      ws.send(JSON.stringify(makeErrorMessage('BENCH_FULL', 'No free bench slot')));
+      return;
+    }
+
+    // списываем монеты
+    state.kings.player.coins -= offer.cost;
+
+    // создаём купленного юнита на bench
+    const newId = nextUnitId++;
+    addUnit(state, {
+      id: newId,
+      q: 0,
+      r: 0,
+      hp: offer.hp,
+      maxHp: offer.maxHp ?? offer.hp,
+      atk: offer.atk,
+      team: 'player',
+      type: offer.type, 
+      zone: 'bench',
+      benchSlot: freeSlot,
+    });
+
+    // ownership: купленный юнит принадлежит этому клиенту
+    owned.add(newId);
+
+    // заменяем купленный слот новым оффером
+    state.shop.offers[idx] = makeRandomOffer();
+
     broadcast(makeStateMessage(state));
     return;
   }
@@ -347,11 +558,12 @@ wss.on('connection', (ws) => {
   const clientId = crypto.randomUUID();
   clients.set(clientId, ws);
 
-  // чтобы в игре всегда был хоть кто-то для удара
-  ensureDefaultEnemy();
-
   // выдаём юнит этому клиенту
   const unitId = spawnPlayerUnitFor(clientId);
+
+  if (!state.shop?.offers || state.shop.offers.length !== 5) {
+    generateShopOffers();
+  }
 
   // init только подключившемуся
   ws.send(JSON.stringify(makeInitMessage({
@@ -372,99 +584,6 @@ wss.on('connection', (ws) => {
         return;
     }
 
-
-    // --- setBench: разрешено только в prep ---
-    if (msg?.type === 'intent' && msg.action === 'setBench') {
-      if (state.phase !== 'prep') {
-        ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'setBench allowed only in prep')));
-        return;
-      }
-
-      const unitId = clientToUnit.get(clientId);
-      if (!unitId) {
-        ws.send(JSON.stringify(makeErrorMessage('NO_UNIT', 'No unit assigned to this client')));
-        return;
-      }
-
-      const slot = Number(msg.slot);
-      if (!Number.isInteger(slot) || slot < 0 || slot >= BENCH_SLOTS) {
-        ws.send(JSON.stringify(makeErrorMessage('BAD_ARGS', 'slot must be integer 0..7')));
-        return;
-      }
-
-      const me = findUnitById(unitId);
-      if (!me) {
-        ws.send(JSON.stringify(makeErrorMessage('NO_UNIT', 'Unit not found')));
-        return;
-      }
-
-      const occupied = getUnitInBenchSlot(slot);
-      if (occupied && occupied.id !== unitId) {
-        ws.send(JSON.stringify(makeErrorMessage('OCCUPIED', 'Bench slot occupied')));
-        return;
-      }
-
-      me.zone = 'bench';
-      me.benchSlot = slot;
-
-      broadcast(makeStateMessage(state));
-      return;
-    }
-
-
-    // --- setStart: разрешено только в prep ---
-    if (msg?.type === 'intent' && msg.action === 'setStart') {
-      if (state.phase !== 'prep') {
-        ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'setStart allowed only in prep')));
-        return;
-      }
-
-      const unitId = clientToUnit.get(clientId);
-      if (!unitId) {
-        ws.send(JSON.stringify(makeErrorMessage('NO_UNIT', 'No unit assigned to this client')));
-        return;
-      }
-
-      const q = Number(msg.q);
-      const r = Number(msg.r);
-
-      if (!Number.isFinite(q) || !Number.isFinite(r)) {
-        ws.send(JSON.stringify(makeErrorMessage('BAD_ARGS', 'q/r must be numbers')));
-        return;
-      }
-
-      if (!isInsideBoard(q, r)) {
-        ws.send(JSON.stringify(makeErrorMessage('OUT_OF_BOUNDS', 'Cell is outside board')));
-        return;
-      }
-
-      const occupied = getUnitAt(state, q, r);
-      if (occupied && occupied.id !== unitId) {
-        ws.send(JSON.stringify(makeErrorMessage('OCCUPIED', 'Cell is occupied')));
-        return;
-      }
-
-      const me = findUnitById(unitId);
-      if (!me) {
-        ws.send(JSON.stringify(makeErrorMessage('NO_UNIT', 'Unit not found')));
-        return;
-      }
-
-      // setStart = явное выставление на поле (если был на скамейке — снимаем)
-      me.zone = 'board';
-      me.benchSlot = null;
-
-      // применяем: переносим своего юнита
-      const ok = moveUnit(state, unitId, q, r);
-      if (!ok) {
-        ws.send(JSON.stringify(makeErrorMessage('MOVE_DENIED', 'Cannot set start there')));
-        return;
-      }
-
-      broadcast(makeStateMessage(state));
-      return;
-    }
-
     if (msg?.type === 'intent' && msg.action === 'startBattle') {
       if (state.phase !== 'prep') {
         ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'Battle can start only from prep')));
@@ -480,11 +599,11 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     clients.delete(clientId);
     
-    const uid = clientToUnit.get(clientId);
-    clientToUnit.delete(clientId);
+    const owned = clientToUnits.get(clientId);
+    clientToUnits.delete(clientId);
 
-    if (uid) {
-      state.units = state.units.filter(u => u.id !== uid);
+    if (owned && owned.size > 0) {
+      state.units = state.units.filter(u => !owned.has(u.id));
       broadcast(makeStateMessage(state));
     }
 

@@ -150,12 +150,13 @@ export default class BattleScene extends Phaser.Scene {
     this.ws.onInit = (msg) => {
       // сервер прислал начальный state и сказал, каким юнитом ты управляешь
       this.battleState = msg.state;
-      this.activeUnitId = msg.you.unitId;
+      this.activeUnitId = msg?.you?.unitId ?? null; // теперь может быть null (старт пустой)
 
       this.renderFromState();
       this.drawGrid();
       this.syncPhaseUI();
       this.syncKingsUI();
+      this.syncShopUI();
     };
 
     this.ws.onState = (state) => {
@@ -167,11 +168,21 @@ export default class BattleScene extends Phaser.Scene {
       this.drawGrid();
       this.syncPhaseUI();
       this.syncKingsUI();
+      this.syncShopUI();
     };
 
     this.ws.onError = (err) => {
       console.warn('Server error:', err);
+
+      if (err?.code === 'OCCUPIED' || err?.code === 'MOVE_DENIED' || err?.code === 'NOT_OWNER') {
+        this.shadowOverride = null;
+        this.dragHover = null;
+        this.draggingUnitId = null;
+        this.renderFromState();
+        this.drawGrid();
+      }
     };
+
 
     this.ws.connect();
 
@@ -188,7 +199,8 @@ export default class BattleScene extends Phaser.Scene {
       if (this.battleState?.phase !== 'prep') return;
       const uid = gameObject?.data?.get?.('unitId');
       if (!uid) return;
-      if (uid !== this.activeUnitId) return;
+      const core = (this.battleState?.units ?? []).find(u => u.id === uid);
+      if (!core || core.team !== 'player') return;
 
       this.draggingUnitId = uid;
 
@@ -201,8 +213,8 @@ export default class BattleScene extends Phaser.Scene {
         this.dragHover = hitBoard ? { zone: 'board', q: hitBoard.q, r: hitBoard.r } : null;
       }
 
-      // локальный override тени сбрасываем (дальше выставится в dragend)
-      this.shadowOverride = null;
+      // сбрасываем override только если он относится к этому же юниту
+      if (this.shadowOverride?.unitId === uid) this.shadowOverride = null;
 
       const vu = this.unitSys.findUnit(uid);
       if (vu?.hpBar) vu.hpBar.setVisible(false);
@@ -214,7 +226,11 @@ export default class BattleScene extends Phaser.Scene {
       if (this.battleState?.phase !== 'prep') return;
 
       const uid = gameObject?.data?.get?.('unitId');
-      if (!uid || uid !== this.activeUnitId) return;
+      if (!uid) return;
+
+      const core = (this.battleState?.units ?? []).find(u => u.id === uid);
+      if (!core || core.team !== 'player') return;
+
 
       gameObject.setPosition(dragX, dragY);
 
@@ -224,7 +240,8 @@ export default class BattleScene extends Phaser.Scene {
         this.dragHover = { zone: 'bench', slot: hitBench.row };
       } else {
         const hitBoard = this.tryPickBoard(pointer.worldX, pointer.worldY);
-        this.dragHover = hitBoard ? { zone: 'board', q: hitBoard.q, r: hitBoard.r } : null;
+        // важно: если курсор вне валидных клеток — НЕ гасим hover, оставляем последний валидный
+        if (hitBoard) this.dragHover = { zone: 'board', q: hitBoard.q, r: hitBoard.r };
       }
 
       this.drawGrid();
@@ -242,7 +259,10 @@ export default class BattleScene extends Phaser.Scene {
       if (this.battleState?.phase !== 'prep') return;
 
       const uid = gameObject?.data?.get?.('unitId');
-      if (!uid || uid !== this.activeUnitId) return;
+      if (!uid) return;
+
+      const core = (this.battleState?.units ?? []).find(u => u.id === uid);
+      if (!core || core.team !== 'player') return;
 
        // больше не тащим — можно снова рисовать "занято" тень
       this.draggingUnitId = null;
@@ -264,15 +284,20 @@ export default class BattleScene extends Phaser.Scene {
           if (vu.hpBar) vu.hpBar.setVisible(false);
         }
 
-        this.shadowOverride = { zone: 'bench', slot };
-        this.ws?.sendIntentSetBench(slot);
+        this.shadowOverride = { unitId: uid, zone: 'bench', slot };
+        this.ws?.sendIntentSetBench(uid, slot); // если у тебя уже с unitId, оставь как есть
+        this.drawGrid(); // важно: сразу восстановить тени
         return;
       }
 
       // 2) иначе — обычная доска
       const hit = this.tryPickBoard(pointer.worldX, pointer.worldY);
       if (!hit) {
+        // откат по authoritative state + восстановить тени
+        this.shadowOverride = null;
+        this.dragHover = null;
         this.renderFromState();
+        this.drawGrid();
         return;
       }
 
@@ -286,8 +311,8 @@ export default class BattleScene extends Phaser.Scene {
         this.unitSys.setUnitPos(uid, hit.q, hit.r);
       }
 
-      this.shadowOverride = { zone: 'board', q: hit.q, r: hit.r };
-      this.ws?.sendIntentSetStart(hit.q, hit.r);
+      this.shadowOverride = { unitId: uid, zone: 'board', q: hit.q, r: hit.r };
+      this.ws?.sendIntentSetStart(uid, hit.q, hit.r);
       this.drawGrid();
     });
 
@@ -305,6 +330,7 @@ export default class BattleScene extends Phaser.Scene {
       if (this.resultText) this.resultText.setPosition(this.scale.width / 2, 16);
 
       positionFullscreenButton(this);
+      this.positionShop();
     });
 
     this.layout();
@@ -341,6 +367,35 @@ export default class BattleScene extends Phaser.Scene {
     .setDepth(9999)
     .setVisible(false);
 
+    // --- SHOP UI (5 offers) ---
+    this.shopButtons = [];
+    const shopStyle = {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '16px',
+      color: '#ffffff',
+      backgroundColor: 'rgba(0,0,0,0.55)',
+      padding: { left: 10, right: 10, top: 6, bottom: 6 },
+    };
+
+    const startX = this.scale.width / 2;
+    const startY = this.scale.height - 70;
+    const gap = 8;
+
+    for (let i = 0; i < 5; i++) {
+      const t = this.add.text(0, 0, `(${i}) ...`, shopStyle)
+        .setDepth(9999)
+        .setOrigin(0.5, 0.5)
+        .setInteractive({ useHandCursor: true });
+
+      t.on('pointerdown', () => {
+        this.ws?.sendIntentShopBuy?.(i);
+      });
+
+      this.shopButtons.push(t);
+    }
+
+    this.positionShop();
+    this.syncShopUI();
 
     this.renderFromState();  // отрисуем то что есть (пока пусто)
   }
@@ -370,6 +425,43 @@ export default class BattleScene extends Phaser.Scene {
     this.positionKings();
   }
 
+  positionShop() {
+    if (!this.shopButtons?.length) return;
+
+    const startY = this.scale.height - 70;
+    const totalW = this.shopButtons.reduce((sum, b) => sum + b.width, 0) + (this.shopButtons.length - 1) * 8;
+    let x = this.scale.width / 2 - totalW / 2;
+
+    for (let i = 0; i < this.shopButtons.length; i++) {
+      const b = this.shopButtons[i];
+      b.setPosition(x + b.width / 2, startY);
+      x += b.width + 8;
+    }
+  }
+
+  syncShopUI() {
+    const phase = this.battleState?.phase ?? 'prep';
+    const result = this.battleState?.result ?? null;
+
+    const show = (phase === 'prep') && !result;
+
+    for (const b of (this.shopButtons ?? [])) b.setVisible(show);
+    if (!show) return;
+
+    const offers = this.battleState?.shop?.offers ?? [];
+    for (let i = 0; i < (this.shopButtons?.length ?? 0); i++) {
+      const o = offers[i];
+      const txt = o
+        ? `${o.type}  ${o.cost}💰  HP:${o.hp} ATK:${o.atk}`
+        : '...';
+      this.shopButtons[i].setText(txt);
+    }
+
+    // после смены текста ширины меняются — перепозиционируем
+    this.positionShop();
+  }
+
+
   positionKings() {
     if (!this.kingLeft || !this.kingRight) return;
 
@@ -398,7 +490,7 @@ export default class BattleScene extends Phaser.Scene {
     const halfW = this.kingWidth / 2;
     const halfH = this.kingHeight / 2;
 
-    const leftX = minX - halfW - pad - 70;   // левый король ещё левее на 40px;
+    const leftX = minX - halfW - pad - 70;   // левый король ещё левее на 70px;
     const rightX = maxX + halfW + pad - 20;  // правый король левее на 20px;
 
     this.kingLeft.setPosition(leftX, midY);
@@ -543,15 +635,43 @@ export default class BattleScene extends Phaser.Scene {
       // ---- CREATE ----
       if (!existing) {
         // создаём как раньше (на доске), это нужно для твоей текущей unitSys
-        const created = this.unitSys.spawnUnitOnBoard(u.q, u.r, {
-          id: u.id,
-          label: u.team === 'player' ? 'P' : 'E',
-          color: u.team === 'enemy' ? 0x66ccff : 0xff7777,
-          team: u.team,
-          hp: u.hp,
-          maxHp: u.maxHp ?? u.hp,
-          atk: u.atk,
-        });
+        let created = null;
+
+        if (u.zone === 'bench') {
+          const slot = Number.isInteger(u.benchSlot) ? u.benchSlot : 0;
+          const p = this.benchSlotToScreen(slot);
+
+          created = this.unitSys.spawnUnitAtScreen(p.x, p.y, {
+            id: u.id,
+            label: (
+              u.type === 'Archer' ? 'A' :
+              u.type === 'Tank' ? 'T' :
+              u.type === 'Swordsman' ? 'S' :
+              '?'
+            ),
+            color: u.team === 'enemy' ? 0x66ccff : 0xff7777,
+            team: u.team,
+            hp: u.hp,
+            maxHp: u.maxHp ?? u.hp,
+            atk: u.atk,
+          });
+        } else {
+          created = this.unitSys.spawnUnitOnBoard(u.q, u.r, {
+            id: u.id,
+            label: (
+              u.type === 'Archer' ? 'A' :
+              u.type === 'Tank' ? 'T' :
+              u.type === 'Swordsman' ? 'S' :
+              '?'
+            ),
+            color: u.team === 'enemy' ? 0x66ccff : 0xff7777,
+            team: u.team,
+            hp: u.hp,
+            maxHp: u.maxHp ?? u.hp,
+            atk: u.atk,
+          });
+        }
+
 
         if (!created) {
           console.warn('FAILED SPAWN VISUAL', {
@@ -569,10 +689,9 @@ export default class BattleScene extends Phaser.Scene {
         created.sprite.setDataEnabled();
         created.sprite.data.set('unitId', created.id);
 
-        // если этот юнит мой — включаем drag по фазе
-        const isMine = (this.activeUnitId != null) && (u.id === this.activeUnitId);
-        const canDrag = isMine && (this.battleState?.phase === 'prep') && !this.battleState?.result;
-        if (isMine) this.setSpriteDraggable(created.sprite, canDrag);
+        // drag разрешаем всем юнитам игрока в prep
+        const canDrag = (u.team === 'player') && (this.battleState?.phase === 'prep') && !this.battleState?.result;
+        this.setSpriteDraggable(created.sprite, canDrag);
 
         // если сервер сказал "bench" — сразу переставим на скамейку
         if (u.zone === 'bench') {
@@ -612,12 +731,22 @@ export default class BattleScene extends Phaser.Scene {
       // HP
       this.unitSys.setUnitHp(u.id, u.hp, u.maxHp ?? existing.maxHp);
 
-      // draggable (только мой)
+      // draggable всем юнитам игрока в prep
       const vu2 = this.unitSys.findUnit(u.id);
+      const vuLabel = this.unitSys.findUnit(u.id);
+      if (vuLabel?.label) {
+        const t = String(u.type ?? '').toLowerCase();
+        const ch =
+          (t === 'archer') ? 'A' :
+          (t === 'tank') ? 'T' :
+          (t === 'swordsman' || t === 'swordmen') ? 'S' :
+          '?';
+        vuLabel.label.setText(ch);
+      }
+
       if (vu2?.sprite) {
-        const isMine = (this.activeUnitId != null) && (u.id === this.activeUnitId);
-        const canDrag = isMine && (this.battleState?.phase === 'prep') && !this.battleState?.result;
-        if (isMine) this.setSpriteDraggable(vu2.sprite, canDrag);
+        const canDrag = (u.team === 'player') && (this.battleState?.phase === 'prep') && !this.battleState?.result;
+        this.setSpriteDraggable(vu2.sprite, canDrag);
       }
     }
   }
@@ -652,12 +781,7 @@ export default class BattleScene extends Phaser.Scene {
       this.battleBtn?.setVisible(false);
     }
 
-    // включить/выключить drag для моего юнита по фазе
-    const me = this.unitSys.findUnit(this.activeUnitId);
-    if (me?.sprite) {
-      const canDrag = (phase === 'prep') && !result;
-      this.setSpriteDraggable(me.sprite, canDrag);
-    }
+    // drag управляется в renderFromState(): всем player-юнитам в prep
   }
 
   // ===== Drawing =====
@@ -702,8 +826,8 @@ export default class BattleScene extends Phaser.Scene {
       // если это юнит, который сейчас тащим — не рисуем старую "занятую" тень
       if (this.draggingUnitId != null && u.id === this.draggingUnitId) continue;
 
-      // если это мой юнит и есть локальный override — тень рисуем по override, а не по battleState
-      if (this.activeUnitId != null && u.id === this.activeUnitId && this.shadowOverride) {
+      // если для этого юнита есть локальный override — тень рисуем по override, а не по battleState
+      if (this.shadowOverride && u.id === this.shadowOverride.unitId) {
         if (this.shadowOverride.zone === 'board') {
           const p = this.hexToPixel(this.shadowOverride.q, this.shadowOverride.r);
           this.drawHexFilled(p.x, p.y, 0x000000, 0.35);

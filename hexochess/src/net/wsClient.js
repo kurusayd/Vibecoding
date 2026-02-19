@@ -5,6 +5,7 @@ import {
   makeAttackIntent,
   makeStartBattleIntent,
   makeSetStartIntent,
+  makeShopBuyIntent,
 } from '../../shared/messages.js';
 
 export class WSClient {
@@ -62,16 +63,14 @@ export class WSClient {
     this.ws = null;
   }
 
-  sendIntentSetBench(slot) {
+  sendIntentSetBench(unitId, slot) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    this.ws.send(JSON.stringify({ type: 'intent', action: 'setBench', slot }));
+    this.ws.send(JSON.stringify({ type: 'intent', action: 'setBench', unitId, slot }));
   }
 
-
-  sendIntentSetStart(q, r) {
+  sendIntentSetStart(unitId, q, r) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    const msg = makeSetStartIntent(q, r);
-    this.ws.send(JSON.stringify(msg));
+    this.ws.send(JSON.stringify({ type: 'intent', action: 'setStart', unitId, q, r }));
   }
 
   sendIntentStartBattle() {
@@ -80,11 +79,9 @@ export class WSClient {
     this.ws.send(JSON.stringify(msg));
   }
 
-  sendIntentMove(q, r) {
+  sendIntentMove(unitId, q, r) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-
-    const msg = makeMoveIntent(q, r);
-    this.ws.send(JSON.stringify(msg));
+    this.ws.send(JSON.stringify(makeMoveIntent(unitId, q, r)));
   }
 
   sendIntentAttack(targetId) {
@@ -93,4 +90,12 @@ export class WSClient {
     const msg = makeAttackIntent(targetId);
     this.ws.send(JSON.stringify(msg));
   }
+
+  sendIntentShopBuy(offerIndex) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    const msg = makeShopBuyIntent(offerIndex);
+    this.ws.send(JSON.stringify(msg));
+  }
+
+
 }

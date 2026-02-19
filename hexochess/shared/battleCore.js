@@ -8,8 +8,13 @@ export function createBattleState() {
 
     // короли: UI + условия окончания (позже сюда ляжет урон/награды)
     kings: {
-      player: { hp: 100, maxHp: 100, coins: 0 },
+      player: { hp: 100, maxHp: 100, coins: 100 }, // старт для теста
       enemy:  { hp: 100, maxHp: 100, coins: 0, visible: false },
+    },
+
+    // магазин (server authoritative)
+    shop: {
+      offers: [], // 5 офферов, генерятся сервером в prep
     },
   };
 }
@@ -23,10 +28,15 @@ export function addUnit(state, unit) {
     maxHp: unit.maxHp ?? unit.hp,
     atk: unit.atk,
     team: unit.team,
+
+    // ВАЖНО: роль/класс юнита
+    type: unit.type ?? null,
+
     zone: unit.zone ?? 'board',
     benchSlot: unit.benchSlot ?? null,
   });
 }
+
 
 export function getUnitAt(state, q, r) {
   return state.units.find(u => u.zone === 'board' && u.q === q && u.r === r) ?? null;

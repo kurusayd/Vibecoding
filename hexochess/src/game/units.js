@@ -63,11 +63,57 @@ export function createUnitSystem(scene) {
     return unit;
   }
 
+  function spawnUnitAtScreen(x, y, opts = {}) {
+    const radius = Math.max(10, Math.floor(scene.hexSize * 0.45));
+    const sprite = scene.add.circle(x, y, radius, opts.color ?? 0x66ccff).setDepth(1000);
+
+    const label = scene.add.text(x, y, opts.label ?? '1', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '16px',
+      color: '#000',
+    }).setOrigin(0.5).setDepth(1001);
+
+    const hp = opts.hp ?? 100;
+    const maxHp = opts.maxHp ?? hp;
+
+    const hpBar = scene.add.graphics().setDepth(1002);
+
+    const unit = {
+      id: opts.id ?? crypto.randomUUID?.() ?? String(Date.now()),
+
+      // важно: эти q/r не должны конфликтовать с доской,
+      // BattleScene потом сам выставит позицию/логика зоны не через occupied
+      q: opts.q ?? 0,
+      r: opts.r ?? 0,
+      team: opts.team ?? 'neutral',
+
+      hp,
+      maxHp,
+
+      hpInstant: hp,
+      hpLag: hp,
+
+      sprite,
+      label,
+      hpBar,
+    };
+
+    state.units.push(unit);
+
+    // occupied НЕ трогаем
+    updateHpBar(scene, unit);
+    return unit;
+  }
+
+
   function destroyUnit(id) {
     const u = findUnit(id);
     if (!u) return;
 
-    state.occupied.delete(cellKey(u.q, u.r));
+    // удаляем occupied только если этот юнит реально занимал клетку
+    const k = cellKey(u.q, u.r);
+    if (state.occupied.has(k)) state.occupied.delete(k);
+
 
     u.sprite.destroy();
     u.label.destroy();
@@ -160,6 +206,7 @@ export function createUnitSystem(scene) {
     getUnitAt,
     findUnit,
     spawnUnitOnBoard,
+    spawnUnitAtScreen,
     destroyUnit,
     setUnitPos,
     setUnitHp,
