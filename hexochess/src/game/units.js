@@ -4,6 +4,8 @@ export function cellKey(q, r) {
   return `${q},${r}`;
 }
 
+const RANK_ICON_SCALE = 0.10; //скейл размера иконки звёздочки. Чтобы менять в одном месте
+
 export function createUnitSystem(scene) {
   const state = {
     units: [],
@@ -45,7 +47,8 @@ export function createUnitSystem(scene) {
     const rankIcon = scene.add.image(p.x, p.y, rankKey)
       .setDepth(1003)
       .setOrigin(0.5, 1)
-      .setScale(0.10); //Скейл иконки звёздочки
+      .setScale(RANK_ICON_SCALE); //Скейл иконки звёздочки
+      rankIcon.setVisible(false); // ✅ на bench по умолчанию скрыто
 
 
     const unit = {
@@ -94,7 +97,8 @@ export function createUnitSystem(scene) {
     const rankIcon = scene.add.image(x, y, rankKey)
       .setDepth(1003)
       .setOrigin(0.5, 1)
-      .setScale(0.10);
+      .setScale(RANK_ICON_SCALE);
+      rankIcon.setVisible(false); // ✅ на bench по умолчанию скрыто
 
     const unit = {
       id: opts.id ?? crypto.randomUUID?.() ?? String(Date.now()),

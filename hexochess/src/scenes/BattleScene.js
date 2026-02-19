@@ -3,6 +3,7 @@ import { hexToPixel, pixelToHex, hexCorners } from '../game/hex.js';
 import { createUnitSystem } from '../game/units.js';
 import { WSClient } from '../net/wsClient.js';
 import { createFullscreenButton, positionFullscreenButton } from '../game/ui.js';
+import { updateHpBar } from '../game/hpbar.js';
 import {
   createBattleState,
   getUnitAt as coreGetUnitAt
@@ -221,6 +222,7 @@ export default class BattleScene extends Phaser.Scene {
 
       const vu = this.unitSys.findUnit(uid);
       if (vu?.hpBar) vu.hpBar.setVisible(false);
+      if (vu) updateHpBar(this, vu);
 
       this.drawGrid();
     });
@@ -620,8 +622,6 @@ export default class BattleScene extends Phaser.Scene {
     // 1) кого оставляем
     const phase = this.battleState?.phase ?? 'prep';
 
-    const showRanks = this.battleState?.phase === 'prep';
-
     // в prep скрываем enemy, в battle показываем всех
     const visibleUnits = (this.battleState?.units ?? []).filter(u => {
       if (phase === 'prep' && u.team === 'enemy') return false;
@@ -720,7 +720,7 @@ export default class BattleScene extends Phaser.Scene {
 
           // на скамейке hpBar не показываем
           if (created.hpBar) created.hpBar.setVisible(false);
-          if (created.rankIcon) created.rankIcon.setVisible(false);
+          if (created) updateHpBar(this, created);
         }
 
         continue;
@@ -738,14 +738,12 @@ export default class BattleScene extends Phaser.Scene {
 
         // на скамейке hpBar не показываем
         if (vu?.hpBar) vu.hpBar.setVisible(false);
-        if (vu?.rankIcon) vu.rankIcon.setVisible(false); // на bench всегда скрыто
       } else {
         this.unitSys.setUnitPos(u.id, u.q, u.r);
 
         // на доске hpBar показываем обратно (если был скрыт)
         const vu = this.unitSys.findUnit(u.id);
         if (vu?.hpBar) vu.hpBar.setVisible(true);
-        if (vu?.rankIcon) vu.rankIcon.setVisible(showRanks);
       }
 
       const vuRank = this.unitSys.findUnit(u.id);
@@ -754,23 +752,28 @@ export default class BattleScene extends Phaser.Scene {
       // HP
       this.unitSys.setUnitHp(u.id, u.hp, u.maxHp ?? existing.maxHp);
 
-      // draggable всем юнитам игрока в prep
-      const vu2 = this.unitSys.findUnit(u.id);
-      const vuLabel = this.unitSys.findUnit(u.id);
-      if (vuLabel?.label) {
+      // draggable всем юнитам игрока в prep + обновление буквы
+      const vu = this.unitSys.findUnit(u.id);
+
+      if (vu?.label) {
         const t = String(u.type ?? '').toLowerCase();
         const ch =
           (t === 'archer') ? 'A' :
           (t === 'tank') ? 'T' :
           (t === 'swordsman' || t === 'swordmen') ? 'S' :
           '?';
-        vuLabel.label.setText(ch);
+        vu.label.setText(ch);
       }
 
-      if (vu2?.sprite) {
-        const canDrag = (u.team === 'player') && (this.battleState?.phase === 'prep') && !this.battleState?.result;
-        this.setSpriteDraggable(vu2.sprite, canDrag);
+      if (vu?.sprite) {
+        const canDrag =
+          (u.team === 'player') &&
+          (this.battleState?.phase === 'prep') &&
+          !this.battleState?.result;
+
+        this.setSpriteDraggable(vu.sprite, canDrag);
       }
+
     }
   }
 
