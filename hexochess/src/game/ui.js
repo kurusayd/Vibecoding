@@ -18,8 +18,22 @@ export function createFullscreenButton(scene) {
   });
 
   const updateLabel = () => {
-    scene.fsBtn.setText(scene.scale.isFullscreen ? '✕' : '⛶');
-    scene.fsBtn.setInteractive();
+    const isFs = scene.scale.isFullscreen;
+
+    scene.fsBtn.setText(isFs ? '✕' : '⛶');
+
+    // ✅ Размер: разворот — 1.5x, крестик — как раньше
+    const fontSize = isFs ? 18 : 27; // 18px было у тебя изначально, 27 = *1.5
+    scene.fsBtn.setStyle({ fontSize: `${fontSize}px` });
+
+    // ✅ Поддержим “кнопочность” паддингом: для большой кнопки больше воздуха
+    scene.fsBtn.setPadding(
+      isFs
+        ? { left: 8, right: 8, top: 6, bottom: 6 }     // как было
+        : { left: 12, right: 12, top: 9, bottom: 9 }   // примерно *1.5
+    );
+
+    scene.fsBtn.setInteractive({ useHandCursor: true });
     positionFullscreenButton(scene);
   };
 
