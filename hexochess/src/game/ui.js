@@ -3,7 +3,7 @@ export function createFullscreenButton(scene) {
 
   scene.fsBtn = scene.add.text(10, 10, '⛶', {
     fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-    fontSize: '18px',
+    fontSize: '24px',
     color: '#ffffff',
     backgroundColor: 'rgba(0,0,0,0.55)',
     padding: { left: 8, right: 8, top: 6, bottom: 6 },
@@ -22,15 +22,15 @@ export function createFullscreenButton(scene) {
 
     scene.fsBtn.setText(isFs ? '✕' : '⛶');
 
-    // ✅ Размер: разворот — 1.5x, крестик — как раньше
-    const fontSize = isFs ? 18 : 27; // 18px было у тебя изначально, 27 = *1.5
+    // ✅ ⛶ большая, ✕ маленькая (как сейчас)
+    const fontSize = isFs ? 25 : 40; // 18 было, 27 = *1.5
     scene.fsBtn.setStyle({ fontSize: `${fontSize}px` });
 
-    // ✅ Поддержим “кнопочность” паддингом: для большой кнопки больше воздуха
+    // ✅ паддинги тоже масштабируем, чтобы фон кнопки был больше
     scene.fsBtn.setPadding(
       isFs
         ? { left: 8, right: 8, top: 6, bottom: 6 }     // как было
-        : { left: 12, right: 12, top: 9, bottom: 9 }   // примерно *1.5
+        : { left: 18, right: 18, top: 12, bottom: 12 }   // примерно *1.5
     );
 
     scene.fsBtn.setInteractive({ useHandCursor: true });

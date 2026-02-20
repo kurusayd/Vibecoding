@@ -34,19 +34,19 @@ export default class BattleScene extends Phaser.Scene {
     .setDepth(-1000);
 
     // --- HEX SETTINGS ---
-    this.hexSize = 32; //размер гекса
+    this.hexSize = 44; //размер гекса
     this.gridCols = 12;
     this.gridRows = 8;
 
     this.benchRows = this.gridRows;
-    this.benchGap = 90;
+    this.benchGap = 120;
 
     this.originX = this.scale.width / 2 - 270;
     this.originY = this.scale.height / 2 - 120;
 
     // --- KINGS UI (лево/право) ---
-    this.kingWidth = 120;
-    this.kingHeight = 120;
+    this.kingWidth = 160;
+    this.kingHeight = 160;
 
     // HP bars
     this.kingLeftHpBg = this.add.graphics().setDepth(52);
@@ -63,39 +63,27 @@ export default class BattleScene extends Phaser.Scene {
 
     const kingTextStyle = {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-      fontSize: '16px',
+      fontSize: '21px',
       color: '#ffffff',
     };
 
     // --- COINS UI ---
-    this.coinSize = 20;
+    this.coinSize = 28;
 
-    // левый
     this.kingLeftCoinIcon = this.add.image(0, 0, 'coin')
       .setDisplaySize(this.coinSize, this.coinSize)
-      .setDepth(51);
+      .setScrollFactor(0)
+      .setDepth(9998);
 
     this.kingLeftCoinText = this.add.text(0, 0, '', kingTextStyle)
-      .setDepth(51)
-      .setOrigin(0, 0.5);
-
-    // правый
-    this.kingRightCoinIcon = this.add.image(0, 0, 'coin')
-      .setDisplaySize(this.coinSize, this.coinSize)
-      .setDepth(51);
-
-    this.kingRightCoinText = this.add.text(0, 0, '', kingTextStyle)
-      .setDepth(51)
-      .setOrigin(0, 0.5);
-
-    // врагу монеты скрываем
-    this.kingRightCoinIcon.setVisible(false);
-    this.kingRightCoinText.setVisible(false);
+      .setScrollFactor(0)
+      .setDepth(9998)
+      .setOrigin(0, 0.5); // важное: текст по левому краю
 
 
     const hpTextStyle = { //вставляем текст НР бара короля поверх полоски
       fontFamily: kingTextStyle.fontFamily,
-      fontSize: '12px',
+      fontSize: '16px',
       color: '#ffffff',
     };
 
@@ -342,6 +330,7 @@ export default class BattleScene extends Phaser.Scene {
 
       positionFullscreenButton(this);
       this.positionShop();
+      this.positionCoinsHUD();
     });
 
     this.layout();
@@ -352,6 +341,7 @@ export default class BattleScene extends Phaser.Scene {
     // UI
     createFullscreenButton(this);
     positionFullscreenButton(this);
+    this.positionCoinsHUD();
 
     // --- TOP CENTER UI ---
     this.battleBtn = this.add.text(this.scale.width / 2, 14, 'БОЙ', {
@@ -414,8 +404,8 @@ export default class BattleScene extends Phaser.Scene {
   resizeBackground() {
     if (!this.bg) return;
 
-    const designW = 960;
-    const designH = 540;
+    const designW = 1280;
+    const designH = 720;
 
     const scaleX = designW / this.bg.width;
     const scaleY = designH / this.bg.height;
@@ -428,8 +418,8 @@ export default class BattleScene extends Phaser.Scene {
   layout() {
     this.resizeBackground();
 
-    this.originX = this.scale.width / 2 - 270;
-    this.originY = this.scale.height / 2 - 120;
+    this.originX = this.scale.width / 2 - 380;
+    this.originY = this.scale.height / 2 - 180;
 
     // ВАЖНО: позиции юнитов пересчитываем от core-state (zone board/bench),
     // а не из unitSys.q/r, иначе bench улетает при resize.
@@ -437,6 +427,7 @@ export default class BattleScene extends Phaser.Scene {
 
     this.positionKings();
     this.drawKingHpBars(); // чтобы бары не остались в старых координатах
+    this.positionCoinsHUD();
   }
 
 
@@ -476,6 +467,37 @@ export default class BattleScene extends Phaser.Scene {
     this.positionShop();
   }
 
+  positionCoinsHUD() {
+    if (!this.kingLeftCoinIcon || !this.kingLeftCoinText) return;
+
+    const view = this.scale.getViewPort();
+
+    // ✅ Y как у кнопки "Бой"
+    const iconH = this.kingLeftCoinIcon.displayHeight || this.coinSize;
+
+    const btnTop = this.battleBtn
+      ? (this.battleBtn.y - (this.battleBtn.height ?? this.battleBtn.displayHeight ?? 0) * (this.battleBtn.originY ?? 0.5))
+      : (view.y + 14);
+
+    const y = btnTop + iconH / 2;
+
+    // ✅ X по левому краю поля (первый столбец гексов)
+    // Берём центр гекса (q=0,r=0) и ставим блок чуть левее/правее по вкусу
+    const p0 = this.hexToPixel(0, 0);          // центр первого гекса
+    const baseX = Math.max(view.x + 8, p0.x - this.hexSize); // привязка к левому краю поля
+
+    // текст у нас origin(0,0.5), ставим по левому краю
+    this.kingLeftCoinText.setOrigin(0, 0.5);
+
+    const iconW = this.kingLeftCoinIcon.displayWidth || this.coinSize;
+    const gap = 10;
+
+    // иконка
+    this.kingLeftCoinIcon.setPosition(baseX + iconW / 2, y);
+
+    // текст
+    this.kingLeftCoinText.setPosition(baseX + iconW + gap, y);
+  }
 
   positionKings() {
     if (!this.kingLeft || !this.kingRight) return;
@@ -505,24 +527,11 @@ export default class BattleScene extends Phaser.Scene {
     const halfW = this.kingWidth / 2;
     const halfH = this.kingHeight / 2;
 
-    const leftX = minX - halfW - pad - 70;   // левый король ещё левее на 70px;
-    const rightX = maxX + halfW + pad - 20;  // правый король левее на 20px;
+    const leftX = minX - halfW - pad - 100;   // левый король ещё левее на 70px;
+    const rightX = maxX + halfW + pad - 40;  // правый король левее на 20px;
 
     this.kingLeft.setPosition(leftX, midY);
     this.kingRight.setPosition(rightX, midY);
-
-    // внизу оставляем только Coins (HP будет поверх бара)
-    const coinY = midY + halfH + 14;
-
-    // левый
-    this.kingLeftCoinIcon.setPosition(leftX - 15, coinY);
-    this.kingLeftCoinText.setPosition(leftX, coinY);
-
-    // правый
-    this.kingRightCoinIcon.setPosition(rightX - 15, coinY);
-    this.kingRightCoinText.setPosition(rightX, coinY);
-
-
   }
 
   syncKingsUI() {
@@ -530,6 +539,7 @@ export default class BattleScene extends Phaser.Scene {
 
     const p = kings?.player ?? { hp: 100, maxHp: 100, coins: 0 };
     this.kingLeftCoinText?.setText(`x ${p.coins}`);
+    this.positionCoinsHUD();
 
     const phase = this.battleState?.phase ?? 'prep';
     const result = this.battleState?.result ?? null;
@@ -551,14 +561,14 @@ export default class BattleScene extends Phaser.Scene {
     const kings = this.battleState?.kings;
     if (!kings) return;
 
-    const barWidth = 70;
-    const barHeight = 10;
+    const barWidth = 95;
+    const barHeight = 14;
 
     const drawBar = (kingSprite, hpBg, hpFill, kingData) => {
       if (!kingSprite || !kingData) return;
 
       const x = kingSprite.x - barWidth / 2;
-      const y = kingSprite.y - this.kingHeight / 2 - 20;
+      const y = kingSprite.y - this.kingHeight / 2 - 26;
 
       hpBg.clear();
       hpFill.clear();
