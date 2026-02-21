@@ -6,6 +6,7 @@ export function cellKey(q, r) {
 }
 
 const RANK_ICON_SCALE = 0.10; //скейл размера иконки звёздочки. Чтобы менять в одном месте
+const SWORDSMAN_ART_PX = 170; // целевая "высота/ширина" на экране, подгони: 90..140
 
 function makeHexHitArea(scene, w, h) {
   const s = scene.hexSize;
@@ -84,19 +85,28 @@ export function createUnitSystem(scene) {
     scene.input.setDraggable(dragHandle, true);
 
     let art = null;
-    if ((opts.type === 'Swordsman') && scene.textures?.exists?.('swordsman')) {
-      art = scene.add.image(p.x, p.y, 'swordsman')
+
+    const firstFrameKey = 'swordman_walk_0001'; // ← если у тебя реально есть 0000, поставь 0000
+    if (opts.type === 'Swordsman' && scene.textures.exists(firstFrameKey)) {
+      art = scene.add.sprite(p.x, p.y, firstFrameKey)
         .setDepth(1050)
         .setOrigin(0.5, 0.78);
-      if (opts.team === 'enemy') art.setFlipX(true);
 
-      const h = Math.round(scene.hexSize * 2.7);
-      art.setDisplaySize(h, h);
+      // ✅ если вдруг всё равно missing (например race condition) — откатываемся на круг
+      if (art.texture?.key === '__MISSING') {
+        art.destroy();
+        art = null;
+        sprite.setVisible(true);
+      } else {
+        const frameW = art.frame?.realWidth ?? art.frame?.width ?? 256;
+        art.setScale(SWORDSMAN_ART_PX / frameW);
 
-      // ✅ круг скрываем, если есть арт
-      sprite.setVisible(false);
+        if (scene.anims.exists('swordman_walk')) art.play('swordman_walk');
+        if (opts.team === 'enemy') art.setFlipX(true);
+
+        sprite.setVisible(false);
+      }
     } else {
-      // ✅ круг показываем, если арта нет
       sprite.setVisible(true);
     }
 
@@ -169,19 +179,28 @@ export function createUnitSystem(scene) {
     scene.input.setDraggable(dragHandle, true);
 
     let art = null;
-    if ((opts.type === 'Swordsman') && scene.textures?.exists?.('swordsman')) {
-      art = scene.add.image(x, y, 'swordsman')
+
+    const firstFrameKey = 'swordman_walk_0001'; // ← если у тебя реально есть 0000, поставь 0000
+    if (opts.type === 'Swordsman' && scene.textures.exists(firstFrameKey)) {
+      art = scene.add.sprite(x, y, firstFrameKey)
         .setDepth(1050)
         .setOrigin(0.5, 0.78);
-      if (opts.team === 'enemy') art.setFlipX(true);
 
-      const h = Math.round(scene.hexSize * 2.7);
-      art.setDisplaySize(h, h);
+      // ✅ если вдруг всё равно missing (например race condition) — откатываемся на круг
+      if (art.texture?.key === '__MISSING') {
+        art.destroy();
+        art = null;
+        sprite.setVisible(true);
+      } else {
+        const frameW = art.frame?.realWidth ?? art.frame?.width ?? 256;
+        art.setScale(SWORDSMAN_ART_PX / frameW);
 
-      // ✅ круг скрываем, если есть арт
-      sprite.setVisible(false);
+        if (scene.anims.exists('swordman_walk')) art.play('swordman_walk');
+        if (opts.team === 'enemy') art.setFlipX(true);
+
+        sprite.setVisible(false);
+      }
     } else {
-      // ✅ круг показываем, если арта нет
       sprite.setVisible(true);
     }
 

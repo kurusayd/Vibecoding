@@ -23,6 +23,17 @@ export default class BattleScene extends Phaser.Scene {
     this.load.image('rank2', '/assets/rank2.png');
     this.load.image('rank3', '/assets/rank3.png');
     this.load.image('swordsman', '/assets/swordman.png');
+
+    // swordman walk frames (0001.png - 0020.png)
+    for (let i = 1; i <= 20; i++) {
+      const n = String(i).padStart(4, '0');
+      this.load.image(`swordman_walk_${n}`, `/assets/units/swordman/walk/${n}.png`);
+    }
+
+    // дебаг загрузки: покажет ключ и URL, который не смог загрузиться
+    this.load.on('loaderror', (file) => {
+      console.error('[LOAD ERROR]', file?.key, file?.src);
+    });
   }
 
   create() {
@@ -115,6 +126,22 @@ export default class BattleScene extends Phaser.Scene {
 
     // units system
     this.unitSys = createUnitSystem(this);
+
+    // anims: swordsman walk (temporary, from separate PNGs)
+    if (!this.anims.exists('swordman_walk')) {
+      const frames = [];
+      for (let i = 1; i <= 20; i++) {
+        const n = String(i).padStart(4, '0');
+        frames.push({ key: `swordman_walk_${n}` });
+      }
+
+      this.anims.create({
+        key: 'swordman_walk',
+        frames,
+        frameRate: 12,
+        repeat: -1,
+      });
+    }
 
     // drag state
     this.draggingUnitId = null;
@@ -853,16 +880,20 @@ export default class BattleScene extends Phaser.Scene {
   drawGrid() {
     this.g.clear();
 
-    // поле
-    const visibleCols = (this.battleState?.phase === 'prep') ? 6 : this.gridCols;
+    // поле — рисуем ТОЛЬКО в prep
+    if (this.battleState?.phase === 'prep') {
 
-    for (let row = 0; row < this.gridRows; row++) {
-      for (let col = 0; col < visibleCols; col++) {
-        const q = col - Math.floor(row / 2);
-        const r = row;
-        const p = this.hexToPixel(q, r);
-        this.drawHex(p.x, p.y, 0xffffff, 0.35);
+      const visibleCols = 6;
+
+      for (let row = 0; row < this.gridRows; row++) {
+        for (let col = 0; col < visibleCols; col++) {
+          const q = col - Math.floor(row / 2);
+          const r = row;
+          const p = this.hexToPixel(q, r);
+          this.drawHex(p.x, p.y, 0xffffff, 0.35);
+        }
       }
+
     }
 
 
