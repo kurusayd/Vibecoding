@@ -88,8 +88,9 @@ export function createUnitSystem(scene) {
       art = scene.add.image(p.x, p.y, 'swordsman')
         .setDepth(1050)
         .setOrigin(0.5, 0.78);
+      if (opts.team === 'enemy') art.setFlipX(true);
 
-      const h = Math.round(scene.hexSize * 1.65);
+      const h = Math.round(scene.hexSize * 2.7);
       art.setDisplaySize(h, h);
 
       // ✅ круг скрываем, если есть арт
@@ -115,7 +116,7 @@ export function createUnitSystem(scene) {
 
     // ⭐ иконка ранга (позицию выставит updateHpBar)
     const rankIcon = scene.add.image(p.x, p.y, rankKey)
-      .setDepth(1003)
+      .setDepth(1070)
       .setOrigin(0.5, 1)
       .setScale(RANK_ICON_SCALE); //Скейл иконки звёздочки
       rankIcon.setVisible(false); // ✅ на bench по умолчанию скрыто
@@ -172,8 +173,9 @@ export function createUnitSystem(scene) {
       art = scene.add.image(x, y, 'swordsman')
         .setDepth(1050)
         .setOrigin(0.5, 0.78);
+      if (opts.team === 'enemy') art.setFlipX(true);
 
-      const h = Math.round(scene.hexSize * 1.65);
+      const h = Math.round(scene.hexSize * 2.7);
       art.setDisplaySize(h, h);
 
       // ✅ круг скрываем, если есть арт
@@ -198,7 +200,7 @@ export function createUnitSystem(scene) {
     const rankKey = `rank${Math.max(1, Math.min(3, rank))}`;
 
     const rankIcon = scene.add.image(x, y, rankKey)
-      .setDepth(1003)
+      .setDepth(1070)
       .setOrigin(0.5, 1)
       .setScale(RANK_ICON_SCALE);
       rankIcon.setVisible(false); // ✅ на bench по умолчанию скрыто
