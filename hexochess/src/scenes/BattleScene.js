@@ -832,6 +832,27 @@ export default class BattleScene extends Phaser.Scene {
       }
 
     }
+
+    // ✅ sync swordsman anim by phase/zone
+    const result = this.battleState?.result ?? null;
+
+    for (const u of (this.battleState?.units ?? [])) {
+      // в prep враги скрыты, но это не важно — просто синкаем тех, кто есть
+      const vu = this.unitSys.findUnit(u.id);
+      if (!vu?.art) continue;
+
+      if (u.type !== 'Swordsman') continue;
+
+      const wantWalk = (phase === 'battle') && !result && (u.zone === 'board');
+      const animKey = wantWalk ? 'swordman_walk' : 'swordman_idle';
+
+      // не дёргаем play каждый тик/рендер если уже играет то же самое
+      if (vu.art.anims?.getName?.() === animKey) continue;
+
+      if (this.anims.exists(animKey)) {
+        vu.art.play(animKey);
+      }
+    }
   }
 
 

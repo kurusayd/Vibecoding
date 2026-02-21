@@ -92,7 +92,7 @@ export function createUnitSystem(scene) {
     if (opts.type === 'Swordsman' && scene.textures.exists(atlasKey)) {
       art = scene.add.sprite(p.x, p.y, atlasKey, idleFrame)
         .setDepth(1050)
-        .setOrigin(0.5, 0.78);
+        .setOrigin(0.5, 0.85);
 
       // ✅ если вдруг всё равно missing (например race condition) — откатываемся на круг
       if (art.texture?.key === '__MISSING' || art.frame?.name == null) {
@@ -103,8 +103,8 @@ export function createUnitSystem(scene) {
         const frameW = art.frame?.realWidth ?? art.frame?.width ?? 256;
         art.setScale(SWORDSMAN_ART_PX / frameW);
 
-        if (scene.anims.exists('swordman_walk')) art.play('swordman_walk');
-        else if (scene.anims.exists('swordman_idle')) art.play('swordman_idle');
+        if (scene.anims.exists('swordman_idle')) art.play('swordman_idle');
+        else if (scene.anims.exists('swordman_walk')) art.play('swordman_walk');
         if (opts.team === 'enemy') art.setFlipX(true);
 
         sprite.setVisible(false);
@@ -189,7 +189,7 @@ export function createUnitSystem(scene) {
     if (opts.type === 'Swordsman' && scene.textures.exists(atlasKey)) {
       art = scene.add.sprite(x, y, atlasKey, idleFrame)
         .setDepth(1050)
-        .setOrigin(0.5, 0.78);
+        .setOrigin(0.5, 0.85);
 
       if (art.texture?.key === '__MISSING' || art.frame?.name == null) {
         art.destroy();
@@ -199,8 +199,8 @@ export function createUnitSystem(scene) {
         const frameW = art.frame?.realWidth ?? art.frame?.width ?? 256;
         art.setScale(SWORDSMAN_ART_PX / frameW);
 
-        if (scene.anims.exists('swordman_walk')) art.play('swordman_walk');
-        else if (scene.anims.exists('swordman_idle')) art.play('swordman_idle');
+        if (scene.anims.exists('swordman_idle')) art.play('swordman_idle');
+        else if (scene.anims.exists('swordman_walk')) art.play('swordman_walk');
 
         if (opts.team === 'enemy') art.setFlipX(true);
 
