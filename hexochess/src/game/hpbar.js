@@ -14,15 +14,24 @@ export function updateHpBar(scene, unit) {
   const hpLag = clamp(unit.hpLag ?? hpInstant, 0, maxHp);
 
   // размеры бара
-  const w = Math.floor(scene.hexSize * 1.1);     // ширина
-  const h = Math.max(6, Math.floor(scene.hexSize * 0.18)); // высота
-  const yOffset = Math.floor(scene.hexSize * 0.75); // насколько выше центра юнита
+  const w = Math.floor(scene.hexSize * 1.1);                 // ширина
+  const h = Math.max(6, Math.floor(scene.hexSize * 0.15));   // высота
 
-  // позиция относительно юнита (абсолютные координаты)
+  // позиция относительно юнита (внизу гекса)
   const cx = unit.sprite?.x ?? 0;
   const cy = unit.sprite?.y ?? 0;
+
+  // нижний угол "pointy-top" гекса
+  const tipY = cy + scene.hexSize * 0.98;
+
+  // ⭐ звёзды — в самом низу
+  const starsY = Math.round(tipY);
+
+  // HP бар — на том же уровне, но чуть выше (подними/опусти тут)
+  const hpGap = Math.round(scene.hexSize * 2.75); // ≈ +5px при hexSize=44
+  const y = Math.round(tipY - h - hpGap);
+
   const x = Math.round(cx - w / 2);
-  const y = Math.round(cy - yOffset);
 
   // ⭐ rank icon (внизу гекса, поверх арта)
   if (unit.rankIcon) {
@@ -36,7 +45,7 @@ export function updateHpBar(scene, unit) {
 
     // позиция: нижний угол гекса (pointy-top)
     const tipY = Math.round(cy + scene.hexSize * 0.98);
-    unit.rankIcon.setPosition(cx, tipY);
+    unit.rankIcon.setPosition(cx, starsY);
 
     // видимость: только в prep (не завязана на hpBar.visible)
     unit.rankIcon.setVisible(scene.battleState?.phase === 'prep');

@@ -109,7 +109,7 @@ export function createUnitSystem(scene) {
     const hp = opts.hp ?? 100;
     const maxHp = opts.maxHp ?? hp;
 
-    const hpBar = scene.add.graphics().setDepth(1002);
+    const hpBar = scene.add.graphics().setDepth(1060);
 
     const rank = opts.rank ?? 1;
     const rankKey = `rank${Math.max(1, Math.min(3, rank))}`;
@@ -194,7 +194,7 @@ export function createUnitSystem(scene) {
     const hp = opts.hp ?? 100;
     const maxHp = opts.maxHp ?? hp;
 
-    const hpBar = scene.add.graphics().setDepth(1002);
+    const hpBar = scene.add.graphics().setDepth(1060);
 
     const rank = opts.rank ?? 1;
     const rankKey = `rank${Math.max(1, Math.min(3, rank))}`;
