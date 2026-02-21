@@ -86,14 +86,16 @@ export function createUnitSystem(scene) {
 
     let art = null;
 
-    const firstFrameKey = 'swordman_walk_0001'; // ← если у тебя реально есть 0000, поставь 0000
-    if (opts.type === 'Swordsman' && scene.textures.exists(firstFrameKey)) {
-      art = scene.add.sprite(p.x, p.y, firstFrameKey)
+    const atlasKey = 'sworman_atlas';
+    const idleFrame = 'psd_animation/idle.png';
+
+    if (opts.type === 'Swordsman' && scene.textures.exists(atlasKey)) {
+      art = scene.add.sprite(p.x, p.y, atlasKey, idleFrame)
         .setDepth(1050)
         .setOrigin(0.5, 0.78);
 
       // ✅ если вдруг всё равно missing (например race condition) — откатываемся на круг
-      if (art.texture?.key === '__MISSING') {
+      if (art.texture?.key === '__MISSING' || art.frame?.name == null) {
         art.destroy();
         art = null;
         sprite.setVisible(true);
@@ -102,6 +104,7 @@ export function createUnitSystem(scene) {
         art.setScale(SWORDSMAN_ART_PX / frameW);
 
         if (scene.anims.exists('swordman_walk')) art.play('swordman_walk');
+        else if (scene.anims.exists('swordman_idle')) art.play('swordman_idle');
         if (opts.team === 'enemy') art.setFlipX(true);
 
         sprite.setVisible(false);
@@ -163,7 +166,7 @@ export function createUnitSystem(scene) {
 
   function spawnUnitAtScreen(x, y, opts = {}) {
     const radius = Math.floor(scene.hexSize * 0.62);
-    
+
     const sprite = scene.add.circle(x, y, radius, opts.color ?? 0x66ccff)
       .setDepth(1000);
 
@@ -180,14 +183,15 @@ export function createUnitSystem(scene) {
 
     let art = null;
 
-    const firstFrameKey = 'swordman_walk_0001'; // ← если у тебя реально есть 0000, поставь 0000
-    if (opts.type === 'Swordsman' && scene.textures.exists(firstFrameKey)) {
-      art = scene.add.sprite(x, y, firstFrameKey)
+    const atlasKey = 'sworman_atlas';
+    const idleFrame = 'psd_animation/idle.png';
+
+    if (opts.type === 'Swordsman' && scene.textures.exists(atlasKey)) {
+      art = scene.add.sprite(x, y, atlasKey, idleFrame)
         .setDepth(1050)
         .setOrigin(0.5, 0.78);
 
-      // ✅ если вдруг всё равно missing (например race condition) — откатываемся на круг
-      if (art.texture?.key === '__MISSING') {
+      if (art.texture?.key === '__MISSING' || art.frame?.name == null) {
         art.destroy();
         art = null;
         sprite.setVisible(true);
@@ -196,6 +200,8 @@ export function createUnitSystem(scene) {
         art.setScale(SWORDSMAN_ART_PX / frameW);
 
         if (scene.anims.exists('swordman_walk')) art.play('swordman_walk');
+        else if (scene.anims.exists('swordman_idle')) art.play('swordman_idle');
+
         if (opts.team === 'enemy') art.setFlipX(true);
 
         sprite.setVisible(false);
@@ -222,7 +228,7 @@ export function createUnitSystem(scene) {
       .setDepth(1070)
       .setOrigin(0.5, 1)
       .setScale(RANK_ICON_SCALE);
-      rankIcon.setVisible(false); // ✅ на bench по умолчанию скрыто
+    rankIcon.setVisible(false); // ✅ на bench по умолчанию скрыто
 
     const unit = {
       id: opts.id ?? crypto.randomUUID?.() ?? String(Date.now()),
@@ -256,7 +262,6 @@ export function createUnitSystem(scene) {
     updateRankStroke(unit);
     return unit;
   }
-
 
   function destroyUnit(id) {
     const u = findUnit(id);

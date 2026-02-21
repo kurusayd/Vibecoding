@@ -1,0 +1,460 @@
+{
+	"textures": [
+		{
+			"image": "swordman_atlas",
+			"format": "RGBA8888",
+			"size": {
+				"w": 2048,
+				"h": 4096
+			},
+			"scale": 1,
+			"frames": [
+				{
+					"filename": "psd_animation/idle.png",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 256,
+						"h": 256
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 256,
+						"h": 256
+					},
+					"frame": {
+						"x": 3,
+						"y": 3,
+						"w": 256,
+						"h": 256
+					}
+				},
+				{
+					"filename": "psd_animation/walk_0001.png",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 256,
+						"h": 256
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 256,
+						"h": 256
+					},
+					"frame": {
+						"x": 3,
+						"y": 265,
+						"w": 256,
+						"h": 256
+					}
+				},
+				{
+					"filename": "psd_animation/walk_0002.png",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 256,
+						"h": 256
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 256,
+						"h": 256
+					},
+					"frame": {
+						"x": 3,
+						"y": 527,
+						"w": 256,
+						"h": 256
+					}
+				},
+				{
+					"filename": "psd_animation/walk_0003.png",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 256,
+						"h": 256
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 256,
+						"h": 256
+					},
+					"frame": {
+						"x": 3,
+						"y": 789,
+						"w": 256,
+						"h": 256
+					}
+				},
+				{
+					"filename": "psd_animation/walk_0004.png",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 256,
+						"h": 256
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 256,
+						"h": 256
+					},
+					"frame": {
+						"x": 3,
+						"y": 1051,
+						"w": 256,
+						"h": 256
+					}
+				},
+				{
+					"filename": "psd_animation/walk_0005.png",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 256,
+						"h": 256
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 256,
+						"h": 256
+					},
+					"frame": {
+						"x": 3,
+						"y": 1313,
+						"w": 256,
+						"h": 256
+					}
+				},
+				{
+					"filename": "psd_animation/walk_0006.png",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 256,
+						"h": 256
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 256,
+						"h": 256
+					},
+					"frame": {
+						"x": 3,
+						"y": 1575,
+						"w": 256,
+						"h": 256
+					}
+				},
+				{
+					"filename": "psd_animation/walk_0007.png",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 256,
+						"h": 256
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 256,
+						"h": 256
+					},
+					"frame": {
+						"x": 3,
+						"y": 1837,
+						"w": 256,
+						"h": 256
+					}
+				},
+				{
+					"filename": "psd_animation/walk_0008.png",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 256,
+						"h": 256
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 256,
+						"h": 256
+					},
+					"frame": {
+						"x": 3,
+						"y": 2099,
+						"w": 256,
+						"h": 256
+					}
+				},
+				{
+					"filename": "psd_animation/walk_0009.png",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 256,
+						"h": 256
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 256,
+						"h": 256
+					},
+					"frame": {
+						"x": 3,
+						"y": 2361,
+						"w": 256,
+						"h": 256
+					}
+				},
+				{
+					"filename": "psd_animation/walk_0010.png",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 256,
+						"h": 256
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 256,
+						"h": 256
+					},
+					"frame": {
+						"x": 3,
+						"y": 2623,
+						"w": 256,
+						"h": 256
+					}
+				},
+				{
+					"filename": "psd_animation/walk_0011.png",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 256,
+						"h": 256
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 256,
+						"h": 256
+					},
+					"frame": {
+						"x": 3,
+						"y": 2885,
+						"w": 256,
+						"h": 256
+					}
+				},
+				{
+					"filename": "psd_animation/walk_0012.png",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 256,
+						"h": 256
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 256,
+						"h": 256
+					},
+					"frame": {
+						"x": 3,
+						"y": 3147,
+						"w": 256,
+						"h": 256
+					}
+				},
+				{
+					"filename": "psd_animation/walk_0013.png",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 256,
+						"h": 256
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 256,
+						"h": 256
+					},
+					"frame": {
+						"x": 3,
+						"y": 3409,
+						"w": 256,
+						"h": 256
+					}
+				},
+				{
+					"filename": "psd_animation/walk_0014.png",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 256,
+						"h": 256
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 256,
+						"h": 256
+					},
+					"frame": {
+						"x": 3,
+						"y": 3671,
+						"w": 256,
+						"h": 256
+					}
+				},
+				{
+					"filename": "psd_animation/walk_0015.png",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 256,
+						"h": 256
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 256,
+						"h": 256
+					},
+					"frame": {
+						"x": 265,
+						"y": 3,
+						"w": 256,
+						"h": 256
+					}
+				},
+				{
+					"filename": "psd_animation/walk_0016.png",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 256,
+						"h": 256
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 256,
+						"h": 256
+					},
+					"frame": {
+						"x": 527,
+						"y": 3,
+						"w": 256,
+						"h": 256
+					}
+				},
+				{
+					"filename": "psd_animation/walk_0017.png",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 256,
+						"h": 256
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 256,
+						"h": 256
+					},
+					"frame": {
+						"x": 789,
+						"y": 3,
+						"w": 256,
+						"h": 256
+					}
+				},
+				{
+					"filename": "psd_animation/walk_0018.png",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 256,
+						"h": 256
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 256,
+						"h": 256
+					},
+					"frame": {
+						"x": 1051,
+						"y": 3,
+						"w": 256,
+						"h": 256
+					}
+				},
+				{
+					"filename": "psd_animation/walk_0019.png",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 256,
+						"h": 256
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 256,
+						"h": 256
+					},
+					"frame": {
+						"x": 1313,
+						"y": 3,
+						"w": 256,
+						"h": 256
+					}
+				},
+				{
+					"filename": "psd_animation/walk_0020.png",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 256,
+						"h": 256
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 256,
+						"h": 256
+					},
+					"frame": {
+						"x": 1575,
+						"y": 3,
+						"w": 256,
+						"h": 256
+					}
+				}
+			]
+		}
+	],
+	"meta": {
+		"app": "http://free-tex-packer.com",
+		"version": "0.6.7"
+	}
+}

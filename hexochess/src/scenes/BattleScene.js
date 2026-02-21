@@ -24,11 +24,12 @@ export default class BattleScene extends Phaser.Scene {
     this.load.image('rank3', '/assets/rank3.png');
     this.load.image('swordsman', '/assets/swordman.png');
 
-    // swordman walk frames (0001.png - 0020.png)
-    for (let i = 1; i <= 20; i++) {
-      const n = String(i).padStart(4, '0');
-      this.load.image(`swordman_walk_${n}`, `/assets/units/swordman/walk/${n}.png`);
-    }
+    // ✅ swordman atlas (png+json)
+    this.load.atlas(
+      'sworman_atlas',
+      '/assets/units/swordman/atlas/swordman_atlas.png',
+      '/assets/units/swordman/atlas/swordman_atlas.json'
+    );
 
     // дебаг загрузки: покажет ключ и URL, который не смог загрузиться
     this.load.on('loaderror', (file) => {
@@ -127,17 +128,27 @@ export default class BattleScene extends Phaser.Scene {
     // units system
     this.unitSys = createUnitSystem(this);
 
-    // anims: swordsman walk (temporary, from separate PNGs)
-    if (!this.anims.exists('swordman_walk')) {
-      const frames = [];
-      for (let i = 1; i <= 20; i++) {
-        const n = String(i).padStart(4, '0');
-        frames.push({ key: `swordman_walk_${n}` });
-      }
+    // ✅ anims: swordman from atlas
+    if (!this.anims.exists('swordman_idle')) {
+      // idle — 1 кадр (можно просто держать как анимацию, чтобы единообразно play())
+      this.anims.create({
+        key: 'swordman_idle',
+        frames: [{ key: 'sworman_atlas', frame: 'psd_animation/idle.png' }], // <-- имя кадра в json
+        frameRate: 1,
+        repeat: -1,
+      });
+    }
 
+    if (!this.anims.exists('swordman_walk')) {
       this.anims.create({
         key: 'swordman_walk',
-        frames,
+        frames: this.anims.generateFrameNames('sworman_atlas', {
+          prefix: 'psd_animation/walk_',
+          start: 1,
+          end: 20,
+          zeroPad: 4,
+          suffix: '.png',
+        }),
         frameRate: 12,
         repeat: -1,
       });
