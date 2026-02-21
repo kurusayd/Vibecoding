@@ -1,10 +1,51 @@
 import { updateHpBar } from './hpbar.js';
+import Phaser from 'phaser';
 
 export function cellKey(q, r) {
   return `${q},${r}`;
 }
 
 const RANK_ICON_SCALE = 0.10; //скейл размера иконки звёздочки. Чтобы менять в одном месте
+
+function makeHexHitArea(scene, w, h) {
+  const s = scene.hexSize;
+  const cx = w / 2;
+  const cy = h / 2;
+
+  const pts = [];
+  for (let i = 0; i < 6; i++) {
+    const angle = Phaser.Math.DegToRad(60 * i - 30);
+    pts.push(new Phaser.Geom.Point(
+      cx + s * Math.cos(angle),
+      cy + s * Math.sin(angle)
+    ));
+  }
+
+  return new Phaser.Geom.Polygon(pts);
+}
+
+function updateRankStroke(unit) {
+  if (!unit?.sprite) return;
+
+  const rank = unit.rank ?? 1;
+
+  // сначала сбрасываем обводку
+  unit.sprite.setStrokeStyle();
+
+  if (rank === 2) {
+    // серая толстая обводка
+    unit.sprite.setStrokeStyle(5, 0x888888, 1);
+  }
+
+  if (rank >= 3) {
+    // сначала серая
+    unit.sprite.setStrokeStyle(5, 0x888888, 1);
+
+    // потом добавляем жёлтую поверх (Phaser не поддерживает 2 stroke,
+    // поэтому имитируем — увеличиваем толщину и меняем цвет)
+    unit.sprite.setStrokeStyle(10, 0xffcc00, 1);
+  }
+}
 
 export function createUnitSystem(scene) {
   const state = {
@@ -26,8 +67,37 @@ export function createUnitSystem(scene) {
 
     const p = scene.hexToPixel(q, r);
 
-    const radius = Math.max(10, Math.floor(scene.hexSize * 0.45));
-    const sprite = scene.add.circle(p.x, p.y, radius, opts.color ?? 0x66ccff).setDepth(1000);
+    const radius = Math.floor(scene.hexSize * 0.62);
+    
+    const sprite = scene.add.circle(p.x, p.y, radius, opts.color ?? 0x66ccff)
+    .setDepth(1000);
+
+    // ✅ невидимый drag-handle размером с гекс (лежит поверх всего)
+    const w = scene.hexSize * 2;
+    const h = scene.hexSize * 2;
+
+    const dragHandle = scene.add.zone(p.x, p.y, w, h).setDepth(1100);
+    dragHandle.setDataEnabled();
+
+    const hexArea = makeHexHitArea(scene, w, h);
+    dragHandle.setInteractive(hexArea, Phaser.Geom.Polygon.Contains);
+    scene.input.setDraggable(dragHandle, true);
+
+    let art = null;
+    if ((opts.type === 'Swordsman') && scene.textures?.exists?.('swordsman')) {
+      art = scene.add.image(p.x, p.y, 'swordsman')
+        .setDepth(1050)
+        .setOrigin(0.5, 0.78);
+
+      const h = Math.round(scene.hexSize * 1.65);
+      art.setDisplaySize(h, h);
+
+      // ✅ круг скрываем, если есть арт
+      sprite.setVisible(false);
+    } else {
+      // ✅ круг показываем, если арта нет
+      sprite.setVisible(true);
+    }
 
     const label = scene.add.text(p.x, p.y, opts.label ?? '1', {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
@@ -59,26 +129,59 @@ export function createUnitSystem(scene) {
 
       hp,
       maxHp,
-      // визуальные значения для анимации
       hpInstant: hp,
       hpLag: hp,
       rank,
       rankIcon,
       sprite,
+      dragHandle,
+      art,
       label,
       hpBar,
     };
+
+    if (art) label.setVisible(false);
 
     state.units.push(unit);
     state.occupied.add(key);
 
     updateHpBar(scene, unit);
+    updateRankStroke(unit);
     return unit;
   }
 
   function spawnUnitAtScreen(x, y, opts = {}) {
-    const radius = Math.max(10, Math.floor(scene.hexSize * 0.45));
-    const sprite = scene.add.circle(x, y, radius, opts.color ?? 0x66ccff).setDepth(1000);
+    const radius = Math.floor(scene.hexSize * 0.62);
+    
+    const sprite = scene.add.circle(x, y, radius, opts.color ?? 0x66ccff)
+      .setDepth(1000);
+
+    // ✅ невидимый drag-handle размером с гекс (лежит поверх всего)
+    const w = scene.hexSize * 2;
+    const h = scene.hexSize * 2;
+
+    const dragHandle = scene.add.zone(x, y, w, h).setDepth(1100);
+    dragHandle.setDataEnabled();
+
+    const hexArea = makeHexHitArea(scene, w, h);
+    dragHandle.setInteractive(hexArea, Phaser.Geom.Polygon.Contains);
+    scene.input.setDraggable(dragHandle, true);
+
+    let art = null;
+    if ((opts.type === 'Swordsman') && scene.textures?.exists?.('swordsman')) {
+      art = scene.add.image(x, y, 'swordsman')
+        .setDepth(1050)
+        .setOrigin(0.5, 0.78);
+
+      const h = Math.round(scene.hexSize * 1.65);
+      art.setDisplaySize(h, h);
+
+      // ✅ круг скрываем, если есть арт
+      sprite.setVisible(false);
+    } else {
+      // ✅ круг показываем, если арта нет
+      sprite.setVisible(true);
+    }
 
     const label = scene.add.text(x, y, opts.label ?? '1', {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
@@ -117,14 +220,19 @@ export function createUnitSystem(scene) {
       rank,
       rankIcon,
       sprite,
+      dragHandle,
+      art,
       label,
       hpBar,
     };
+
+    if (art) label.setVisible(false);
 
     state.units.push(unit);
 
     // occupied НЕ трогаем
     updateHpBar(scene, unit);
+    updateRankStroke(unit);
     return unit;
   }
 
@@ -141,6 +249,8 @@ export function createUnitSystem(scene) {
     u.sprite.destroy();
     u.label.destroy();
     u.hpBar.destroy();
+    u.art?.destroy();
+    u.dragHandle?.destroy();
     u.rankIcon?.destroy(); 
 
     state.units = state.units.filter(x => x.id !== id);
@@ -159,6 +269,8 @@ export function createUnitSystem(scene) {
 
     const p = scene.hexToPixel(q, r);
     u.sprite.setPosition(p.x, p.y);
+    u.dragHandle?.setPosition(p.x, p.y);
+    if (u.art) u.art.setPosition(p.x, p.y);
     u.label.setPosition(p.x, p.y);
 
     updateHpBar(scene, u);
@@ -179,6 +291,7 @@ export function createUnitSystem(scene) {
     if (u.hpLag < u.hpInstant) u.hpLag = u.hpInstant;
 
     updateHpBar(scene, u);
+    updateRankStroke(u);
   }
 
   function moveUnit(unit, newQ, newR) {
@@ -193,10 +306,14 @@ export function createUnitSystem(scene) {
     unit.r = newR;
 
     const p = scene.hexToPixel(newQ, newR);
+
     unit.sprite.setPosition(p.x, p.y);
+    unit.dragHandle?.setPosition(p.x, p.y);
+    if (unit.art) unit.art.setPosition(p.x, p.y);
     unit.label.setPosition(p.x, p.y);
 
     updateHpBar(scene, unit);
+    updateRankStroke(unit);
     return true;
   }
 
@@ -208,8 +325,11 @@ export function createUnitSystem(scene) {
     for (const u of state.units) {
       const p = scene.hexToPixel(u.q, u.r);
       u.sprite.setPosition(p.x, p.y);
+      u.dragHandle?.setPosition(p.x, p.y);
+      if (u.art) u.art.setPosition(p.x, p.y);
       u.label.setPosition(p.x, p.y);
       updateHpBar(scene, u);
+      updateRankStroke(u);
     }
   }
 

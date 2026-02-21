@@ -8,7 +8,7 @@ export function createBattleState() {
 
     // короли: UI + условия окончания (позже сюда ляжет урон/награды)
     kings: {
-      player: { hp: 100, maxHp: 100, coins: 100 }, // старт для теста
+      player: { hp: 100, maxHp: 100, coins: 500 }, // старт для теста
       enemy:  { hp: 100, maxHp: 100, coins: 0, visible: false },
     },
 

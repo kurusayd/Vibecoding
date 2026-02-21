@@ -57,6 +57,111 @@ const GRID_COLS = 12;
 const GRID_ROWS = 8;
 const BENCH_SLOTS = 8;
 
+// ---- MERGE (server-authoritative) ----
+const MAX_RANK = 3;
+
+// key для группировки "одинаковых"
+function mergeKey(u) {
+  return `${u.type ?? 'Unknown'}#${u.rank ?? 1}`;
+}
+
+// Удаляет юнита из state + из owned set
+function removeOwnedUnit(state, owned, unitId) {
+  state.units = state.units.filter(u => u.id !== unitId);
+  owned.delete(unitId);
+}
+
+// Пытаемся смёрджить ВСЕ возможные тройки для owned.
+// preferredUnitId — кого апать, если он входит в тройку (удобно: купленный/перетащенный юнит)
+function applyMergesForClient(clientId, preferredUnitId = null) {
+  const owned = clientToUnits.get(clientId);
+  if (!owned || owned.size === 0) return false;
+
+  // собираем только моих player-юнитов (ботов не трогаем)
+  const myUnits = state.units.filter(u => u.team === 'player' && owned.has(u.id));
+
+  let changed = false;
+
+  // loop до тех пор, пока находятся новые мерджи (потому что 3x rank1 → rank2,
+  // потом может сложиться 3x rank2 → rank3)
+  while (true) {
+    // группируем по type+rank
+    const groups = new Map(); // key -> array of units
+    for (const u of myUnits) {
+      const rank = u.rank ?? 1;
+      if (rank >= MAX_RANK) continue; // rank3 уже не мерджим
+      const k = mergeKey(u);
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(u);
+    }
+
+    // найдём любую группу с >=3
+    let foundKey = null;
+    for (const [k, arr] of groups.entries()) {
+      if (arr.length >= 3) {
+        foundKey = k;
+        break;
+      }
+    }
+    if (!foundKey) break;
+
+    const arr = groups.get(foundKey);
+
+    // выбираем тройку
+    // если preferredUnitId есть и входит в группу — апаем его
+    let base = null;
+    if (preferredUnitId != null) {
+      base = arr.find(u => u.id === Number(preferredUnitId)) ?? null;
+    }
+    if (!base) base = arr[0];
+
+    // берём ещё 2 любых, кроме base
+    const others = arr.filter(u => u.id !== base.id).slice(0, 2);
+    if (others.length < 2) break; // на всякий пожарный
+
+    // ✅ апаем base: rank + статы (x2 за каждый переход ранга)
+    const oldRank = base.rank ?? 1;
+    const newRank = Math.min(MAX_RANK, oldRank + 1);
+    base.rank = newRank;
+
+    // множители: x2 на каждый ап ранга (1->2 и 2->3)
+    const mult = 2;
+
+    // maxHp
+    const oldMaxHp = Number(base.maxHp ?? base.hp ?? 1);
+    const newMaxHp = Math.max(1, Math.round(oldMaxHp * mult));
+    base.maxHp = newMaxHp;
+
+    // atk
+    const oldAtk = Number(base.atk ?? 1);
+    const newAtk = Math.max(1, Math.round(oldAtk * mult));
+    base.atk = newAtk;
+
+    // hp всегда полное после мерджа
+    base.hp = base.maxHp;
+
+    // удаляем двух остальных
+    for (const o of others) {
+      removeOwnedUnit(state, owned, o.id);
+    }
+
+    // обновляем myUnits (т.к. мы удалили юнитов)
+    // и оставляем base в массиве (он уже там, просто rank поменялся)
+    for (const o of others) {
+      const idx = myUnits.findIndex(x => x.id === o.id);
+      if (idx !== -1) myUnits.splice(idx, 1);
+    }
+
+    changed = true;
+
+    // после первого мерджа preferredUnitId лучше привязать к base,
+    // чтобы возможный следующий мердж апал свежий апнутый юнит
+    preferredUnitId = base.id;
+  }
+
+  return changed;
+}
+
 // ---- SHOP + UNIT CATALOG (MVP) ----
 const UNIT_CATALOG = [
   { type: 'Swordsman', cost: 10, hp: 60, atk: 20 },
@@ -393,47 +498,51 @@ function handleIntent(clientId, msg, ws) {
       return;
     }
 
-  // запоминаем откуда пришёл
-  const prev = {
-    zone: me.zone,
-    q: me.q,
-    r: me.r,
-    benchSlot: me.benchSlot,
-  };
+    // запоминаем откуда пришёл
+    const prev = {
+        zone: me.zone,
+        q: me.q,
+        r: me.r,
+        benchSlot: me.benchSlot,
+    };
 
-  const occupied = getUnitInBenchSlot(slot);
-  if (occupied && occupied.id !== requestedUnitId) {
-    // ✅ swap только если занято МОИМ юнитом
-    if (occupied.team !== 'player' || !owned.has(occupied.id)) {
-      ws.send(JSON.stringify(makeErrorMessage('OCCUPIED', 'Bench slot occupied')));
+    const occupied = getUnitInBenchSlot(slot);
+    if (occupied && occupied.id !== requestedUnitId) {
+      // ✅ swap только если занято МОИМ юнитом
+      if (occupied.team !== 'player' || !owned.has(occupied.id)) {
+        ws.send(JSON.stringify(makeErrorMessage('OCCUPIED', 'Bench slot occupied')));
+        return;
+      }
+
+      // me -> target bench slot
+      me.zone = 'bench';
+      me.benchSlot = slot;
+
+      // occupied -> old place of me
+      if (prev.zone === 'bench') {
+        occupied.zone = 'bench';
+        occupied.benchSlot = prev.benchSlot;
+      } else {
+        occupied.zone = 'board';
+        occupied.benchSlot = null;
+        occupied.q = prev.q;
+        occupied.r = prev.r;
+      }
+
+      // ✅ MERGE: предпочитаем юнит, который двигали
+      applyMergesForClient(clientId, requestedUnitId);
+
+      broadcast(makeStateMessage(state));
       return;
     }
 
-    // me -> target bench slot
+    // обычная установка (слот свободен)
     me.zone = 'bench';
     me.benchSlot = slot;
 
-    // occupied -> old place of me
-    if (prev.zone === 'bench') {
-      occupied.zone = 'bench';
-      occupied.benchSlot = prev.benchSlot;
-    } else {
-      occupied.zone = 'board';
-      occupied.benchSlot = null;
-      occupied.q = prev.q;
-      occupied.r = prev.r;
-    }
-
+    applyMergesForClient(clientId, requestedUnitId);
     broadcast(makeStateMessage(state));
     return;
-  }
-
-  // обычная установка (слот свободен)
-  me.zone = 'bench';
-  me.benchSlot = slot;
-
-  broadcast(makeStateMessage(state));
-  return;
 
   }
 
@@ -497,6 +606,8 @@ function handleIntent(clientId, msg, ws) {
         occupied.benchSlot = prev.benchSlot;
       }
 
+      applyMergesForClient(clientId, requestedUnitId);
+
       broadcast(makeStateMessage(state));
       return;
     }
@@ -510,6 +621,8 @@ function handleIntent(clientId, msg, ws) {
       ws.send(JSON.stringify(makeErrorMessage('MOVE_DENIED', 'Cannot set start there')));
       return;
     }
+
+    applyMergesForClient(clientId, requestedUnitId);
 
     broadcast(makeStateMessage(state));
     return;
@@ -618,6 +731,9 @@ function handleIntent(clientId, msg, ws) {
 
     // заменяем купленный слот новым оффером
     state.shop.offers[idx] = makeRandomOffer();
+
+    // ✅ MERGE: пробуем смёрджить, предпочитаем только что купленного
+    applyMergesForClient(clientId, newId);
 
     broadcast(makeStateMessage(state));
     return;

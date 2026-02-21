@@ -22,6 +22,7 @@ export default class BattleScene extends Phaser.Scene {
     this.load.image('rank1', '/assets/rank1.png');
     this.load.image('rank2', '/assets/rank2.png');
     this.load.image('rank3', '/assets/rank3.png');
+    this.load.image('swordsman', '/assets/swordman.png');
   }
 
   create() {
@@ -149,6 +150,7 @@ export default class BattleScene extends Phaser.Scene {
       this.syncPhaseUI();
       this.syncKingsUI();
       this.syncShopUI();
+      this.refreshAllDraggable();
     };
 
     this.ws.onState = (state) => {
@@ -161,6 +163,7 @@ export default class BattleScene extends Phaser.Scene {
       this.syncPhaseUI();
       this.syncKingsUI();
       this.syncShopUI();
+      this.refreshAllDraggable();
     };
 
     this.ws.onError = (err) => {
@@ -224,8 +227,12 @@ export default class BattleScene extends Phaser.Scene {
       const core = (this.battleState?.units ?? []).find(u => u.id === uid);
       if (!core || core.team !== 'player') return;
 
-
       gameObject.setPosition(dragX, dragY);
+
+      const vu = this.unitSys.findUnit(uid);
+      if (vu?.sprite) vu.sprite.setPosition(dragX, dragY);
+      if (vu?.art) vu.art.setPosition(dragX, dragY);
+      if (vu?.label) vu.label.setPosition(dragX, dragY);
 
       // подсветка клетки под курсором
       const hitBench = this.tryPickBench(pointer.worldX, pointer.worldY);
@@ -238,14 +245,6 @@ export default class BattleScene extends Phaser.Scene {
       }
 
       this.drawGrid();
-
-      const vu = this.unitSys.findUnit(uid);
-
-      if (vu) {
-        vu.label.setPosition(dragX, dragY);
-        // НЕ relayoutUnits() — он возвращает в гекс и ломает drag
-      }
-      
     });
 
     this.input.on('dragend', (pointer, gameObject) => {
@@ -271,8 +270,13 @@ export default class BattleScene extends Phaser.Scene {
         gameObject.setPosition(p.x, p.y);
 
         const vu = this.unitSys.findUnit(uid);
+        if (vu?.sprite) vu.sprite.setPosition(p.x, p.y);
+        if (vu?.art) vu.art.setPosition(p.x, p.y);
+        if (vu?.label) vu.label.setPosition(p.x, p.y);
+
         if (vu) {
           vu.label.setPosition(p.x, p.y);
+          if (vu?.art) vu.art.setPosition(p.x, p.y);
           // на скамейке hpBar не показываем
           if (vu.hpBar) vu.hpBar.setVisible(false);
         }
@@ -296,8 +300,11 @@ export default class BattleScene extends Phaser.Scene {
 
       const p = this.hexToPixel(hit.q, hit.r);
       gameObject.setPosition(p.x, p.y);
-
       const vu = this.unitSys.findUnit(uid);
+      if (vu?.sprite) vu.sprite.setPosition(p.x, p.y);
+      if (vu?.art) vu.art.setPosition(p.x, p.y);
+      if (vu?.label) vu.label.setPosition(p.x, p.y);
+
       if (vu) {
         vu.label.setPosition(p.x, p.y);
         if (vu.hpBar) vu.hpBar.setVisible(true);
@@ -617,14 +624,11 @@ export default class BattleScene extends Phaser.Scene {
     if (!sprite || !sprite.active) return;
 
     if (enabled) {
-      sprite.setInteractive({ useHandCursor: true });
       this.input.setDraggable(sprite, true);
+      if (sprite.input) sprite.input.enabled = true;
     } else {
-      // выключаем только если есть input (иначе Phaser может упасть)
-      if (sprite.input) {
-        this.input.setDraggable(sprite, false);
-        sprite.disableInteractive();
-      }
+      this.input.setDraggable(sprite, false);
+      if (sprite.input) sprite.input.enabled = false;
     }
   }
 
@@ -668,6 +672,7 @@ export default class BattleScene extends Phaser.Scene {
 
           created = this.unitSys.spawnUnitAtScreen(p.x, p.y, {
             id: u.id,
+            type: u.type,
             label: (
               u.type === 'Archer' ? 'A' :
               u.type === 'Tank' ? 'T' :
@@ -684,6 +689,7 @@ export default class BattleScene extends Phaser.Scene {
         } else {
           created = this.unitSys.spawnUnitOnBoard(u.q, u.r, {
             id: u.id,
+            type: u.type,
             label: (
               u.type === 'Archer' ? 'A' :
               u.type === 'Tank' ? 'T' :
@@ -713,12 +719,12 @@ export default class BattleScene extends Phaser.Scene {
           continue;
         }
 
-        created.sprite.setDataEnabled();
-        created.sprite.data.set('unitId', created.id);
+        created.dragHandle.setDataEnabled();
+        created.dragHandle.data.set('unitId', created.id);
 
         // drag разрешаем всем юнитам игрока в prep
         const canDrag = (u.team === 'player') && (this.battleState?.phase === 'prep') && !this.battleState?.result;
-        this.setSpriteDraggable(created.sprite, canDrag);
+        this.setSpriteDraggable(created.dragHandle, canDrag);
 
         // если сервер сказал "bench" — сразу переставим на скамейку
         if (u.zone === 'bench') {
@@ -727,6 +733,8 @@ export default class BattleScene extends Phaser.Scene {
 
           created.sprite.setPosition(p.x, p.y);
           created.label?.setPosition(p.x, p.y);
+          created.dragHandle?.setPosition(p.x, p.y);
+          created.art?.setPosition(p.x, p.y);
 
           // на скамейке hpBar не показываем
           if (created.hpBar) created.hpBar.setVisible(false);
@@ -744,9 +752,10 @@ export default class BattleScene extends Phaser.Scene {
 
         const vu = this.unitSys.findUnit(u.id);
         if (vu?.sprite) vu.sprite.setPosition(p.x, p.y);
+        if (vu?.dragHandle) vu.dragHandle.setPosition(p.x, p.y);
+        if (vu?.art) vu.art.setPosition(p.x, p.y);
         if (vu?.label) vu.label.setPosition(p.x, p.y);
 
-        // на скамейке hpBar не показываем
         if (vu?.hpBar) vu.hpBar.setVisible(false);
       } else {
         this.unitSys.setUnitPos(u.id, u.q, u.r);
@@ -775,13 +784,13 @@ export default class BattleScene extends Phaser.Scene {
         vu.label.setText(ch);
       }
 
-      if (vu?.sprite) {
+      if (vu?.dragHandle) {
         const canDrag =
           (u.team === 'player') &&
           (this.battleState?.phase === 'prep') &&
           !this.battleState?.result;
 
-        this.setSpriteDraggable(vu.sprite, canDrag);
+        this.setSpriteDraggable(vu.dragHandle, canDrag);
       }
 
     }
@@ -984,6 +993,23 @@ export default class BattleScene extends Phaser.Scene {
     const by = p.y;
 
     return { row, col: 0, screen: { x: bx, y: by } };
+  }
+
+  refreshAllDraggable() {
+    const phase = this.battleState?.phase ?? 'prep';
+    const result = this.battleState?.result ?? null;
+
+    for (const u of (this.battleState?.units ?? [])) {
+      const vu = this.unitSys.findUnit(u.id);
+      if (!vu?.dragHandle) continue;
+
+      const canDrag =
+        (u.team === 'player') &&
+        (phase === 'prep') &&
+        !result;
+
+      this.setSpriteDraggable(vu.dragHandle, canDrag);
+    }
   }
 
   update(time, delta) {
