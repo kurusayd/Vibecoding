@@ -26,12 +26,95 @@ import {
 const state = createBattleState();
 let nextUnitId = 1;
 
+// ---- economy / rounds ----
+state.round = state.round ?? 1;          // 1..N
+state.winStreak = state.winStreak ?? 0;  // подряд побед
+state.loseStreak = state.loseStreak ?? 0; // подряд пораж
+
 // слепок расстановки на момент старта боя (для возврата в prep)
 let prepSnapshot = null; // Array of units
 
 // ---- battle timers (GLOBAL, not per connection) ----
 let battleTimer = null;
 let finishTimeout = null;
+
+const BASE_INCOME_AFTER_R5 = 5;
+const INTEREST_STEP = 10;
+const INTEREST_CAP = 5;     // classic: максимум +5
+const COINS_CAP = 100;      // твой кап
+
+function clampCoinsKing(king) {
+  king.coins = Math.max(0, Math.min(COINS_CAP, Number(king.coins ?? 0)));
+}
+
+// round: 1..N
+function baseIncomeForRound(round) {
+  if (round <= 1) return 1;
+  if (round === 2) return 2;
+  if (round === 3) return 3;
+  if (round === 4) return 4;
+  return BASE_INCOME_AFTER_R5; // 5+
+}
+
+function interestIncome(coins) {
+  // +1 за каждые 10, кап 5
+  return Math.min(INTEREST_CAP, Math.floor(coins / INTEREST_STEP));
+}
+
+function streakBonus(streakCount) {
+  // 0-2:0, 3-4:+1, 5-6:+2, 7+:+3
+  if (streakCount >= 7) return 3;
+  if (streakCount >= 5) return 2;
+  if (streakCount >= 3) return 1;
+  return 0;
+}
+
+function clampPlayerCoins() {
+  if (!state?.kings?.player) return;
+  const c = Number(state.kings.player.coins ?? 0);
+  state.kings.player.coins = Math.max(0, Math.min(COINS_CAP, c));
+}
+
+function grantRoundGold(result) {
+  // result: 'victory' | 'defeat' | 'draw'
+  const king = state.kings.player;
+
+  const round = Number(state.round ?? 1);
+  const base = baseIncomeForRound(round);
+
+  const didWin = (result === 'victory');
+  const didLose = (result === 'defeat');
+
+  // победа даёт +1 (как в DAC). Ничья = 0.
+  const winBonus = didWin ? 1 : 0;
+
+  // стрики
+  if (didWin) {
+    state.winStreak = (state.winStreak ?? 0) + 1;
+    state.loseStreak = 0;
+  } else if (didLose) {
+    state.loseStreak = (state.loseStreak ?? 0) + 1;
+    state.winStreak = 0;
+  } else {
+    // draw: обычно сбрасывают стрики
+    state.winStreak = 0;
+    state.loseStreak = 0;
+  }
+
+  const streak = didWin
+    ? streakBonus(state.winStreak)
+    : didLose
+      ? streakBonus(state.loseStreak)
+      : 0;
+
+  const interest = interestIncome(king.coins);
+
+  king.coins += (base + winBonus + streak + interest);
+  clampPlayerCoins();
+
+  // следующий раунд
+  state.round = round + 1;
+}
 
 function stopBattleTimers() {
   if (battleTimer) {
@@ -340,6 +423,10 @@ function computeResult() {
 function resetToPrep() {
   // ✅ Auto Chess rule: +1 XP each round (win/lose doesn’t matter)
   applyKingXp(state.kings.player, 1);
+
+  // ✅ GOLD: начисляем золото за прошедший бой
+  // state.result в этот момент ещё содержит 'victory/defeat/draw'
+  grantRoundGold(state.result);
   state.phase = 'prep';
   state.result = null;
 
@@ -715,6 +802,7 @@ function handleIntent(clientId, msg, ws) {
     state.kings.player.coins -= COST;
     applyKingXp(state.kings.player, GAIN);
 
+    clampPlayerCoins();
     broadcast(makeStateMessage(state));
     return;
   }
@@ -751,6 +839,7 @@ function handleIntent(clientId, msg, ws) {
 
     // списываем монеты
     state.kings.player.coins -= offer.cost;
+    clampPlayerCoins();
 
     // создаём купленного юнита на bench
     const newId = nextUnitId++;
@@ -833,15 +922,6 @@ wss.on('connection', (ws) => {
     } catch {
     ws.send(JSON.stringify(makeErrorMessage('BAD_JSON', 'Cannot parse JSON')));
         return;
-    }
-
-    if (msg?.type === 'intent' && msg.action === 'startBattle') {
-      if (state.phase !== 'prep') {
-        ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'Battle can start only from prep')));
-        return;
-      }
-      startBattle();
-      return;
     }
 
     handleIntent(clientId, msg, ws);

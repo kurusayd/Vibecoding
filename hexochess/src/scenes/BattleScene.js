@@ -84,18 +84,57 @@ export default class BattleScene extends Phaser.Scene {
       color: '#ffffff',
     };
 
-    // --- COINS UI ---
+    // --- COINS UI (coin icon + progress bar) ---
     this.coinSize = 28;
+    this.coinMax = 100; // ✅ максимальное кол-во монет
 
-    this.kingLeftCoinIcon = this.add.image(0, 0, 'coin')
-      .setDisplaySize(this.coinSize, this.coinSize)
+    this.coinContainer = this.add.container(0, 0)
       .setScrollFactor(0)
       .setDepth(9998);
 
-    this.kingLeftCoinText = this.add.text(0, 0, '', kingTextStyle)
-      .setScrollFactor(0)
-      .setDepth(9998)
-      .setOrigin(0, 0.5); // важное: текст по левому краю
+    this.kingLeftCoinIcon = this.add.image(0, 0, 'coin')
+      .setDisplaySize(this.coinSize, this.coinSize)
+      .setOrigin(0.5, 0.5);
+
+    this.coinBarBg = this.add.graphics();
+    this.coinBarFill = this.add.graphics();
+
+    this.kingLeftCoinText = this.add.text(0, 0, '', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '16px',        // ✅ как у lv. 1
+      color: '#ffffff',
+    })
+      .setOrigin(0.5, 0.5)
+      .setShadow(0, 0, '#000000', 4, true, true);
+
+    // порядок как у XP: bg -> fill -> icon -> text
+    this.coinContainer.add([
+      this.coinBarBg,
+      this.coinBarFill,
+      this.kingLeftCoinIcon,
+      this.kingLeftCoinText,
+    ]);
+
+    // --- COIN INFO POPUP (hit zone) ---
+    this.coinInfoOpen = false;
+
+    // интерактивная зона на весь блок монет (иконка + бар)
+    this.coinHit = this.add.zone(0, 0, 230, 44)
+      .setOrigin(0.5, 0.5)
+      .setInteractive({ useHandCursor: true });
+
+    this.coinContainer.add(this.coinHit);
+
+    this.coinHit.on('pointerdown', (pointer) => {
+      pointer?.event?.stopPropagation?.();
+
+      // переключаем попап
+      if (this.coinInfoOpen) {
+        this.hideCoinInfoPopup();
+      } else {
+        this.showCoinInfoPopup();
+      }
+    });
 
     // --- KING LEVEL UI (crown + xp bar) ---
     this.kingLevelExpanded = false;
@@ -120,9 +159,13 @@ export default class BattleScene extends Phaser.Scene {
 
     this.kingLevelXpText = this.add.text(0, 0, '', {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-      fontSize: '14px',
+      fontSize: '18px',          // было 14px → делаем крупнее
       color: '#ffffff',
-    }).setOrigin(0.5, 0).setVisible(false);
+    })
+      .setOrigin(0.5, 0)
+      .setVisible(false)
+      .setStroke('#000000', 2)   // было 4 → делаем тонкую аккуратную обводку
+      .setShadow(0, 0, '#000000', 2, true, true); // лёгкая мягкая тень
 
     // интерактивная зона на всю конструкцию
     this.kingLevelHit = this.add.zone(0, 0, 200, 44)
@@ -140,14 +183,25 @@ export default class BattleScene extends Phaser.Scene {
       this.syncKingsUI();
     });
 
-    // ✅ любой тап в любом месте закрывает Exp (если тап не по этому блоку)
+    // ✅ любой тап в любом месте закрывает Exp и поп ап с инфой о золоте (если тап не по этому блоку)
     this.input.on('pointerdown', (pointer, currentlyOver) => {
-      // currentlyOver — список интерактивных объектов под тапом
-      const overLevel = (currentlyOver || []).includes(this.kingLevelHit);
+      const over = currentlyOver || [];
+
+      const overLevel = this.kingLevelHit && over.includes(this.kingLevelHit);
+
+      const overCoins = this.coinHit && over.includes(this.coinHit);
+      const overCoinPopup = this.coinPopupHit && over.includes(this.coinPopupHit); // ✅ важно
+
+      // закрытие Exp
       if (!overLevel && this.kingLevelExpanded) {
         this.kingLevelExpanded = false;
         this.kingLevelXpText?.setVisible(false);
         this.positionCoinsHUD();
+      }
+
+      // закрытие попапа золота: закрываем только если тап НЕ по блоку золота и НЕ по самому попапу
+      if (!overCoins && !overCoinPopup && this.coinInfoOpen) {
+        this.hideCoinInfoPopup();
       }
     });
 
@@ -271,7 +325,7 @@ export default class BattleScene extends Phaser.Scene {
     };
 
     this.ws.onError = (err) => {
-      console.warn('Server error:', err);
+      console.warn('Server error:', err?.code, err?.message || err);
 
       if (err?.code === 'OCCUPIED' || err?.code === 'MOVE_DENIED' || err?.code === 'NOT_OWNER') {
         this.shadowOverride = null;
@@ -574,41 +628,32 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   positionCoinsHUD() {
-    if (!this.kingLeftCoinIcon || !this.kingLeftCoinText) return;
+    if (!this.kingLeftCoinIcon || !this.kingLeftCoinText || !this.kingLevelContainer) return;
 
     const view = this.scale.getViewPort();
 
-    // ✅ Y как у кнопки "Бой"
-    const iconH = this.kingLeftCoinIcon.displayHeight || this.coinSize;
-
+    // базовая линия по Y — как у кнопки "Бой"
     const btnTop = this.battleBtn
       ? (this.battleBtn.y - (this.battleBtn.height ?? this.battleBtn.displayHeight ?? 0) * (this.battleBtn.originY ?? 0.5))
       : (view.y + 14);
 
-    const y = btnTop + iconH / 2;
+    // базовый X — левый край поля
+    const p0 = this.hexToPixel(0, 0);
+    const baseX = Math.max(view.x + 8, p0.x - this.hexSize);
 
-    // ✅ X по левому краю поля (первый столбец гексов)
-    // Берём центр гекса (q=0,r=0) и ставим блок чуть левее/правее по вкусу
-    const p0 = this.hexToPixel(0, 0);          // центр первого гекса
-    const baseX = Math.max(view.x + 8, p0.x - this.hexSize); // привязка к левому краю поля
+    // 1) сначала ставим блок опыта (корона+бар) сверху
+    const xpY = btnTop + 14; // верхняя строка HUD (подбери если надо)
+    // выравниваем левый край XP-блока (левый край короны) по baseX,
+    // как и левый край иконки монет
+    const crownW = this.kingLevelIcon?.displayWidth ?? 30;
+    this.kingLevelContainer.setPosition(baseX + crownW / 2, xpY);
 
-    // текст у нас origin(0,0.5), ставим по левому краю
-    this.kingLeftCoinText.setOrigin(0, 0.5);
-
+    // 2) монеты — ПОД блоком опыта (теперь это контейнер с баром)
     const iconW = this.kingLeftCoinIcon.displayWidth || this.coinSize;
-    const gap = 10;
+    const coinY = xpY + 32;
 
-    // иконка
-    this.kingLeftCoinIcon.setPosition(baseX + iconW / 2, y);
-
-    // текст
-    this.kingLeftCoinText.setPosition(baseX + iconW + gap, y);
-
-    // конструкция уровня правее монет
-    if (this.kingLevelContainer) {
-      const afterCoinTextX = this.kingLeftCoinText.x + this.kingLeftCoinText.width + 24; // было 14 — больше отступ от монет
-      this.kingLevelContainer.setPosition(afterCoinTextX, y - 2); // чуть выше, чтобы не казалось ниже монеты
-    }
+    // левый край иконки = baseX, значит центр иконки = baseX + iconW/2
+    this.coinContainer.setPosition(baseX + iconW / 2, coinY);
   }
 
   positionKings() {
@@ -650,7 +695,17 @@ export default class BattleScene extends Phaser.Scene {
     const kings = this.battleState?.kings;
 
     const p = kings?.player ?? { hp: 100, maxHp: 100, coins: 0 };
-    this.kingLeftCoinText?.setText(`x ${p.coins}`);
+
+    const rawCoins = Number(p.coins ?? 0);
+
+    // ✅ показываем реальные монеты (чтобы было видно, что тратятся)
+    this.kingLeftCoinText?.setText(String(rawCoins));
+
+    // ✅ прогресс-бар: “копилка на 100”
+    // если хочешь именно "от 0 до 100 и сброс", используем остаток
+    const maxCoins = this.coinMax ?? 100;
+    const barCoins = Phaser.Math.Clamp(rawCoins, 0, maxCoins); // ✅ 100 => полный бар
+    this.drawCoinBar?.(barCoins, maxCoins);
 
     const lvl = Number(p.level ?? 1);
     const xp = Number(p.xp ?? 0);
@@ -776,19 +831,71 @@ export default class BattleScene extends Phaser.Scene {
     const cy = y + h / 2;
     this.kingLevelText.setPosition(cx, cy);
 
-    // позиция строки xp/need под баром
-    this.kingLevelXpText.setPosition(cx, y + h + 4);
+    // Exp рисуем СПРАВА от конца бара, с отступом
+    const expGap = 10;
+    this.kingLevelXpText.setOrigin(0, 0.5);
+    this.kingLevelXpText.setPosition(x + w + expGap, cy);
 
-    // ✅ хит-зона должна покрывать иконку + бар (+ Exp если раскрыто)
-    const hitH = this.kingLevelExpanded ? (h + 6 + this.kingLevelXpText.height + 12) : 44;
-    const hitW = (iconW / 2) + w + 16;
+    const hitH = this.kingLevelExpanded ? 44 : 44; // Exp теперь в одну линию, высота не растёт
+    const extraRight = this.kingLevelExpanded ? (this.kingLevelXpText.width + 16) : 0;
 
-    // центр зоны — по центру бара
-    const hitCx = cx;
-    const hitCy = this.kingLevelExpanded ? (this.kingLevelXpText.height / 2 + 6) : 0;
+    // ширина: иконка (половина слева) + бар + Exp справа + запас
+    const hitW = (iconW / 2) + w + 16 + extraRight;
+
+    // центр зоны сдвигаем вправо, если Exp видим (потому что он справа)
+    const hitCx = cx + (extraRight / 2);
+    const hitCy = 0;
 
     this.kingLevelHit.setPosition(hitCx, hitCy);
     this.kingLevelHit.setSize(hitW, hitH);
+  }
+
+  drawCoinBar(coins, maxCoins) {
+    if (!this.coinBarBg || !this.coinBarFill) return;
+
+    // ✅ идентичные размеры как у XP-бара
+    const w = 170;
+    const h = 18;
+
+    const iconW = this.kingLeftCoinIcon?.displayWidth ?? 28;
+
+    // такие же параметры "налезания"
+    const overlap = 10;
+    const gap = 2;
+
+    // старт бара: немного под иконку
+    const x = (iconW / 2) - overlap + gap;
+    const y = -h / 2;
+
+    this.coinBarBg.clear();
+    this.coinBarFill.clear();
+
+    // --- Стильная обводка (оранжево-коричневая) ---
+    this.coinBarBg.lineStyle(1, 0x9a5a00, 1);
+    this.coinBarBg.strokeRoundedRect(x, y, w, h, 6);
+
+    // --- Фон ---
+    this.coinBarBg.fillStyle(0x2a2a2a, 1);
+    this.coinBarBg.fillRoundedRect(x + 1, y + 1, w - 2, h - 2, 5);
+
+    // --- Fill (жёлто-оранжевый) ---
+    const ratio = (maxCoins > 0) ? Phaser.Math.Clamp(coins / maxCoins, 0, 1) : 1;
+    this.coinBarFill.fillStyle(0xffb000, 0.95); // ближе к оранжевому под монету
+    this.coinBarFill.fillRoundedRect(x + 1, y + 1, (w - 2) * ratio, h - 2, 5);
+
+    // текст по центру бара (как lv. у XP)
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    this.kingLeftCoinText.setPosition(cx, cy);
+
+    // обновим hit-зону под фактическую ширину блока
+    if (this.coinHit) {
+      const hitH = 44;
+      const hitW = (iconW / 2) + w + 16; // иконка + бар + запас
+      const cx = x + w / 2;
+      this.coinHit.setPosition(cx, 0);
+      this.coinHit.setSize(hitW, hitH);
+    }
   }
 
   setSpriteDraggable(sprite, enabled) {
@@ -1210,6 +1317,149 @@ export default class BattleScene extends Phaser.Scene {
 
       this.setSpriteDraggable(vu.dragHandle, canDrag);
     }
+  }
+
+  showCoinInfoPopup() {
+    if (this.coinInfoOpen) return;
+    this.coinInfoOpen = true;
+
+    // --- математика (как на сервере) ---
+    const round = Number(this.battleState?.round ?? 1);
+    const winStreak = Number(this.battleState?.winStreak ?? 0);
+    const loseStreak = Number(this.battleState?.loseStreak ?? 0);
+
+    const coinsNow = Number(this.battleState?.kings?.player?.coins ?? 0);
+
+    const baseIncomeForRound = (r) => {
+      if (r <= 1) return 1;
+      if (r === 2) return 2;
+      if (r === 3) return 3;
+      if (r === 4) return 4;
+      return 5; // 5+
+    };
+
+    const interestIncome = (coins) => Math.min(5, Math.floor(coins / 10));
+
+    const streakBonus = (streakCount) => {
+      if (streakCount >= 7) return 3;
+      if (streakCount >= 5) return 2;
+      if (streakCount >= 3) return 1;
+      return 0;
+    };
+
+    const base = baseIncomeForRound(round);
+    const interest = interestIncome(coinsNow);
+    const winBonus = 1; // показываем всегда
+
+    // если сейчас уже идёт серия побед — бонус по текущей длине
+    // если серии ещё нет, но следующая победа начнёт бонус (со следующей 3-й) — покажем "будет +1"
+    const willWinStreakCount = (winStreak > 0) ? winStreak : 0;
+    const nextWinStreakCount = willWinStreakCount + 1;
+    const winStreakShown =
+      (winStreak >= 3) ? streakBonus(winStreak)
+      : (winStreak === 2) ? streakBonus(3) // следующая победа даст бонус
+      : 0;
+
+    // аналогично для поражений
+    const willLoseStreakCount = (loseStreak > 0) ? loseStreak : 0;
+    const nextLoseStreakCount = willLoseStreakCount + 1;
+    const loseStreakShown =
+      (loseStreak >= 3) ? streakBonus(loseStreak)
+      : (loseStreak === 2) ? streakBonus(3)
+      : 0;
+
+    // "ожидаемый" итог: если сейчас идёт win-streak или мы на пороге win-streak (2 подряд),
+    // считаем по победному сценарию. Если идёт lose-streak/порог — по поражению.
+    // Иначе — просто base+interest+winBonus.
+    let expected = base + interest + winBonus;
+
+    if (winStreak >= 2) {
+      // ожидаем победу и учёт win streak (текущий или начнётся)
+      const effectiveWinStreak = (winStreak >= 3) ? streakBonus(winStreak) : streakBonus(3);
+      expected = base + interest + winBonus + effectiveWinStreak;
+    } else if (loseStreak >= 2) {
+      // ожидаем поражение и учёт lose streak (текущий или начнётся)
+      const effectiveLoseStreak = (loseStreak >= 3) ? streakBonus(loseStreak) : streakBonus(3);
+      expected = base + interest + effectiveLoseStreak;
+    }
+
+    // --- позиционирование тултипа под блоком золота ---
+    // coinContainer стоит в HUD (scrollFactor 0), поэтому bounds корректны
+    const b = this.coinContainer.getBounds();
+    const padding = 10;
+    const popupW = 320;
+    const lineH = 18;
+
+    const lines = [];
+    lines.push(`Доход за раунд: +${base + interest}`);
+    lines.push(`Бонус за победу: +${winBonus}`);
+
+    // показываем win streak, если он начнётся со следующей победой (2 подряд) ИЛИ уже идёт (>=3)
+    if (winStreak >= 2) {
+      const txt = (winStreak >= 3)
+        ? `Бонус за серию побед: +${streakBonus(winStreak)}`
+        : `Бонус за серию побед: +${streakBonus(3)} (со следующей победой)`;
+      lines.push(txt);
+    }
+
+    // показываем lose streak аналогично
+    if (loseStreak >= 2) {
+      const txt = (loseStreak >= 3)
+        ? `Бонус за серию поражений: +${streakBonus(loseStreak)}`
+        : `Бонус за серию поражений: +${streakBonus(3)} (со следующего поражения)`;
+      lines.push(txt);
+    }
+
+    lines.push(`Ожидаемый доход раунда: +${expected}`);
+
+    const popupH = padding * 2 + lines.length * lineH + 8;
+
+    // контейнер (без затемнения экрана)
+    this.coinPopup = this.add.container(0, 0).setDepth(20000).setScrollFactor(0);
+
+    // фон тултипа
+    const bg = this.add.rectangle(0, 0, popupW, popupH, 0x0b0b0b, 0.88)
+      .setOrigin(0, 0)
+      .setStrokeStyle(2, 0xffb000, 0.95);
+
+    // текст
+    const text = this.add.text(0, 0, lines.join('\n'), {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '14px',
+      color: '#ffffff',
+      lineSpacing: 6,
+      wordWrap: { width: popupW - padding * 2 },
+    }).setOrigin(0, 0);
+
+    text.setPosition(padding, padding);
+
+    // хит-зона тултипа, чтобы клик по нему не закрывал сразу (будем учитывать в currentlyOver)
+    this.coinPopupHit = this.add.zone(0, 0, popupW, popupH)
+      .setOrigin(0, 0)
+      .setInteractive();
+
+    this.coinPopup.add([bg, text, this.coinPopupHit]);
+
+    // позиция: под золотом, выровнять по левому краю блока золота
+    let px = b.left;
+    let py = b.bottom + 6;
+
+    // чтобы не вылезало за экран справа
+    const viewW = this.scale.width;
+    if (px + popupW > viewW - 8) px = Math.max(8, viewW - 8 - popupW);
+
+    this.coinPopup.setPosition(px, py);
+  }
+
+  hideCoinInfoPopup() {
+    if (!this.coinInfoOpen) return;
+    this.coinInfoOpen = false;
+
+    if (this.coinPopup) {
+      this.coinPopup.destroy(true);
+      this.coinPopup = null;
+    }
+    this.coinPopupHit = null;
   }
 
   update(time, delta) {
