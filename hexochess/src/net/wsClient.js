@@ -76,6 +76,11 @@ export class WSClient {
     this.ws.send(JSON.stringify(msg));
   }
 
+  sendIntentStartGame() {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.ws.send(JSON.stringify({ type: 'intent', action: 'startGame' }));
+  }
+
   sendIntentShopBuy(offerIndex) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     const msg = makeShopBuyIntent(offerIndex);

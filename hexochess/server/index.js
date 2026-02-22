@@ -26,8 +26,18 @@ import {
 const state = createBattleState();
 let nextUnitId = 1;
 
+state.battleSecondsLeft = state.battleSecondsLeft ?? 0;
+
+let battleCountdownTimer = null;
+const BATTLE_DURATION_SECONDS = 40; // ✅ "Сражение: 40с"
+
+// ---- rounds / prep timer ----
+state.round = state.round ?? 1;              // игра стартует с 1 раунда
+state.prepSecondsLeft = state.prepSecondsLeft ?? 0;
+
+let prepTimer = null;
+
 // ---- economy / rounds ----
-state.round = state.round ?? 1;          // 1..N
 state.winStreak = state.winStreak ?? 0;  // подряд побед
 state.loseStreak = state.loseStreak ?? 0; // подряд пораж
 
@@ -111,9 +121,6 @@ function grantRoundGold(result) {
 
   king.coins += (base + winBonus + streak + interest);
   clampPlayerCoins();
-
-  // следующий раунд
-  state.round = round + 1;
 }
 
 function stopBattleTimers() {
@@ -125,6 +132,49 @@ function stopBattleTimers() {
     clearTimeout(finishTimeout);
     finishTimeout = null;
   }
+  if (battleCountdownTimer) {
+    clearInterval(battleCountdownTimer);
+    battleCountdownTimer = null;
+  }
+  state.battleSecondsLeft = 0;
+}
+
+function stopPrepTimer() {
+  if (prepTimer) {
+    clearInterval(prepTimer);
+    prepTimer = null;
+  }
+}
+
+function prepDurationForRound(round) {
+  // 1-3: 10 сек, 4+: 20 сек
+  return (round >= 4) ? 20 : 10;
+}
+
+function startPrepCountdown() {
+  stopPrepTimer();
+
+  // если уже battle — не стартуем
+  if (state.phase !== 'prep') return;
+
+  const duration = prepDurationForRound(Number(state.round ?? 1));
+  state.prepSecondsLeft = duration;
+  broadcast(makeStateMessage(state));
+
+  prepTimer = setInterval(() => {
+    if (state.phase !== 'prep') {
+      stopPrepTimer();
+      return;
+    }
+
+    state.prepSecondsLeft = Math.max(0, Number(state.prepSecondsLeft ?? 0) - 1);
+    broadcast(makeStateMessage(state));
+
+    if (state.prepSecondsLeft <= 0) {
+      stopPrepTimer();
+      startBattle(); // авто-старт боя
+    }
+  }, 1000);
 }
 
 
@@ -421,10 +471,13 @@ function computeResult() {
 }
 
 function resetToPrep() {
-  // ✅ Auto Chess rule: +1 XP each round (win/lose doesn’t matter)
+  // Auto Chess rule: +1 XP each round (win/lose doesn’t matter)
   applyKingXp(state.kings.player, 1);
 
-  // ✅ GOLD: начисляем золото за прошедший бой
+  // следующий раунд начинается в prep
+  state.round = Number(state.round ?? 1) + 1;
+
+  // GOLD: начисляем золото за прошедший бой
   // state.result в этот момент ещё содержит 'victory/defeat/draw'
   grantRoundGold(state.result);
   state.phase = 'prep';
@@ -441,6 +494,7 @@ function resetToPrep() {
   generateShopOffers();
 
   broadcast(makeStateMessage(state));
+  startPrepCountdown();
 }
 
 function finishBattle(result) {
@@ -459,6 +513,7 @@ function finishBattle(result) {
 }
 
 function startBattle() {
+  stopPrepTimer();
   if (state.phase === 'battle') return;
 
   // 1) если на доске нет игроков — мгновенное поражение (НЕ меняем фазу на battle)
@@ -478,6 +533,38 @@ function startBattle() {
 
   state.phase = 'battle';
   state.result = null;
+
+  // --- battle countdown (для UI + ничья по таймауту) ---
+  // сбрасываем и запускаем 40 секунд
+  state.battleSecondsLeft = BATTLE_DURATION_SECONDS;
+  broadcast(makeStateMessage(state));
+
+  if (battleCountdownTimer) {
+    clearInterval(battleCountdownTimer);
+    battleCountdownTimer = null;
+  }
+
+  battleCountdownTimer = setInterval(() => {
+    if (state.phase !== 'battle') {
+      clearInterval(battleCountdownTimer);
+      battleCountdownTimer = null;
+      return;
+    }
+
+    state.battleSecondsLeft = Math.max(0, Number(state.battleSecondsLeft ?? 0) - 1);
+    broadcast(makeStateMessage(state));
+
+    if (state.battleSecondsLeft <= 0) {
+      // бой не закончился, а время вышло → ничья
+      clearInterval(battleCountdownTimer);
+      battleCountdownTimer = null;
+
+      // важно: остановить текущие battle-таймеры/петли (если у тебя там интервалы тика)
+      stopBattleTimers();
+
+      finishBattle('draw');
+    }
+  }, 1000);
 
   // спавним армию бота только на старт боя
   spawnBotArmy();
@@ -561,8 +648,9 @@ function handleIntent(clientId, msg, ws) {
   const owned = clientToUnits.get(clientId) ?? new Set();
   if (!clientToUnits.get(clientId)) clientToUnits.set(clientId, owned);
 
-  // shopBuy разрешаем даже когда owned пустой
-  if (msg.action !== 'shopBuy' && owned.size === 0) {
+  // разрешаем "системные" intents даже если у клиента пока нет юнитов
+  const ALLOW_WITHOUT_UNITS = new Set(['shopBuy', 'startGame', 'startBattle', 'buyXp']);
+  if (!ALLOW_WITHOUT_UNITS.has(msg.action) && owned.size === 0) {
     ws.send(JSON.stringify(makeErrorMessage('NO_UNIT', 'No unit assigned to this client')));
     return;
   }
@@ -575,6 +663,28 @@ function handleIntent(clientId, msg, ws) {
     }
     return true;
   };
+
+  if (msg.action === 'startGame') {
+    // стартуем только если сейчас prep и таймер не идёт
+    if (state.phase !== 'prep') {
+      ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'startGame allowed only in prep')));
+      return;
+    }
+
+    // стартуем строго с 1-го раунда
+    state.round = 1;
+    state.winStreak = 0;
+    state.loseStreak = 0;
+    state.result = null;
+    state.prepSecondsLeft = 0;
+
+    // магазин на старт
+    generateShopOffers();
+
+    broadcast(makeStateMessage(state));
+    startPrepCountdown();
+    return;
+  }
 
   if (msg.action === 'startBattle') {
     // стартует только из prep
@@ -942,8 +1052,10 @@ wss.on('connection', (ws) => {
     const hasPlayers = state.units.some(u => u.team === 'player');
     if (!hasPlayers) {
       stopBattleTimers();
+      stopPrepTimer();
       state.phase = 'prep';
       state.result = null;
+      state.prepSecondsLeft = 0;
     }
   });
 

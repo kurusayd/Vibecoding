@@ -297,6 +297,22 @@ export default class BattleScene extends Phaser.Scene {
     const wsUrl = `${wsProto}://${wsHost}`;
     this.ws = new WSClient(wsUrl);
 
+    // --- START GAME BUTTON (debug) ---
+    this.startGameBtn = this.add.text(this.scale.width / 2, this.scale.height / 2, 'НАЧАТЬ ИГРУ', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '36px',
+      color: '#ffffff',
+      backgroundColor: 'rgba(0,0,0,0.65)',
+      padding: { left: 20, right: 20, top: 14, bottom: 14 },
+    })
+      .setOrigin(0.5, 0.5)
+      .setDepth(20001)
+      .setInteractive({ useHandCursor: true });
+
+    this.startGameBtn.on('pointerdown', () => {
+      this.ws?.sendIntentStartGame?.();
+    });
+
 
     this.ws.onInit = (msg) => {
       // сервер прислал начальный state и сказал, каким юнитом ты управляешь
@@ -485,8 +501,12 @@ export default class BattleScene extends Phaser.Scene {
       this.layout();
       this.drawGrid();
 
-      if (this.battleBtn) this.battleBtn.setPosition(this.scale.width / 2, 14);
-      if (this.resultText) this.resultText.setPosition(this.scale.width / 2, 16);
+      if (this.roundText) this.roundText.setPosition(this.scale.width / 2, 10);
+      if (this.prepTimerText) this.prepTimerText.setPosition(this.scale.width / 2, 60);
+
+      if (this.battleBtn) this.battleBtn.setPosition(this.scale.width / 2 + 220, 14);
+      if (this.resultText) this.resultText.setPosition(this.scale.width / 2, 60);
+      if (this.resultText) this.resultText.setWordWrapWidth(Math.min(520, this.scale.width - 40));
 
       positionFullscreenButton(this);
       this.positionShop();
@@ -504,7 +524,7 @@ export default class BattleScene extends Phaser.Scene {
     this.positionCoinsHUD();
 
     // --- TOP CENTER UI ---
-    this.battleBtn = this.add.text(this.scale.width / 2, 14, 'БОЙ', {
+    this.battleBtn = this.add.text(this.scale.width / 2 + 220, 14, 'БОЙ', {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
       fontSize: '22px',
       color: '#ffffff',
@@ -515,16 +535,40 @@ export default class BattleScene extends Phaser.Scene {
     .setDepth(9999)
     .setInteractive({ useHandCursor: true });
 
+    // --- ROUND + TIMER (top center) ---
+    this.roundText = this.add.text(this.scale.width / 2, 10, '', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '34px',
+      fontStyle: 'bold',        // ✅ жирный
+      color: '#ffffff',
+    })
+      .setOrigin(0.5, 0)
+      .setDepth(9999)
+      .setStroke('#888888', 3)  // ✅ серая обводка
+      .setShadow(0, 0, '#000000', 2, true, true); // лёгкая мягкая тень
+
+    this.prepTimerText = this.add.text(this.scale.width / 2, 60, '', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '20px',
+      color: '#ffffff',      // без fontStyle
+    })
+      .setOrigin(0.5, 0)
+      .setDepth(9999)
+      .setStroke('#777777', 2)
+      .setShadow(0, 0, '#000000', 2, true, true);
+
     this.battleBtn.on('pointerdown', () => {
       this.ws?.sendIntentStartBattle();
     });
 
-    this.resultText = this.add.text(this.scale.width / 2, 16, '', {
+    this.resultText = this.add.text(this.scale.width / 2, 60, '', { // на месте таймера
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-      fontSize: '34px',
+      fontSize: '28px', // чуть меньше, чтобы не перекрывало UI
       color: '#ffffff',
+      align: 'center',
+      wordWrap: { width: Math.min(520, this.scale.width - 40), useAdvancedWrap: true }, // будет расти вниз
     })
-    .setOrigin(0.5, 0)
+    .setOrigin(0.5, 0)  // ✅ верхняя граница текста фиксирована по y=48
     .setDepth(9999)
     .setVisible(false);
 
@@ -735,8 +779,47 @@ export default class BattleScene extends Phaser.Scene {
 
 
     this.kingRight?.setVisible(showEnemy);
-
+    this.syncRoundUI();
     this.drawKingHpBars();
+  }
+
+  syncRoundUI() {
+    if (!this.roundText || !this.prepTimerText) return;
+
+    const round = Number(this.battleState?.round ?? 1);
+    const phase = this.battleState?.phase ?? 'prep';
+    const result = this.battleState?.result ?? null;
+
+    if (result) {
+      this.prepTimerText?.setVisible(false);
+      return;
+    }
+
+    this.roundText.setText(`Раунд ${round}`);
+
+    // таймер показываем только в prep и пока нет результата
+    const isPrep = (phase === 'prep') && (result == null);
+    const isBattle = (phase === 'battle') && (result == null);
+
+    if (isPrep) {
+      const t = Number(this.battleState?.prepSecondsLeft ?? 0);
+      const ss = String(Math.max(0, Math.min(59, t))).padStart(2, '0');
+      this.prepTimerText.setVisible(true);
+      this.prepTimerText.setText(`Подготовка: ${ss}с`);
+    } else if (isBattle) {
+      const t = Number(this.battleState?.battleSecondsLeft ?? 0);
+      const ss = String(Math.max(0, Math.min(59, t))).padStart(2, '0');
+      this.prepTimerText.setVisible(true);
+      this.prepTimerText.setText(`Сражение: ${ss}с`);
+    } else {
+      this.prepTimerText.setVisible(false);
+    }
+
+    // кнопка "Начать игру" видна только пока таймер ещё не запускался
+    if (this.startGameBtn) {
+      const started = Number(this.battleState?.prepSecondsLeft ?? 0) > 0 || (this.battleState?.round ?? 1) !== 1;
+      this.startGameBtn.setVisible(!started);
+    }
   }
 
   drawKingHpBars() {
@@ -1109,14 +1192,38 @@ export default class BattleScene extends Phaser.Scene {
     if (result) {
       this.battleBtn?.setVisible(false);
 
-      const map = {
-        victory: 'Победа',
-        defeat: 'Поражение',
-        draw: 'Ничья',
-      };
-
-      this.resultText?.setText(map[result] ?? String(result));
+      // ✅ таймер скрываем, результат показываем вместо него
+      this.prepTimerText?.setVisible(false);
       this.resultText?.setVisible(true);
+
+      let text = '';
+      let fill = '#ffffff';
+      let stroke = '#666666';
+
+      if (result === 'victory') {
+        text = 'ПОБЕДА';
+        fill = '#f5c542';      // золотистый
+        stroke = '#c89b1e';    // характерная золотая обводка
+      }
+      else if (result === 'defeat') {
+        text = 'ПОРАЖЕНИЕ';
+        fill = '#ff6fa8';      // розовый
+        stroke = '#7a002f';    // бордовая обводка
+      }
+      else if (result === 'draw') {
+        text = 'НИЧЬЯ';
+        fill = '#dddddd';
+        stroke = '#777777';
+      }
+
+      this.resultText
+        ?.setText(text)
+        .setFontStyle('bold')
+        .setColor(fill)
+        .setStroke(stroke, 4)
+        .setShadow(0, 0, '#000000', 3, true, true);
+      this.resultText?.setVisible(true);
+      
       return;
     }
 
