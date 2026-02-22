@@ -7,6 +7,13 @@ export function cellKey(q, r) {
 
 const RANK_ICON_SCALE = 0.10; //скейл размера иконки звёздочки. Чтобы менять в одном месте
 const SWORDSMAN_ART_PX = 170; // целевая "высота/ширина" на экране, подгони: 90..140
+// Насколько ПОДНЯТЬ "землю" для мечника (потому что в кадре много прозрачного снизу)
+// Подбирай: 0..80. Если мечник низко — УВЕЛИЧЬ.
+const GROUND_LIFT_BY_TYPE = {
+  Swordsman: 100,
+  // Archer: 20,
+  // Tank: 10,
+};
 
 function makeHexHitArea(scene, w, h) {
   const s = scene.hexSize;
@@ -90,9 +97,10 @@ export function createUnitSystem(scene) {
     const idleFrame = 'psd_animation/idle.png';
 
     if (opts.type === 'Swordsman' && scene.textures.exists(atlasKey)) {
-      art = scene.add.sprite(p.x, p.y, atlasKey, idleFrame)
+      const g = scene.hexToGroundPixel(q, r, GROUND_LIFT_BY_TYPE[opts.type] ?? 0);
+      art = scene.add.sprite(g.x, g.y, atlasKey, idleFrame) // ✅ было p.x/p.y
         .setDepth(1050)
-        .setOrigin(0.5, 0.85);
+        .setOrigin(0.5, 1);
 
       // ✅ если вдруг всё равно missing (например race condition) — откатываемся на круг
       if (art.texture?.key === '__MISSING' || art.frame?.name == null) {
@@ -134,12 +142,12 @@ export function createUnitSystem(scene) {
       .setScale(RANK_ICON_SCALE); //Скейл иконки звёздочки
       rankIcon.setVisible(false); // ✅ на bench по умолчанию скрыто
 
-
     const unit = {
       id: opts.id ?? crypto.randomUUID?.() ?? String(Date.now()),
 
       q, r,
       team: opts.team ?? 'neutral',
+      type: opts.type ?? null, // ✅ ВОТ ЭТОГО НЕ ХВАТАЛО
 
       hp,
       maxHp,
@@ -187,9 +195,10 @@ export function createUnitSystem(scene) {
     const idleFrame = 'psd_animation/idle.png';
 
     if (opts.type === 'Swordsman' && scene.textures.exists(atlasKey)) {
-      art = scene.add.sprite(x, y, atlasKey, idleFrame)
+      const lift = GROUND_LIFT_BY_TYPE[opts.type] ?? 0;
+      art = scene.add.sprite(x, y + scene.hexSize - lift, atlasKey, idleFrame) // ✅ вниз к "земле" этого гекса
         .setDepth(1050)
-        .setOrigin(0.5, 0.85);
+        .setOrigin(0.5, 1); // ✅ якорь по низу
 
       if (art.texture?.key === '__MISSING' || art.frame?.name == null) {
         art.destroy();
@@ -233,11 +242,10 @@ export function createUnitSystem(scene) {
     const unit = {
       id: opts.id ?? crypto.randomUUID?.() ?? String(Date.now()),
 
-      // важно: эти q/r не должны конфликтовать с доской,
-      // BattleScene потом сам выставит позицию/логика зоны не через occupied
       q: opts.q ?? 0,
       r: opts.r ?? 0,
       team: opts.team ?? 'neutral',
+      type: opts.type ?? null, // ✅ ВОТ ЭТОГО ТОЖЕ НЕ ХВАТАЛО
 
       hp,
       maxHp,
@@ -302,12 +310,15 @@ export function createUnitSystem(scene) {
 
     const p = scene.hexToPixel(q, r);
 
+    const lift = GROUND_LIFT_BY_TYPE[u.type] ?? 0;
+    const g = scene.hexToGroundPixel(q, r, lift);
+
     // если tween не нужен — телепорт
     const tweenMs = Number(opts.tweenMs ?? 0);
     if (!tweenMs || tweenMs <= 0) {
       u.sprite.setPosition(p.x, p.y);
       u.dragHandle?.setPosition(p.x, p.y);
-      if (u.art) u.art.setPosition(p.x, p.y);
+      if (u.art) u.art.setPosition(g.x, g.y);   // ✅ art на земле
       u.label.setPosition(p.x, p.y);
       updateHpBar(scene, u);
       return;
@@ -319,24 +330,29 @@ export function createUnitSystem(scene) {
       u._moveTween = null;
     }
 
-    const targets = [u.sprite, u.dragHandle, u.art, u.label].filter(Boolean);
+    // ✅ твиним центр для sprite/dragHandle/label
+    const centerTargets = [u.sprite, u.dragHandle, u.label].filter(Boolean);
 
-    // двигаем всех визуалов синхронно
+    // ✅ арту твиним отдельно к g
     u._moveTween = scene.tweens.add({
-      targets,
+      targets: centerTargets,
       x: p.x,
       y: p.y,
       duration: tweenMs,
       ease: 'Linear',
-      onUpdate: () => {
-        // hpbar и звёзды рисуются относительно sprite.x/y — перерисовываем
-        updateHpBar(scene, u);
-      },
-      onComplete: () => {
-        u._moveTween = null;
-        updateHpBar(scene, u);
-      }
+      onUpdate: () => updateHpBar(scene, u),
+      onComplete: () => { u._moveTween = null; updateHpBar(scene, u); }
     });
+
+    if (u.art) {
+      scene.tweens.add({
+        targets: u.art,
+        x: g.x,
+        y: g.y,
+        duration: tweenMs,
+        ease: 'Linear',
+      });
+    }
   }
 
   function setUnitHp(id, hp, maxHp) {
@@ -369,10 +385,12 @@ export function createUnitSystem(scene) {
     unit.r = newR;
 
     const p = scene.hexToPixel(newQ, newR);
+    const lift = GROUND_LIFT_BY_TYPE[unit.type] ?? 0;
+    const g = scene.hexToGroundPixel(newQ, newR, lift);
 
     unit.sprite.setPosition(p.x, p.y);
     unit.dragHandle?.setPosition(p.x, p.y);
-    if (unit.art) unit.art.setPosition(p.x, p.y);
+    if (unit.art) unit.art.setPosition(g.x, g.y);
     unit.label.setPosition(p.x, p.y);
 
     updateHpBar(scene, unit);
@@ -387,9 +405,12 @@ export function createUnitSystem(scene) {
   function relayoutUnits() {
     for (const u of state.units) {
       const p = scene.hexToPixel(u.q, u.r);
+      const lift = GROUND_LIFT_BY_TYPE[u.type] ?? 0;
+      const g = scene.hexToGroundPixel(u.q, u.r, lift);
+
       u.sprite.setPosition(p.x, p.y);
       u.dragHandle?.setPosition(p.x, p.y);
-      if (u.art) u.art.setPosition(p.x, p.y);
+      if (u.art) u.art.setPosition(g.x, g.y);
       u.label.setPosition(p.x, p.y);
       updateHpBar(scene, u);
       updateRankStroke(u);

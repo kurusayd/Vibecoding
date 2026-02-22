@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { hexToPixel, pixelToHex, hexCorners } from '../game/hex.js';
+import { hexToPixel, pixelToHex, hexCorners, hexToGroundPixel } from '../game/hex.js';
 import { createUnitSystem } from '../game/units.js';
 import { WSClient } from '../net/wsClient.js';
 import { createFullscreenButton, positionFullscreenButton } from '../game/ui.js';
@@ -10,6 +10,10 @@ import {
   KING_XP_COST,
   KING_MAX_LEVEL,
 } from '../../shared/battleCore.js';
+
+const GROUND_LIFT_BY_TYPE = {
+  Swordsman: 100, // то же число, что ты настроил в units.js
+};
 
 
 export default class BattleScene extends Phaser.Scene {
@@ -240,6 +244,7 @@ export default class BattleScene extends Phaser.Scene {
 
     // пробрасываем функции как "методы", чтобы старый код был простым
     this.hexToPixel = (q, r) => hexToPixel(this, q, r);
+    this.hexToGroundPixel = (q, r, groundLift = 0) => hexToGroundPixel(this, q, r, groundLift);
     this.pixelToHex = (x, y) => pixelToHex(this, x, y);
     this.hexCorners = (cx, cy) => hexCorners(this, cx, cy);
 
@@ -387,7 +392,8 @@ export default class BattleScene extends Phaser.Scene {
 
       const vu = this.unitSys.findUnit(uid);
       if (vu?.hpBar) vu.hpBar.setVisible(false);
-      if (vu) updateHpBar(this, vu);
+      if (vu?.rankIcon) vu.rankIcon.setVisible(false);
+      // ❌ НЕ вызываем updateHpBar тут, он включает видимость обратно
 
       this.drawGrid();
     });
@@ -405,8 +411,14 @@ export default class BattleScene extends Phaser.Scene {
 
       const vu = this.unitSys.findUnit(uid);
       if (vu?.sprite) vu.sprite.setPosition(dragX, dragY);
-      if (vu?.art) vu.art.setPosition(dragX, dragY);
+
+      const lift = GROUND_LIFT_BY_TYPE[core?.type] ?? 0;
+      const artY = dragY + this.hexSize - lift;
+
+      if (vu?.art) vu.art.setPosition(dragX, artY);
       if (vu?.label) vu.label.setPosition(dragX, dragY);
+      if (vu?.hpBar) vu.hpBar.setVisible(false);
+      if (vu?.rankIcon) vu.rankIcon.setVisible(false);
 
       // подсветка клетки под курсором
       const hitBench = this.tryPickBench(pointer.worldX, pointer.worldY);
@@ -445,14 +457,17 @@ export default class BattleScene extends Phaser.Scene {
 
         const vu = this.unitSys.findUnit(uid);
         if (vu?.sprite) vu.sprite.setPosition(p.x, p.y);
-        if (vu?.art) vu.art.setPosition(p.x, p.y);
+        const lift = GROUND_LIFT_BY_TYPE[core?.type] ?? 0;
+        if (vu?.art) vu.art.setPosition(p.x, p.y + this.hexSize - lift);
         if (vu?.label) vu.label.setPosition(p.x, p.y);
 
         if (vu) {
           vu.label.setPosition(p.x, p.y);
-          if (vu?.art) vu.art.setPosition(p.x, p.y);
+          const lift = GROUND_LIFT_BY_TYPE[core?.type] ?? 0;
+          if (vu?.art) vu.art.setPosition(p.x, p.y + this.hexSize - lift);
           // на скамейке hpBar не показываем
           if (vu.hpBar) vu.hpBar.setVisible(false);
+          if (vu.rankIcon) vu.rankIcon.setVisible(false);
         }
 
         this.shadowOverride = { unitId: uid, zone: 'bench', slot };
@@ -473,15 +488,20 @@ export default class BattleScene extends Phaser.Scene {
       }
 
       const p = this.hexToPixel(hit.q, hit.r);
+      const lift = GROUND_LIFT_BY_TYPE[core?.type] ?? 0;
+      const g = this.hexToGroundPixel(hit.q, hit.r, lift);
+
       gameObject.setPosition(p.x, p.y);
+
       const vu = this.unitSys.findUnit(uid);
       if (vu?.sprite) vu.sprite.setPosition(p.x, p.y);
-      if (vu?.art) vu.art.setPosition(p.x, p.y);
+      if (vu?.art) vu.art.setPosition(g.x, g.y);
       if (vu?.label) vu.label.setPosition(p.x, p.y);
 
       if (vu) {
         vu.label.setPosition(p.x, p.y);
         if (vu.hpBar) vu.hpBar.setVisible(true);
+        if (vu.rankIcon) vu.rankIcon.setVisible(true);
         this.unitSys.setUnitPos(uid, hit.q, hit.r);
       }
 
@@ -1096,7 +1116,8 @@ export default class BattleScene extends Phaser.Scene {
           created.sprite.setPosition(p.x, p.y);
           created.label?.setPosition(p.x, p.y);
           created.dragHandle?.setPosition(p.x, p.y);
-          created.art?.setPosition(p.x, p.y);
+          const lift = GROUND_LIFT_BY_TYPE[u.type] ?? 0;
+          created.art?.setPosition(p.x, p.y + this.hexSize - lift);
 
           // на скамейке hpBar не показываем
           if (created.hpBar) created.hpBar.setVisible(false);
@@ -1115,7 +1136,8 @@ export default class BattleScene extends Phaser.Scene {
         const vu = this.unitSys.findUnit(u.id);
         if (vu?.sprite) vu.sprite.setPosition(p.x, p.y);
         if (vu?.dragHandle) vu.dragHandle.setPosition(p.x, p.y);
-        if (vu?.art) vu.art.setPosition(p.x, p.y);
+        const lift = GROUND_LIFT_BY_TYPE[u.type] ?? 0;
+        if (vu?.art) vu.art.setPosition(p.x, p.y + this.hexSize - lift);
         if (vu?.label) vu.label.setPosition(p.x, p.y);
 
         if (vu?.hpBar) vu.hpBar.setVisible(false);
@@ -1129,6 +1151,7 @@ export default class BattleScene extends Phaser.Scene {
         // на доске hpBar показываем обратно (если был скрыт)
         const vu = this.unitSys.findUnit(u.id);
         if (vu?.hpBar) vu.hpBar.setVisible(true);
+        if (vu?.rankIcon) vu.rankIcon.setVisible(true);
       }
 
       const vuRank = this.unitSys.findUnit(u.id);

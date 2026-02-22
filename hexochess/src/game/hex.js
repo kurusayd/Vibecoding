@@ -20,6 +20,13 @@ export function pixelToHex(state, x, y) {
   return hexRound(q, r);
 }
 
+// Нижняя точка гекса (куда должны вставать "ноги" юнита)
+// pointy-top: нижняя вершина находится на +hexSize по Y от центра
+export function hexToGroundPixel(state, q, r, groundLift = 0) {
+  const p = hexToPixel(state, q, r);
+  return { x: p.x, y: p.y + state.hexSize - groundLift };
+}
+
 export function hexRound(q, r) {
   let x = q;
   let z = r;
