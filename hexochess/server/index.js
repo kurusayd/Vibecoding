@@ -13,6 +13,7 @@ import {
   moveUnit,
   attack,
   hexDistance,
+  applyKingXp,
 } from '../shared/battleCore.js';
 
 import {
@@ -341,8 +342,11 @@ function computeResult() {
 }
 
 function resetToPrep() {
+  // ✅ Auto Chess rule: +1 XP each round (win/lose doesn’t matter)
+  applyKingXp(state.kings.player, 1);
   state.phase = 'prep';
   state.result = null;
+
   // enemy king скрыт в prep
   if (state.kings?.enemy) state.kings.enemy.visible = false;
 
@@ -693,6 +697,28 @@ function handleIntent(clientId, msg, ws) {
       ws.send(JSON.stringify(makeErrorMessage('ATTACK_DENIED', 'Attack is not allowed')));
       return;
     }
+    broadcast(makeStateMessage(state));
+    return;
+  }
+
+  if (msg.action === 'buyXp') {
+    if (state.phase !== 'prep' || state.result) {
+      ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'buyXp allowed only in prep (no result)')));
+      return;
+    }
+
+    const COST = 5;
+    const GAIN = 4;
+
+    const coins = state.kings?.player?.coins ?? 0;
+    if (coins < COST) {
+      ws.send(JSON.stringify(makeErrorMessage('NO_COINS', 'Not enough coins for XP')));
+      return;
+    }
+
+    state.kings.player.coins -= COST;
+    applyKingXp(state.kings.player, GAIN);
+
     broadcast(makeStateMessage(state));
     return;
   }

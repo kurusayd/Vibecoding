@@ -4,9 +4,12 @@ import { createUnitSystem } from '../game/units.js';
 import { WSClient } from '../net/wsClient.js';
 import { createFullscreenButton, positionFullscreenButton } from '../game/ui.js';
 import { updateHpBar } from '../game/hpbar.js';
+
 import {
   createBattleState,
-  getUnitAt as coreGetUnitAt
+  getUnitAt as coreGetUnitAt,
+  KING_XP_COST,
+  KING_MAX_LEVEL,
 } from '../../shared/battleCore.js';
 
 
@@ -22,7 +25,7 @@ export default class BattleScene extends Phaser.Scene {
     this.load.image('rank1', '/assets/rank1.png');
     this.load.image('rank2', '/assets/rank2.png');
     this.load.image('rank3', '/assets/rank3.png');
-    this.load.image('swordsman', '/assets/swordman.png');
+    this.load.image('crownexp', '/assets/crownexp.png');
 
     // ✅ swordman atlas (png+json)
     this.load.atlas(
@@ -40,6 +43,8 @@ export default class BattleScene extends Phaser.Scene {
   create() {
     this.cameras.main.setBackgroundColor('#1e1e1e');
     this.battleState = createBattleState();   // core state (пока пустой, ждём сервер)
+    this.kingXpCost = KING_XP_COST;
+    this.kingMaxLevel = KING_MAX_LEVEL;
 
     // фон
     this.bg = this.add.image(0, 0, 'battleBg')
@@ -93,6 +98,69 @@ export default class BattleScene extends Phaser.Scene {
       .setDepth(9998)
       .setOrigin(0, 0.5); // важное: текст по левому краю
 
+    // --- KING LEVEL UI (crown + xp bar) ---
+    this.kingLevelExpanded = false;
+
+    this.kingLevelContainer = this.add.container(0, 0)
+      .setScrollFactor(0)
+      .setDepth(9998);
+
+    this.kingLevelIcon = this.add.image(0, 0, 'crownexp')
+      .setDisplaySize(30, 30)
+      .setOrigin(0.5, 0.5);
+    this.kingLevelIcon.y = -3; // чуть поднять саму корону
+
+    this.kingLevelBarBg = this.add.graphics();
+    this.kingLevelBarFill = this.add.graphics();
+
+    this.kingLevelText = this.add.text(0, 0, 'lv. 1', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '16px',
+      color: '#ffffff',
+    }).setOrigin(0.5, 0.5);
+
+    this.kingLevelXpText = this.add.text(0, 0, '', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '14px',
+      color: '#ffffff',
+    }).setOrigin(0.5, 0).setVisible(false);
+
+    // интерактивная зона на всю конструкцию
+    this.kingLevelHit = this.add.zone(0, 0, 200, 44)
+      .setOrigin(0.5, 0.5)
+      .setInteractive({ useHandCursor: true });
+
+    this.kingLevelHit.on('pointerdown', (pointer) => {
+      // (не обязательно, но полезно) чтобы DOM-эвент не улетал дальше
+      pointer?.event?.stopPropagation?.();
+
+      this.kingLevelExpanded = !this.kingLevelExpanded;
+      this.kingLevelXpText?.setVisible(this.kingLevelExpanded);
+
+      // важно: пересчитать hit-зону/позиции текста, потому что drawKingXpBar зависит от Expanded
+      this.syncKingsUI();
+    });
+
+    // ✅ любой тап в любом месте закрывает Exp (если тап не по этому блоку)
+    this.input.on('pointerdown', (pointer, currentlyOver) => {
+      // currentlyOver — список интерактивных объектов под тапом
+      const overLevel = (currentlyOver || []).includes(this.kingLevelHit);
+      if (!overLevel && this.kingLevelExpanded) {
+        this.kingLevelExpanded = false;
+        this.kingLevelXpText?.setVisible(false);
+        this.positionCoinsHUD();
+      }
+    });
+
+    // собираем в контейнер (порядок важен: bg -> fill -> text -> xpText -> hit)
+    this.kingLevelContainer.add([
+      this.kingLevelBarBg,
+      this.kingLevelBarFill,
+      this.kingLevelIcon,
+      this.kingLevelText,
+      this.kingLevelXpText,
+      this.kingLevelHit,
+    ]);
 
     const hpTextStyle = { //вставляем текст НР бара короля поверх полоски
       fontFamily: kingTextStyle.fontFamily,
@@ -542,6 +610,12 @@ export default class BattleScene extends Phaser.Scene {
 
     // текст
     this.kingLeftCoinText.setPosition(baseX + iconW + gap, y);
+
+    // конструкция уровня правее монет
+    if (this.kingLevelContainer) {
+      const afterCoinTextX = this.kingLeftCoinText.x + this.kingLeftCoinText.width + 24; // было 14 — больше отступ от монет
+      this.kingLevelContainer.setPosition(afterCoinTextX, y - 2); // чуть выше, чтобы не казалось ниже монеты
+    }
   }
 
   positionKings() {
@@ -584,6 +658,21 @@ export default class BattleScene extends Phaser.Scene {
 
     const p = kings?.player ?? { hp: 100, maxHp: 100, coins: 0 };
     this.kingLeftCoinText?.setText(`x ${p.coins}`);
+
+    const lvl = Number(p.level ?? 1);
+    const xp = Number(p.xp ?? 0);
+
+    // сколько нужно до следующего уровня (берём с shared через импорт)
+    const need = (lvl >= this.kingMaxLevel) ? 0 : (this.kingXpCost?.[lvl] ?? 0); // см. пункт 6 ниже
+
+    if (this.kingLevelText) this.kingLevelText.setText(`lv. ${lvl}`);
+
+    if (this.kingLevelXpText) {
+      this.kingLevelXpText.setText(`Exp: ${xp} / ${need || 0}`);
+      this.kingLevelXpText.setVisible(this.kingLevelExpanded);
+    }
+
+    this.drawKingXpBar?.(lvl, xp, need);
     this.positionCoinsHUD();
 
     const phase = this.battleState?.phase ?? 'prep';
@@ -657,6 +746,57 @@ export default class BattleScene extends Phaser.Scene {
     }
   }
 
+  drawKingXpBar(level, xp, need) {
+    if (!this.kingLevelBarBg || !this.kingLevelBarFill) return;
+
+    const w = 170;     // длиннее
+    const h = 18;      // чуть толще
+
+    const iconW = this.kingLevelIcon?.displayWidth ?? 30;
+
+    // хотим, чтобы корона чуть налезала на бар
+    const overlap = 10; // насколько бар заходит под корону
+    const gap = 2;
+
+    // старт бара: немного "под" корону
+    const x = (iconW / 2) - overlap + gap;
+    const y = -h / 2;
+
+    this.kingLevelBarBg.clear();
+    this.kingLevelBarFill.clear();
+
+    // --- Тонкая фиолетовая обводка ---
+    this.kingLevelBarBg.lineStyle(1, 0x5c3c9c, 1); // тонкая, тёмно-фиолетовая
+    this.kingLevelBarBg.strokeRoundedRect(x, y, w, h, 6);
+
+    // --- Фон ---
+    this.kingLevelBarBg.fillStyle(0x2a2a2a, 1);
+    this.kingLevelBarBg.fillRoundedRect(x + 1, y + 1, w - 2, h - 2, 5);
+
+    // fill (фиолетовый)
+    const ratio = (need > 0) ? Phaser.Math.Clamp(xp / need, 0, 1) : 1;
+    this.kingLevelBarFill.fillStyle(0x8a2be2, 0.95);
+    this.kingLevelBarFill.fillRoundedRect(x + 1, y + 1, (w - 2) * ratio, h - 2, 5);
+
+    // позиция текста lv поверх бара (центр бара)
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    this.kingLevelText.setPosition(cx, cy);
+
+    // позиция строки xp/need под баром
+    this.kingLevelXpText.setPosition(cx, y + h + 4);
+
+    // ✅ хит-зона должна покрывать иконку + бар (+ Exp если раскрыто)
+    const hitH = this.kingLevelExpanded ? (h + 6 + this.kingLevelXpText.height + 12) : 44;
+    const hitW = (iconW / 2) + w + 16;
+
+    // центр зоны — по центру бара
+    const hitCx = cx;
+    const hitCy = this.kingLevelExpanded ? (this.kingLevelXpText.height / 2 + 6) : 0;
+
+    this.kingLevelHit.setPosition(hitCx, hitCy);
+    this.kingLevelHit.setSize(hitW, hitH);
+  }
 
   setSpriteDraggable(sprite, enabled) {
     if (!sprite || !sprite.active) return;
@@ -796,14 +936,10 @@ export default class BattleScene extends Phaser.Scene {
 
         if (vu?.hpBar) vu.hpBar.setVisible(false);
       } else {
-        const phase = this.battleState?.phase ?? 'prep';
         const result = this.battleState?.result ?? null;
-
         // серверный tick в бою сейчас 450мс
         const MOVE_TWEEN_MS = 380; // чуть меньше, чтобы успевал “доехать” до следующего снапшота
-
         const tweenMs = (phase === 'battle' && !result) ? MOVE_TWEEN_MS : 0;
-
         this.unitSys.setUnitPos(u.id, u.q, u.r, { tweenMs });
 
         // на доске hpBar показываем обратно (если был скрыт)
