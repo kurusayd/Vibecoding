@@ -807,7 +807,8 @@ export default class BattleScene extends Phaser.Scene {
     const gap = 2;
 
     // старт бара: немного "под" корону
-    const x = (iconW / 2) - overlap + gap;
+    const barDx = -2; // +2px вправо только бар
+    const x = (iconW / 2) - overlap + gap + barDx;
     const y = -h / 2;
 
     this.kingLevelBarBg.clear();
