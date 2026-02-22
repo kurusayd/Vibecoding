@@ -256,10 +256,6 @@ const NEIGHBORS = [
   { dq: 0, dr: 1 },
 ];
 
-function findEnemyUnit() {
-  return state.units.find(u => u.team === 'enemy' && u.zone === 'board') ?? null;
-}
-
 function findClosestOpponent(attacker) {
   const opponentTeam = attacker.team === 'player' ? 'enemy' : 'player';
 

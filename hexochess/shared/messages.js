@@ -34,20 +34,6 @@ export function makeErrorMessage(code, message) {
 
 // ===== Типы сообщений от клиента к серверу =====
 
-// Клиент хочет походить
-export function makeMoveIntent(unitId, q, r) {
-  return { type: 'intent', action: 'move', unitId, q, r };
-}
-
-// Клиент хочет атаковать
-export function makeAttackIntent(targetId) {
-  return {
-    type: 'intent',
-    action: 'attack',
-    targetId
-  };
-}
-
 // Клиент просит начать бой
 export function makeStartBattleIntent() {
   return {

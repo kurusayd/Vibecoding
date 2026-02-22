@@ -1,10 +1,7 @@
 // src/net/wsClient.js
 
 import {
-  makeMoveIntent,
-  makeAttackIntent,
   makeStartBattleIntent,
-  makeSetStartIntent,
   makeShopBuyIntent,
 } from '../../shared/messages.js';
 
@@ -76,18 +73,6 @@ export class WSClient {
   sendIntentStartBattle() {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     const msg = makeStartBattleIntent();
-    this.ws.send(JSON.stringify(msg));
-  }
-
-  sendIntentMove(unitId, q, r) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    this.ws.send(JSON.stringify(makeMoveIntent(unitId, q, r)));
-  }
-
-  sendIntentAttack(targetId) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-
-    const msg = makeAttackIntent(targetId);
     this.ws.send(JSON.stringify(msg));
   }
 

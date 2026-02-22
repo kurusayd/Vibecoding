@@ -7,7 +7,6 @@ import { updateHpBar } from '../game/hpbar.js';
 
 import {
   createBattleState,
-  getUnitAt as coreGetUnitAt,
   KING_XP_COST,
   KING_MAX_LEVEL,
 } from '../../shared/battleCore.js';
@@ -191,7 +190,6 @@ export default class BattleScene extends Phaser.Scene {
     this.hexCorners = (cx, cy) => hexCorners(this, cx, cy);
 
     this.g = this.add.graphics();
-    this.selected = null;
 
     // units system
     this.unitSys = createUnitSystem(this);
@@ -421,11 +419,6 @@ export default class BattleScene extends Phaser.Scene {
       this.ws?.sendIntentSetStart(uid, hit.q, hit.r);
       this.drawGrid();
     });
-
-
-
-    // input - пока что убрали, чтобы автоматизировать боёвку
-    //this.input.on('pointerdown', (p) => this.onPointerDown(p));
 
     // resize
     this.scale.on('resize', () => {
@@ -1221,33 +1214,6 @@ export default class BattleScene extends Phaser.Scene {
 
   update(time, delta) {
     this.unitSys.update(delta / 1000);
-  }
-
-
-  onPointerDown(pointer) {
-    const x = pointer.worldX;
-    const y = pointer.worldY;
-
-    const hit = this.tryPickBoard(x, y);
-    if (!hit) return;
-
-    const targetCore = coreGetUnitAt(this.battleState, hit.q, hit.r);
-
-    // НЕТ activeUnitId или ещё нет ws — ничего не делаем
-    if (!this.activeUnitId || !this.ws) return;
-    
-    // Если кликнули по юниту — это intent "attack"
-    if (targetCore) {
-      this.ws.sendIntentAttack(targetCore.id);
-      return;
-    }
-
-    // Если кликнули по пустой клетке — intent "move"
-    this.ws.sendIntentMove(hit.q, hit.r);
-
-
-    this.selected = { area: 'board', ...hit };
-    this.drawGrid();
   }
 
 }
