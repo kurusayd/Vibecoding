@@ -662,7 +662,7 @@ export default class BattleScene extends Phaser.Scene {
     for (let i = 0; i < (this.shopButtons?.length ?? 0); i++) {
       const o = offers[i];
       const txt = o
-        ? `${o.type}  ${o.cost}💰  HP:${o.hp} ATK:${o.atk}`
+        ? `${o.type} [${o.powerType ?? '?'}]  ${o.cost}💰  HP:${o.hp} ATK:${o.atk}`
         : '...';
       this.shopButtons[i].setText(txt);
     }

@@ -296,22 +296,40 @@ function applyMergesForClient(clientId, preferredUnitId = null) {
   return changed;
 }
 
-// ---- SHOP + UNIT CATALOG (MVP) ----
-const UNIT_CATALOG = [
-  { type: 'Swordsman', cost: 10, hp: 60,  atk: 20, moveSpeed: 2.6 },
-  { type: 'Archer',    cost: 12, hp: 40,  atk: 25, moveSpeed: 2.3 },
-  { type: 'Tank',      cost: 18, hp: 120, atk: 12, moveSpeed: 1.6 },
-];
-
+// ✅ helper: случайное целое [0..n-1]
 function randInt(n) {
   return Math.floor(Math.random() * n);
 }
 
+// ---- SHOP + UNIT CATALOG (MVP) ----
+// цена строго по "силе" (шахматному типу)
+const COST_BY_POWER_TYPE = {
+  'Пешка': 1,
+  'Конь': 2,
+  'Слон': 3,
+  'Ладья': 4,
+  'Ферзь': 5,
+};
+
+// пока “класс юнита” (для арта/поведения) отделён от “силе-типа” (для цены/редкости)
+const UNIT_CATALOG = [
+  { type: 'Swordsman', powerType: 'Пешка', hp: 60,  atk: 20, moveSpeed: 2.6 },
+  { type: 'Archer',    powerType: 'Конь',  hp: 40,  atk: 25, moveSpeed: 2.3 },
+  { type: 'Tank',      powerType: 'Ладья', hp: 120, atk: 12, moveSpeed: 1.6 },
+  // хочешь — добавь ещё юнитов с powerType: 'Слон' и 'Ферзь'
+];
+
 function makeRandomOffer() {
-  const base = UNIT_CATALOG[randInt(UNIT_CATALOG.length)];
+  const base = UNIT_CATALOG.length
+    ? UNIT_CATALOG[randInt(UNIT_CATALOG.length)]
+    : { type: 'Swordsman', powerType: 'Пешка', hp: 60, atk: 20, moveSpeed: 2.6 };
+
+  const cost = COST_BY_POWER_TYPE[base.powerType] ?? 1;
+
   return {
     type: base.type,
-    cost: base.cost,
+    powerType: base.powerType,
+    cost,
     hp: base.hp,
     maxHp: base.hp,
     atk: base.atk,
@@ -363,7 +381,8 @@ function spawnBotArmy() {
       maxHp: base.hp,
       atk: base.atk,
       team: 'enemy',
-      type: base.type, 
+      type: base.type,
+      powerType: base.powerType,
       rank: 1,
       zone: 'board',
       benchSlot: null,
@@ -961,7 +980,8 @@ function handleIntent(clientId, msg, ws) {
       maxHp: offer.maxHp ?? offer.hp,
       atk: offer.atk,
       team: 'player',
-      type: offer.type, 
+      type: offer.type,
+      powerType: offer.powerType,
       rank: 1,
       zone: 'bench',
       benchSlot: freeSlot,

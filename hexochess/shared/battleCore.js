@@ -28,8 +28,9 @@ export function addUnit(state, unit) {
     maxHp: unit.maxHp ?? unit.hp,
     atk: unit.atk,
     team: unit.team,
-    rank: unit.rank ?? 1, // ⭐ ранг (1..3)
-    type: unit.type ?? null, // ВАЖНО: роль/класс юнита
+    rank: unit.rank ?? 1, // ранг (1..3)
+    type: unit.type ?? null,          // роль/класс (Swordsman/Archer/Tank) — оставляем
+    powerType: unit.powerType ?? null, // сила-тип: Пешка/Конь/Слон/Ладья/Ферзь
     zone: unit.zone ?? 'board',
     benchSlot: unit.benchSlot ?? null,
     moveSpeed: unit.moveSpeed ?? 2.0,
