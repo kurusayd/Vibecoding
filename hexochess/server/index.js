@@ -164,9 +164,9 @@ function applyMergesForClient(clientId, preferredUnitId = null) {
 
 // ---- SHOP + UNIT CATALOG (MVP) ----
 const UNIT_CATALOG = [
-  { type: 'Swordsman', cost: 10, hp: 60, atk: 20 },
-  { type: 'Archer',   cost: 12, hp: 40, atk: 25 },
-  { type: 'Tank',     cost: 18, hp: 120, atk: 12 },
+  { type: 'Swordsman', cost: 10, hp: 60,  atk: 20, moveSpeed: 2.6 },
+  { type: 'Archer',    cost: 12, hp: 40,  atk: 25, moveSpeed: 2.3 },
+  { type: 'Tank',      cost: 18, hp: 120, atk: 12, moveSpeed: 1.6 },
 ];
 
 function randInt(n) {
@@ -181,6 +181,7 @@ function makeRandomOffer() {
     hp: base.hp,
     maxHp: base.hp,
     atk: base.atk,
+    moveSpeed: base.moveSpeed,
   };
 }
 
@@ -232,6 +233,7 @@ function spawnBotArmy() {
       rank: 1,
       zone: 'board',
       benchSlot: null,
+      moveSpeed: base.moveSpeed,
     });
   }
 }
@@ -420,6 +422,10 @@ function startBattle() {
       const me = findUnitById(a.id);
       if (!me) continue;
 
+      // ✅ NEW: кулдаун движения/действия
+      me.moveCdMs = Math.max(0, (me.moveCdMs ?? 0) - tickMs);
+      if (me.moveCdMs > 0) continue;
+
       const target = findClosestOpponent(me);
       if (!target) continue;
 
@@ -427,7 +433,14 @@ function startBattle() {
 
       if (dist <= 1) {
         const res = attack(state, me.id, target.id);
-        if (res.success) didSomething = true;
+        if (res.success) {
+          didSomething = true;
+
+          // ✅ атака тоже "занимает время"
+          const spd = Number(me.moveSpeed ?? 2.0);
+          const stepMs = Math.max(120, Math.round(1000 / spd));
+          me.moveCdMs = stepMs;
+        }
         continue;
       }
 
@@ -435,7 +448,14 @@ function startBattle() {
       if (!step) continue;
 
       const moved = moveUnit(state, me.id, step.q, step.r);
-      if (moved) didSomething = true;
+      if (moved) {
+        didSomething = true;
+
+        // ✅ NEW: длительность шага зависит от скорости
+        const spd = Number(me.moveSpeed ?? 2.0);
+        const stepMs = Math.max(120, Math.round(1000 / spd));
+        me.moveCdMs = stepMs;
+      }
     }
 
     if (didSomething) {
@@ -724,6 +744,7 @@ function handleIntent(clientId, msg, ws) {
       rank: 1,
       zone: 'bench',
       benchSlot: freeSlot,
+      moveSpeed: offer.moveSpeed,
     });
 
     // ownership: купленный юнит принадлежит этому клиенту

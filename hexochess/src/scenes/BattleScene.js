@@ -796,7 +796,15 @@ export default class BattleScene extends Phaser.Scene {
 
         if (vu?.hpBar) vu.hpBar.setVisible(false);
       } else {
-        this.unitSys.setUnitPos(u.id, u.q, u.r);
+        const phase = this.battleState?.phase ?? 'prep';
+        const result = this.battleState?.result ?? null;
+
+        // серверный tick в бою сейчас 450мс
+        const MOVE_TWEEN_MS = 380; // чуть меньше, чтобы успевал “доехать” до следующего снапшота
+
+        const tweenMs = (phase === 'battle' && !result) ? MOVE_TWEEN_MS : 0;
+
+        this.unitSys.setUnitPos(u.id, u.q, u.r, { tweenMs });
 
         // на доске hpBar показываем обратно (если был скрыт)
         const vu = this.unitSys.findUnit(u.id);

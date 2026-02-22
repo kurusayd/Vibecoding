@@ -32,6 +32,7 @@ export function addUnit(state, unit) {
     type: unit.type ?? null, // ВАЖНО: роль/класс юнита
     zone: unit.zone ?? 'board',
     benchSlot: unit.benchSlot ?? null,
+    moveSpeed: unit.moveSpeed ?? 2.0,
   });
 }
 

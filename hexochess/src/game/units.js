@@ -282,24 +282,61 @@ export function createUnitSystem(scene) {
     state.units = state.units.filter(x => x.id !== id);
   }
 
-  function setUnitPos(id, q, r) {
+  function setUnitPos(id, q, r, opts = {}) {
     const u = findUnit(id);
     if (!u) return;
 
-    // обновляем occupied
+    // если координаты не менялись — ничего не делаем
+    if (u.q === q && u.r === r) {
+      updateHpBar(scene, u);
+      return;
+    }
+
+    // обновляем occupied сразу (логика authoritative)
     state.occupied.delete(cellKey(u.q, u.r));
     state.occupied.add(cellKey(q, r));
 
+    // запоминаем новые q/r (логика)
     u.q = q;
     u.r = r;
 
     const p = scene.hexToPixel(q, r);
-    u.sprite.setPosition(p.x, p.y);
-    u.dragHandle?.setPosition(p.x, p.y);
-    if (u.art) u.art.setPosition(p.x, p.y);
-    u.label.setPosition(p.x, p.y);
 
-    updateHpBar(scene, u);
+    // если tween не нужен — телепорт
+    const tweenMs = Number(opts.tweenMs ?? 0);
+    if (!tweenMs || tweenMs <= 0) {
+      u.sprite.setPosition(p.x, p.y);
+      u.dragHandle?.setPosition(p.x, p.y);
+      if (u.art) u.art.setPosition(p.x, p.y);
+      u.label.setPosition(p.x, p.y);
+      updateHpBar(scene, u);
+      return;
+    }
+
+    // убиваем прошлый tween движения, если был
+    if (u._moveTween) {
+      try { u._moveTween.stop(); } catch {}
+      u._moveTween = null;
+    }
+
+    const targets = [u.sprite, u.dragHandle, u.art, u.label].filter(Boolean);
+
+    // двигаем всех визуалов синхронно
+    u._moveTween = scene.tweens.add({
+      targets,
+      x: p.x,
+      y: p.y,
+      duration: tweenMs,
+      ease: 'Linear',
+      onUpdate: () => {
+        // hpbar и звёзды рисуются относительно sprite.x/y — перерисовываем
+        updateHpBar(scene, u);
+      },
+      onComplete: () => {
+        u._moveTween = null;
+        updateHpBar(scene, u);
+      }
+    });
   }
 
   function setUnitHp(id, hp, maxHp) {
