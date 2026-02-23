@@ -835,9 +835,22 @@ export default class BattleScene extends Phaser.Scene {
       this.prepTimerText.setVisible(false);
     }
 
-    // кнопка "Начать игру" видна только пока таймер ещё не запускался
+    // Кнопка "Начать игру" видна только в предстарте:
+    // round 1, фаза prep, нет активных таймеров и нет результата.
     if (this.startGameBtn) {
-      const started = Number(this.battleState?.prepSecondsLeft ?? 0) > 0 || (this.battleState?.round ?? 1) !== 1;
+      const phase = this.battleState?.phase ?? 'prep';
+      const result = this.battleState?.result ?? null;
+      const round = Number(this.battleState?.round ?? 1);
+      const prepLeft = Number(this.battleState?.prepSecondsLeft ?? 0);
+      const battleLeft = Number(this.battleState?.battleSecondsLeft ?? 0);
+
+      const started =
+        round !== 1 ||
+        phase !== 'prep' ||
+        result != null ||
+        prepLeft > 0 ||
+        battleLeft > 0;
+
       this.startGameBtn.setVisible(!started);
     }
   }

@@ -535,21 +535,20 @@ function startBattle() {
   stopPrepTimer();
   if (state.phase === 'battle') return;
 
-  // 1) если на доске нет игроков — мгновенное поражение (НЕ меняем фазу на battle)
-  const hasPlayersOnBoard = state.units.some(u => u.team === 'player' && u.zone === 'board');
-  if (!hasPlayersOnBoard) {
-    // показываем результат, остаёмся в prep
-    finishBattle('defeat');
-    return;
-  }
-
-  // 2) только теперь сохраняем snapshot и стартуем бой
-  // snapshot только игрока (бота спавним в battle и не тащим обратно в prep)
+  // 1) Всегда сохраняем актуальную расстановку игрока перед любым исходом старта боя
+  // (в том числе перед instant defeat, если на доске пусто)
   prepSnapshot = state.units
     .filter(u => u.team === 'player')
     .map(u => ({ ...u }));
 
+  // 2) Если на доске нет игроков — мгновенное поражение
+  const hasPlayersOnBoard = state.units.some(u => u.team === 'player' && u.zone === 'board');
+  if (!hasPlayersOnBoard) {
+    finishBattle('defeat');
+    return;
+  }
 
+  // дальше обычный старт боя...
   state.phase = 'battle';
   state.result = null;
 
