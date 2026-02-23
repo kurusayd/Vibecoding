@@ -271,13 +271,25 @@ function applyMergesForClient(clientId, preferredUnitId = null) {
 
     const arr = groups.get(foundKey);
 
-    // выбираем тройку
-    // если preferredUnitId есть и входит в группу — апаем его
+    // выбираем базового юнита для апа:
+    // 1) приоритет у юнита на поле (zone=board), чтобы ап не "улетал" на скамейку;
+    // 2) если юнит с preferredUnitId находится на поле и входит в группу — можно апнуть его;
+    // 3) если на поле никого нет — используем preferredUnitId (если есть) или любого.
     let base = null;
-    if (preferredUnitId != null) {
-      base = arr.find(u => u.id === Number(preferredUnitId)) ?? null;
+
+    const boardCandidates = arr.filter(u => u.zone === 'board');
+
+    if (boardCandidates.length > 0) {
+      if (preferredUnitId != null) {
+        base = boardCandidates.find(u => u.id === Number(preferredUnitId)) ?? null;
+      }
+      if (!base) base = boardCandidates[0];
+    } else {
+      if (preferredUnitId != null) {
+        base = arr.find(u => u.id === Number(preferredUnitId)) ?? null;
+      }
+      if (!base) base = arr[0];
     }
-    if (!base) base = arr[0];
 
     // берём ещё 2 любых, кроме base
     const others = arr.filter(u => u.id !== base.id).slice(0, 2);
@@ -752,10 +764,6 @@ function handleIntent(clientId, msg, ws) {
   }
 
   if (msg.action === 'setBench') {
-    if (state.phase !== 'prep') {
-      ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'setBench allowed only in prep')));
-      return;
-    }
     if (!requireOwnedUnit()) return;
 
     const slot = Number(msg.slot);
@@ -767,6 +775,13 @@ function handleIntent(clientId, msg, ws) {
     const me = findUnitById(requestedUnitId);
     if (!me) {
       ws.send(JSON.stringify(makeErrorMessage('NO_UNIT', 'Unit not found')));
+      return;
+    }
+
+    // Скамейка доступна всегда, но вне prep разрешаем только менеджмент юнитов,
+    // которые УЖЕ стоят на скамейке (bench -> bench, включая swap).
+    if (state.phase !== 'prep' && me.zone !== 'bench') {
+      ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'Only bench units can be managed outside prep')));
       return;
     }
 

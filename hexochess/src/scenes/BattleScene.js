@@ -1,4 +1,4 @@
-import Phaser from 'phaser';
+﻿import Phaser from 'phaser';
 import { hexToPixel, pixelToHex, hexCorners, hexToGroundPixel } from '../game/hex.js';
 import { createUnitSystem } from '../game/units.js';
 import { WSClient } from '../net/wsClient.js';
@@ -16,6 +16,25 @@ const GROUND_LIFT_BY_TYPE = {
   Crossbowman: 100,
   Knight: 100,
 };
+
+const PLAYER_KING_DISPLAY_NAME = 'Devis J. Jones';
+const ENEMY_KING_DISPLAY_NAME = 'Enemy King';
+
+const EXTRA_PORTRAIT_ASSETS = [
+  { key: 'bot_bishop', path: '/assets/bots/bot_bishop.png' },
+  { key: 'bot_knight', path: '/assets/bots/bot_knight.png' },
+  { key: 'bot_queen', path: '/assets/bots/bot_queen.png' },
+  { key: 'bot_rook', path: '/assets/bots/bot_rook.png' },
+  { key: 'king_frog', path: '/assets/kings/king_frog.png' },
+  { key: 'king_king', path: '/assets/kings/king_king.png' },
+  { key: 'king_princess', path: '/assets/kings/king_princess.png' },
+];
+
+const KING_DEBUG_SKINS = [
+  { label: 'ЛЯГУШКА', key: 'king_frog' },
+  { label: 'ПРИНЦЕССА', key: 'king_princess' },
+  { label: 'КОРОЛЬ', key: 'king_king' },
+];
 
 
 const UNIT_ATLAS_DEFS = [
@@ -52,12 +71,16 @@ export default class BattleScene extends Phaser.Scene {
 
   preload() { //Подгружаем пулл картинок
     this.load.image('battleBg', '/assets/bg.jpg');
-    this.load.image('king', '/assets/king.png');
+    this.load.image('king', '/assets/kings/king_princess.png');
     this.load.image('coin', '/assets/coin.png');
     this.load.image('rank1', '/assets/rank1.png');
     this.load.image('rank2', '/assets/rank2.png');
     this.load.image('rank3', '/assets/rank3.png');
     this.load.image('crownexp', '/assets/crownexp.png');
+
+    for (const asset of EXTRA_PORTRAIT_ASSETS) {
+      this.load.image(asset.key, asset.path);
+    }
 
     // ✅ swordman atlas (png+json)
     for (const def of UNIT_ATLAS_DEFS) {
@@ -91,14 +114,15 @@ export default class BattleScene extends Phaser.Scene {
     this.gridRows = 8;
 
     this.benchRows = this.gridRows;
-    this.benchGap = 120;
+    this.benchGap = 100; // было 120, скамейка на 20px ближе к полю
 
     this.originX = this.scale.width / 2 - 270;
     this.originY = this.scale.height / 2 - 120;
 
     // --- KINGS UI (лево/право) ---
-    this.kingWidth = 160;
-    this.kingHeight = 160;
+    this.kingSize = 190; // меняй только это число для пропорционального размера арта короля
+    this.kingWidth = this.kingSize;
+    this.kingHeight = this.kingSize;
 
     // HP bars
     this.kingLeftHpBg = this.add.graphics().setDepth(52);
@@ -112,6 +136,9 @@ export default class BattleScene extends Phaser.Scene {
 
     this.kingRight = this.add.image(0, 0, 'king').setDepth(50).setFlipX(true);
     this.kingRight.setDisplaySize(this.kingWidth, this.kingHeight);
+
+    this.localPlayerKingTextureKey = 'king_princess'; // локальный override только для отображения игрока (debug)
+    this.kingLeft.setTexture(this.localPlayerKingTextureKey);
 
     const kingTextStyle = {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
@@ -266,6 +293,23 @@ export default class BattleScene extends Phaser.Scene {
       .setOrigin(0.5, 0.5)
       .setShadow(0, 0, '#000000', 4, true, true);
 
+    const kingNameTextStyle = {
+      fontFamily: kingTextStyle.fontFamily,
+      fontSize: '15px',
+      color: '#ffffff',
+    };
+
+    this.kingLeftNameText = this.add.text(0, 0, PLAYER_KING_DISPLAY_NAME, kingNameTextStyle)
+      .setDepth(54)
+      .setOrigin(0.5, 1)
+      .setShadow(0, 0, '#000000', 4, true, true);
+
+    this.kingRightNameText = this.add.text(0, 0, ENEMY_KING_DISPLAY_NAME, kingNameTextStyle)
+      .setDepth(54)
+      .setOrigin(0.5, 1)
+      .setShadow(0, 0, '#000000', 4, true, true)
+      .setVisible(false);
+
     this.kingRightHpText.setVisible(false);
 
 
@@ -325,6 +369,8 @@ export default class BattleScene extends Phaser.Scene {
     // drag state
     this.draggingUnitId = null;
     this.dragHover = null; // { zone:'board', q,r } | { zone:'bench', slot }
+    this.mergeAbsorbAnimatingIds = new Set(); // visual-only merge animation for disappearing units
+    this.mergeBounceAnimatingIds = new Set(); // avoid stacking bounce on the same merge target
 
     // --- SERVER CONNECTION ---
     const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -380,9 +426,16 @@ export default class BattleScene extends Phaser.Scene {
 
     this.ws.onState = (state) => {
       // сервер прислал обновлённый state после чьего-то хода
+      const draggedId = this.draggingUnitId;
+      const incomingDragged = (state?.units ?? []).find(u => u.id === draggedId);
+      const keepBenchDrag =
+        !!incomingDragged &&
+        incomingDragged.team === 'player' &&
+        incomingDragged.zone === 'bench';
+
       this.battleState = state;
-      this.shadowOverride = null;
-      if (state?.phase !== 'prep' || state?.result) {
+      if (!keepBenchDrag) this.shadowOverride = null;
+      if ((state?.phase !== 'prep' || state?.result) && !keepBenchDrag) {
         this.draggingUnitId = null;
         this.dragHover = null;
       }
@@ -420,11 +473,14 @@ export default class BattleScene extends Phaser.Scene {
 
     // --- DRAG HANDLERS ---
     this.input.on('dragstart', (pointer, gameObject) => {
-      if (this.battleState?.phase !== 'prep') return;
       const uid = gameObject?.data?.get?.('unitId');
       if (!uid) return;
       const core = (this.battleState?.units ?? []).find(u => u.id === uid);
       if (!core || core.team !== 'player') return;
+
+      const isPrepManage = (this.battleState?.phase === 'prep') && !this.battleState?.result;
+      const isBenchManageAnytime = core.zone === 'bench';
+      if (!isPrepManage && !isBenchManageAnytime) return;
 
       this.draggingUnitId = uid;
 
@@ -449,13 +505,15 @@ export default class BattleScene extends Phaser.Scene {
     });
 
     this.input.on('drag', (pointer, gameObject, dragX, dragY) => {
-      if (this.battleState?.phase !== 'prep') return;
-
       const uid = gameObject?.data?.get?.('unitId');
       if (!uid) return;
 
       const core = (this.battleState?.units ?? []).find(u => u.id === uid);
       if (!core || core.team !== 'player') return;
+
+      const isPrepManage = (this.battleState?.phase === 'prep') && !this.battleState?.result;
+      const isBenchManageAnytime = core.zone === 'bench';
+      if (!isPrepManage && !isBenchManageAnytime) return;
 
       gameObject.setPosition(dragX, dragY);
 
@@ -485,21 +543,22 @@ export default class BattleScene extends Phaser.Scene {
 
     this.input.on('dragend', (pointer, gameObject) => {
       const uid = gameObject?.data?.get?.('unitId');
+      const core = uid ? (this.battleState?.units ?? []).find(u => u.id === uid) : null;
+      const isPrepManage = (this.battleState?.phase === 'prep') && !this.battleState?.result;
+      const isBenchManageAnytime = !!core && core.team === 'player' && core.zone === 'bench';
 
       // Всегда сбрасываем локальный drag-state, даже если prep уже закончился.
       this.draggingUnitId = null;
       this.dragHover = null;
       this.shadowOverride = null;
 
-      if (this.battleState?.phase !== 'prep') {
+      if (!isPrepManage && !isBenchManageAnytime) {
         this.renderFromState();
         this.drawGrid();
         return;
       }
 
       if (!uid) return;
-
-      const core = (this.battleState?.units ?? []).find(u => u.id === uid);
       if (!core || core.team !== 'player') return;
 
        // больше не тащим — можно снова рисовать "занято" тень
@@ -536,6 +595,15 @@ export default class BattleScene extends Phaser.Scene {
         return;
       }
 
+      // Вне prep разрешаем только менеджмент скамейки (bench -> bench).
+      if (!isPrepManage) {
+        this.shadowOverride = null;
+        this.dragHover = null;
+        this.renderFromState();
+        this.drawGrid();
+        return;
+      }
+
       // 2) иначе — обычная доска
       const hit = this.tryPickBoard(pointer.worldX, pointer.worldY);
       if (!hit) {
@@ -560,7 +628,8 @@ export default class BattleScene extends Phaser.Scene {
 
       if (vu) {
         vu.label.setPosition(p.x, p.y);
-        if (vu.hpBar) vu.hpBar.setVisible(true);
+        const isPrepPhase = (this.battleState?.phase === 'prep') && !this.battleState?.result;
+        if (vu.hpBar) vu.hpBar.setVisible(!isPrepPhase);
         if (vu.rankIcon) vu.rankIcon.setVisible(true);
         this.unitSys.setUnitPos(uid, hit.q, hit.r);
       }
@@ -605,7 +674,9 @@ export default class BattleScene extends Phaser.Scene {
 
     // --- DEBUG UI (top-right button + modal) ---
     this.debugMenuOpen = false;
+    this.debugKingMenuOpen = false;
     this.debugCanStartBattle = false;
+    this.debugKingSkinButtons = [];
 
     this.debugBtn = this.add.text(this.scale.width - 14, 14, 'Debug', {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
@@ -628,7 +699,7 @@ export default class BattleScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setVisible(false);
 
-    this.debugModalBg = this.add.rectangle(0, 0, 180, 126, 0x111111, 0.94)
+    this.debugModalBg = this.add.rectangle(0, 0, 180, 164, 0x111111, 0.94)
       .setOrigin(0, 0)
       .setStrokeStyle(2, 0x666666, 0.95);
 
@@ -649,8 +720,7 @@ export default class BattleScene extends Phaser.Scene {
     .setOrigin(0.5, 0)
     .setDepth(10031)
     .setInteractive({ useHandCursor: true });
-
-    this.debugExitBtn = this.add.text(90, 82, 'ВЫХОД', {
+    this.debugExitBtn = this.add.text(90, 120, '\u0412\u042b\u0425\u041e\u0414', {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
       fontSize: '18px',
       color: '#ffffff',
@@ -660,23 +730,75 @@ export default class BattleScene extends Phaser.Scene {
       .setOrigin(0.5, 0)
       .setDepth(10031)
       .setInteractive({ useHandCursor: true });
-
-    this.debugModalHit = this.add.zone(0, 0, 180, 126)
+    this.debugKingBtn = this.add.text(90, 82, '\u041a\u041e\u0420\u041e\u041b\u042c', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '18px',
+      color: '#ffffff',
+      backgroundColor: 'rgba(0,60,110,0.65)',
+      padding: { left: 12, right: 12, top: 8, bottom: 8 },
+    })
+      .setOrigin(0.5, 0)
+      .setDepth(10031)
+      .setInteractive({ useHandCursor: true });
+    this.debugModalHit = this.add.zone(0, 0, 180, 164)
       .setOrigin(0, 0)
       .setInteractive();
-
     this.debugModalHit.on('pointerdown', (pointer) => {
       pointer?.event?.stopPropagation?.();
     });
-
     this.debugModal.add([
       this.debugModalHit,
       this.debugModalBg,
       this.debugModalTitle,
       this.battleBtn,
+      this.debugKingBtn,
       this.debugExitBtn,
     ]);
-
+    // --- DEBUG KING MODAL (local player king skin only) ---
+    this.debugKingModal = this.add.container(0, 0)
+      .setDepth(10030)
+      .setScrollFactor(0)
+      .setVisible(false);
+    this.debugKingModalBg = this.add.rectangle(0, 0, 220, 168, 0x111111, 0.94)
+      .setOrigin(0, 0)
+      .setStrokeStyle(2, 0x666666, 0.95);
+    this.debugKingModalTitle = this.add.text(110, 12, 'KING (LOCAL)', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '16px',
+      color: '#ffffff',
+      fontStyle: 'bold',
+    }).setOrigin(0.5, 0);
+    this.debugKingModalHit = this.add.zone(0, 0, 220, 168)
+      .setOrigin(0, 0)
+      .setInteractive();
+    this.debugKingModalHit.on('pointerdown', (pointer) => {
+      pointer?.event?.stopPropagation?.();
+    });
+    this.debugKingModal.add([
+      this.debugKingModalHit,
+      this.debugKingModalBg,
+      this.debugKingModalTitle,
+    ]);
+    KING_DEBUG_SKINS.forEach((skin, idx) => {
+      const btn = this.add.text(110, 42 + idx * 38, skin.label, {
+        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+        fontSize: '17px',
+        color: '#ffffff',
+        backgroundColor: 'rgba(0,0,0,0.55)',
+        padding: { left: 12, right: 12, top: 7, bottom: 7 },
+      })
+        .setOrigin(0.5, 0)
+        .setDepth(10031)
+        .setInteractive({ useHandCursor: true });
+      btn.on('pointerdown', (pointer) => {
+        pointer?.event?.stopPropagation?.();
+        this.applyLocalPlayerKingTexture?.(skin.key);
+        this.syncDebugUI?.();
+      });
+      btn._kingTextureKey = skin.key;
+      this.debugKingSkinButtons.push(btn);
+      this.debugKingModal.add(btn);
+    });
     // --- ROUND + TIMER (top center) ---
     this.roundText = this.add.text(this.scale.width / 2, 10, '', {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
@@ -702,6 +824,12 @@ export default class BattleScene extends Phaser.Scene {
     this.battleBtn.on('pointerdown', () => {
       this.ws?.sendIntentStartBattle();
       this.hideDebugMenu?.();
+    });
+
+    this.debugKingBtn.on('pointerdown', (pointer) => {
+      pointer?.event?.stopPropagation?.();
+      this.debugKingMenuOpen = !this.debugKingMenuOpen;
+      this.syncDebugUI?.();
     });
 
     this.debugExitBtn.on('pointerdown', () => {
@@ -796,6 +924,28 @@ export default class BattleScene extends Phaser.Scene {
       const y = 48;
       this.debugModal.setPosition(x, y);
     }
+
+    if (this.debugKingModal) {
+      const mainX = this.debugModal?.x ?? (this.scale.width - (this.debugModalBg?.width ?? 180) - 14);
+      const mainY = this.debugModal?.y ?? 48;
+      const kingModalW = this.debugKingModalBg?.width ?? 220;
+      const kingModalH = this.debugKingModalBg?.height ?? 168;
+      const gap = 8;
+
+      let x = mainX - kingModalW - gap;
+      let y = mainY;
+
+      if (x < 8) {
+        x = mainX;
+        y = mainY + (this.debugModalBg?.height ?? 164) + gap;
+      }
+
+      if (y + kingModalH > this.scale.height - 8) {
+        y = Math.max(8, this.scale.height - kingModalH - 8);
+      }
+
+      this.debugKingModal.setPosition(x, y);
+    }
   }
 
   showDebugMenu() {
@@ -805,17 +955,20 @@ export default class BattleScene extends Phaser.Scene {
 
   hideDebugMenu() {
     this.debugMenuOpen = false;
+    this.debugKingMenuOpen = false;
     this.syncDebugUI();
   }
 
   toggleDebugMenu() {
     this.debugMenuOpen = !this.debugMenuOpen;
+    if (!this.debugMenuOpen) this.debugKingMenuOpen = false;
     this.syncDebugUI();
   }
 
   syncDebugUI() {
     if (this.debugBtn) this.debugBtn.setVisible(true);
     if (this.debugModal) this.debugModal.setVisible(!!this.debugMenuOpen);
+    if (this.debugKingModal) this.debugKingModal.setVisible(!!this.debugMenuOpen && !!this.debugKingMenuOpen);
 
     const canBattle = !!this.debugCanStartBattle;
 
@@ -827,6 +980,33 @@ export default class BattleScene extends Phaser.Scene {
 
     if (this.debugExitBtn) {
       this.debugExitBtn.setVisible(!!this.debugMenuOpen);
+    }
+
+    if (this.debugKingBtn) {
+      this.debugKingBtn.setVisible(!!this.debugMenuOpen);
+      this.debugKingBtn.setAlpha(this.debugKingMenuOpen ? 1 : 0.9);
+    }
+
+    for (const btn of (this.debugKingSkinButtons ?? [])) {
+      const active = btn?._kingTextureKey === this.localPlayerKingTextureKey;
+      btn?.setVisible?.(!!this.debugMenuOpen && !!this.debugKingMenuOpen);
+      btn?.setAlpha?.(active ? 1 : 0.85);
+      if (btn?.setStyle) {
+        btn.setStyle({
+          backgroundColor: active ? 'rgba(0,90,40,0.75)' : 'rgba(0,0,0,0.55)',
+        });
+      }
+    }
+  }
+
+  applyLocalPlayerKingTexture(textureKey) {
+    if (!textureKey || !this.textures?.exists?.(textureKey)) return;
+
+    this.localPlayerKingTextureKey = textureKey;
+
+    if (this.kingLeft) {
+      this.kingLeft.setTexture(textureKey);
+      this.kingLeft.setDisplaySize(this.kingWidth, this.kingHeight);
     }
   }
 
@@ -918,14 +1098,26 @@ export default class BattleScene extends Phaser.Scene {
 
     if (!Number.isFinite(minX) || !Number.isFinite(maxX)) return;
 
-    const midY = (minY + maxY) / 2 - 40; // подняли выше
+    const kingUiLiftPx = 35; // поднимает ВЕСЬ блок короля (арт + HP + имя), т.к. HP/имя привязаны к kingSprite.y
+    const midY = (minY + maxY) / 2 - 40 - kingUiLiftPx; // подняли выше
 
     const pad = 30;
     const halfW = this.kingWidth / 2;
     const halfH = this.kingHeight / 2;
 
-    const leftX = minX - halfW - pad - 100;   // левый король ещё левее на 70px;
-    const rightX = maxX + halfW + pad - 40;  // правый король левее на 20px;
+    const rawLeftX = minX - halfW - pad - 100;   // левый король ещё левее
+    const rawRightX = maxX + halfW + pad - 40;   // правый король левее
+
+    // Защита от обрезания при увеличении kingSize: держим королей внутри экрана.
+    const view = this.scale.getViewPort();
+    const screenPad = 12;
+    const leftKingOverflowPx = 30; // можно увести левого короля за левый край (пустота в арте)
+    const rightKingOverflowPx = leftKingOverflowPx; // зеркально для правого короля
+    const minKingCenterX = view.x + halfW + screenPad - leftKingOverflowPx;
+    const maxKingCenterX = view.x + view.width - halfW - screenPad + rightKingOverflowPx;
+
+    const leftX = Phaser.Math.Clamp(rawLeftX, minKingCenterX, maxKingCenterX);
+    const rightX = Phaser.Math.Clamp(rawRightX, minKingCenterX, maxKingCenterX);
 
     this.kingLeft.setPosition(leftX, midY);
     this.kingRight.setPosition(rightX, midY);
@@ -1037,12 +1229,13 @@ export default class BattleScene extends Phaser.Scene {
 
     const barWidth = 95;
     const barHeight = 14;
+    const kingHpBarDownPx = 10; // опускает HP-бар (и имя над ним) у обоих королей
 
     const drawBar = (kingSprite, hpBg, hpFill, kingData) => {
       if (!kingSprite || !kingData) return;
 
       const x = kingSprite.x - barWidth / 2;
-      const y = kingSprite.y - this.kingHeight / 2 - 26;
+      const y = kingSprite.y - this.kingHeight / 2 - 26 + kingHpBarDownPx;
 
       hpBg.clear();
       hpFill.clear();
@@ -1067,6 +1260,13 @@ export default class BattleScene extends Phaser.Scene {
         hpText.setVisible(true);
       }
 
+      // имя короля над полоской HP
+      const kingNameText = (kingSprite === this.kingLeft) ? this.kingLeftNameText : this.kingRightNameText;
+      if (kingNameText) {
+        kingNameText.setPosition(kingSprite.x, y - 4);
+        kingNameText.setVisible(true);
+      }
+
     };
 
     drawBar(this.kingLeft, this.kingLeftHpBg, this.kingLeftHpFill, kings.player);
@@ -1083,6 +1283,7 @@ export default class BattleScene extends Phaser.Scene {
       this.kingRightHpBg.clear();
       this.kingRightHpFill.clear();
       this.kingRightHpText?.setVisible(false);
+      this.kingRightNameText?.setVisible(false);
     }
   }
 
@@ -1203,6 +1404,284 @@ export default class BattleScene extends Phaser.Scene {
     }
   }
 
+  getUnitScreenAnchor(coreUnitLike, fallbackVu = null) {
+    if (!coreUnitLike && !fallbackVu) return null;
+
+    const type = coreUnitLike?.type ?? fallbackVu?.type ?? null;
+    const lift = GROUND_LIFT_BY_TYPE[type] ?? 0;
+
+    if ((coreUnitLike?.zone === 'bench') || (!coreUnitLike && fallbackVu)) {
+      const slot = Number.isInteger(coreUnitLike?.benchSlot)
+        ? coreUnitLike.benchSlot
+        : (Number.isInteger(fallbackVu?.benchSlot) ? fallbackVu.benchSlot : null);
+
+      if (slot != null) {
+        const p = this.benchSlotToScreen(slot);
+        return { x: p.x, y: p.y, artX: p.x, artY: p.y + this.hexSize - lift };
+      }
+    }
+
+    if (coreUnitLike && coreUnitLike.zone === 'board') {
+      const p = this.hexToPixel(coreUnitLike.q, coreUnitLike.r);
+      const g = this.hexToGroundPixel(coreUnitLike.q, coreUnitLike.r, lift);
+      return { x: p.x, y: p.y, artX: g.x, artY: g.y };
+    }
+
+    if (fallbackVu?.sprite) {
+      const x = fallbackVu.sprite.x;
+      const y = fallbackVu.sprite.y;
+      return { x, y, artX: x, artY: y + this.hexSize - lift };
+    }
+
+    return null;
+  }
+
+  playMergeAbsorbAnimation(donorVu, targetCoreUnit, delayMs = 0) {
+    if (!donorVu || !donorVu.id || this.mergeAbsorbAnimatingIds?.has(donorVu.id)) return;
+
+    const target = this.getUnitScreenAnchor(targetCoreUnit);
+    if (!target) return;
+
+    this.mergeAbsorbAnimatingIds.add(donorVu.id);
+
+    this.playMergeTargetBounce?.(targetCoreUnit, delayMs);
+
+    // visual-only: hide overlays, leave idle anim as-is
+    donorVu.hpBar?.setVisible(false);
+    donorVu.rankIcon?.setVisible(false);
+    if (donorVu.dragHandle?.input) donorVu.dragHandle.input.enabled = false;
+
+    const centerTargets = [donorVu.sprite, donorVu.dragHandle, donorVu.label].filter(Boolean);
+    const fadeTargets = [donorVu.sprite, donorVu.label, donorVu.art].filter(Boolean);
+
+    const duration = 250;
+    const ease = 'Cubic.In';
+
+    if (donorVu.art) {
+      this.tweens.add({
+        targets: donorVu.art,
+        x: target.artX,
+        y: target.artY,
+        alpha: 0.25,
+        scaleX: (donorVu.art.scaleX ?? 1) * 0.8,
+        scaleY: (donorVu.art.scaleY ?? 1) * 0.8,
+        duration,
+        delay: delayMs,
+        ease,
+      });
+    }
+
+    if (centerTargets.length > 0) {
+      this.tweens.add({
+        targets: centerTargets,
+        x: target.x,
+        y: target.y,
+        alpha: 0.2,
+        duration,
+        delay: delayMs,
+        ease,
+        onComplete: () => {
+          this.mergeAbsorbAnimatingIds?.delete?.(donorVu.id);
+          if (this.unitSys.findUnit(donorVu.id)) {
+            this.unitSys.destroyUnit(donorVu.id);
+          }
+        },
+      });
+    } else {
+      this.time.delayedCall(delayMs + duration, () => {
+        this.mergeAbsorbAnimatingIds?.delete?.(donorVu.id);
+        if (this.unitSys.findUnit(donorVu.id)) {
+          this.unitSys.destroyUnit(donorVu.id);
+        }
+      });
+    }
+
+    if (fadeTargets.length > 0) {
+      this.tweens.add({
+        targets: fadeTargets,
+        alpha: 0.2,
+        duration,
+        delay: delayMs,
+        ease,
+      });
+    }
+  }
+
+  playMergeTargetBounce(targetCoreUnit, delayMs = 0) {
+    if (!targetCoreUnit?.id) return;
+    if (this.mergeBounceAnimatingIds?.has(targetCoreUnit.id)) return;
+
+    const targetVu = this.unitSys?.findUnit?.(targetCoreUnit.id);
+    if (!targetVu) return;
+
+    const art = targetVu.art ?? null;
+    const centerTargets = [targetVu.sprite, targetVu.label].filter(Boolean);
+    const rankIcon = targetVu.rankIcon ?? null;
+
+    this.mergeBounceAnimatingIds.add(targetCoreUnit.id);
+
+    const artScaleX = art?.scaleX ?? 1;
+    const artScaleY = art?.scaleY ?? 1;
+    const spriteScaleX = targetVu.sprite?.scaleX ?? 1;
+    const spriteScaleY = targetVu.sprite?.scaleY ?? 1;
+    const labelScaleX = targetVu.label?.scaleX ?? 1;
+    const labelScaleY = targetVu.label?.scaleY ?? 1;
+    const rankScaleX = rankIcon?.scaleX ?? 1;
+    const rankScaleY = rankIcon?.scaleY ?? 1;
+
+    const up = 1.18;
+    const upMs = 150;
+    if (art) {
+      this.tweens.add({
+        targets: art,
+        scaleX: artScaleX * up,
+        scaleY: artScaleY * up,
+        duration: upMs,
+        delay: delayMs,
+        ease: 'Quad.Out',
+        yoyo: true,
+        hold: 15,
+        onComplete: () => {
+          if (art.active) {
+            art.setScale(artScaleX, artScaleY);
+          }
+          this.mergeBounceAnimatingIds?.delete?.(targetCoreUnit.id);
+        },
+      });
+      return;
+    }
+
+    const allTargets = [...centerTargets, rankIcon].filter(Boolean);
+    if (allTargets.length === 0) {
+      this.mergeBounceAnimatingIds?.delete?.(targetCoreUnit.id);
+      return;
+    }
+
+    const bounceObject = (obj, sx, sy, onDone = null) => {
+      if (!obj) return;
+      this.tweens.add({
+        targets: obj,
+        scaleX: sx * up,
+        scaleY: sy * up,
+        duration: upMs,
+        delay: delayMs,
+        ease: 'Quad.Out',
+        yoyo: true,
+        hold: 15,
+        onComplete: () => {
+          if (obj.active) obj.setScale(sx, sy);
+          onDone?.();
+        },
+      });
+    };
+
+    let pending = 0;
+    const doneOne = () => {
+      pending -= 1;
+      if (pending <= 0) this.mergeBounceAnimatingIds?.delete?.(targetCoreUnit.id);
+    };
+
+    if (targetVu.sprite) {
+      pending += 1;
+      bounceObject(targetVu.sprite, spriteScaleX, spriteScaleY, doneOne);
+    }
+    if (targetVu.label) {
+      pending += 1;
+      bounceObject(targetVu.label, labelScaleX, labelScaleY, doneOne);
+    }
+    if (rankIcon) {
+      pending += 1;
+      bounceObject(rankIcon, rankScaleX, rankScaleY, doneOne);
+    }
+
+    if (pending === 0) {
+      this.mergeBounceAnimatingIds?.delete?.(targetCoreUnit.id);
+    }
+  }
+
+  detectAndAnimateClientMerges(visibleUnits) {
+    if (!this.unitSys?.state?.units?.length) return;
+
+    const visibleById = new Map(visibleUnits.map(u => [u.id, u]));
+    const currentVisuals = this.unitSys.state.units.slice();
+    const visualById = new Map(currentVisuals.map(vu => [vu.id, vu]));
+
+    const missingPool = currentVisuals.filter(vu => !visibleById.has(vu.id) && !this.mergeAbsorbAnimatingIds?.has(vu.id));
+    if (missingPool.length < 2) return;
+
+    const reserved = new Set();
+
+    for (const targetCore of visibleUnits) {
+      const existingVu = visualById.get(targetCore.id);
+      if (!existingVu) continue;
+
+      const oldRank = Number(existingVu.rank ?? 1);
+      const newRank = Number(targetCore.rank ?? oldRank);
+      if (!(newRank > oldRank)) continue;
+
+      const candidates = missingPool.filter(vu =>
+        !reserved.has(vu.id) &&
+        vu.team === targetCore.team &&
+        vu.type === targetCore.type &&
+        Number(vu.rank ?? 1) === oldRank
+      );
+
+      if (candidates.length < 2) continue;
+
+      const targetPos = this.getUnitScreenAnchor(targetCore, existingVu);
+      if (!targetPos) continue;
+
+      candidates.sort((a, b) => {
+        const da = Phaser.Math.Distance.Between(a.sprite?.x ?? 0, a.sprite?.y ?? 0, targetPos.x, targetPos.y);
+        const db = Phaser.Math.Distance.Between(b.sprite?.x ?? 0, b.sprite?.y ?? 0, targetPos.x, targetPos.y);
+        return da - db;
+      });
+
+      const donors = candidates.slice(0, 2);
+      donors.forEach((vu, idx) => {
+        reserved.add(vu.id);
+        this.playMergeAbsorbAnimation(vu, targetCore, idx * 40);
+      });
+    }
+  }
+
+  findLikelyMergeTargetForMissingVisual(donorVu, visibleUnits) {
+    if (!donorVu || !visibleUnits?.length) return null;
+
+    const phase = this.battleState?.phase ?? 'prep';
+    const result = this.battleState?.result ?? null;
+    if (!(phase === 'prep' && !result)) return null; // merge happens in prep
+
+    const donorRank = Number(donorVu.rank ?? 1);
+    const donorType = donorVu.type ?? null;
+    const donorTeam = donorVu.team ?? null;
+    if (!donorType || !donorTeam) return null;
+
+    const donorX = donorVu.sprite?.x ?? 0;
+    const donorY = donorVu.sprite?.y ?? 0;
+
+    let best = null;
+    let bestDist = Infinity;
+
+    for (const u of visibleUnits) {
+      if (u.team !== donorTeam) continue;
+      if (u.type !== donorType) continue;
+      if (Number(u.rank ?? 1) <= donorRank) continue; // target must be upgraded rank
+
+      const targetVu = this.unitSys.findUnit(u.id);
+      const targetPos = this.getUnitScreenAnchor(u, targetVu);
+      if (!targetPos) continue;
+
+      const d = Phaser.Math.Distance.Between(donorX, donorY, targetPos.x, targetPos.y);
+      if (d < bestDist) {
+        bestDist = d;
+        best = u;
+      }
+    }
+
+    return best;
+  }
+
   renderFromState() {
     // 1) кого оставляем
     const phase = this.battleState?.phase ?? 'prep';
@@ -1213,11 +1692,22 @@ export default class BattleScene extends Phaser.Scene {
       return true;
     });
 
+    // Visual-only merge effect: before deleting vanished units, animate 2 donors flying into upgraded unit.
+    this.detectAndAnimateClientMerges(visibleUnits);
+
     const aliveIds = new Set(visibleUnits.map(u => u.id));
 
     // 2) удалить тех, кого нет в core state
     for (const vu of this.unitSys.state.units.slice()) {
       if (!aliveIds.has(vu.id)) {
+        if (this.mergeAbsorbAnimatingIds?.has(vu.id)) continue;
+
+        const mergeTarget = this.findLikelyMergeTargetForMissingVisual(vu, visibleUnits);
+        if (mergeTarget) {
+          this.playMergeAbsorbAnimation(vu, mergeTarget);
+          continue;
+        }
+
         this.unitSys.destroyUnit(vu.id);
       }
     }
@@ -1293,8 +1783,10 @@ export default class BattleScene extends Phaser.Scene {
         created.dragHandle.setDataEnabled();
         created.dragHandle.data.set('unitId', created.id);
 
-        // drag разрешаем всем юнитам игрока в prep
-        const canDrag = (u.team === 'player') && (this.battleState?.phase === 'prep') && !this.battleState?.result;
+        // Скамейка доступна всегда, поле — только в prep.
+        const canDrag =
+          (u.team === 'player') &&
+          ((u.zone === 'bench') || ((this.battleState?.phase === 'prep') && !this.battleState?.result));
         this.setSpriteDraggable(created.dragHandle, canDrag);
 
         // если сервер сказал "bench" — сразу переставим на скамейку
@@ -1319,6 +1811,13 @@ export default class BattleScene extends Phaser.Scene {
       }
 
       // ---- UPDATE ----
+      // Пока тащим юнита со скамейки (например во время battle-tick'ов), не снапаем его обратно state-апдейтами.
+      if (u.id === this.draggingUnitId && u.team === 'player' && u.zone === 'bench') {
+        const vuDrag = this.unitSys.findUnit(u.id);
+        if (vuDrag?.dragHandle) this.setSpriteDraggable(vuDrag.dragHandle, true);
+        continue;
+      }
+
       // позиция: доска или скамейка
       if (u.zone === 'bench') {
         const slot = Number.isInteger(u.benchSlot) ? u.benchSlot : 0;
@@ -1339,9 +1838,9 @@ export default class BattleScene extends Phaser.Scene {
         const tweenMs = (phase === 'battle' && !result) ? MOVE_TWEEN_MS : 0;
         this.unitSys.setUnitPos(u.id, u.q, u.r, { tweenMs });
 
-        // на доске hpBar показываем обратно (если был скрыт)
+        // На доске показываем HP только вне prep (в prep скрываем по запросу).
         const vu = this.unitSys.findUnit(u.id);
-        if (vu?.hpBar) vu.hpBar.setVisible(true);
+        if (vu?.hpBar) vu.hpBar.setVisible(phase !== 'prep');
         if (vu?.rankIcon) vu.rankIcon.setVisible((phase === 'prep') && !u.dead);
       }
 
@@ -1368,8 +1867,7 @@ export default class BattleScene extends Phaser.Scene {
       if (vu?.dragHandle) {
         const canDrag =
           (u.team === 'player') &&
-          (this.battleState?.phase === 'prep') &&
-          !this.battleState?.result;
+          ((u.zone === 'bench') || ((this.battleState?.phase === 'prep') && !this.battleState?.result));
 
         this.setSpriteDraggable(vu.dragHandle, canDrag);
       }
@@ -1640,8 +2138,7 @@ export default class BattleScene extends Phaser.Scene {
 
       const canDrag =
         (u.team === 'player') &&
-        (phase === 'prep') &&
-        !result;
+        ((u.zone === 'bench') || ((phase === 'prep') && !result));
 
       this.setSpriteDraggable(vu.dragHandle, canDrag);
     }
@@ -1795,3 +2292,5 @@ export default class BattleScene extends Phaser.Scene {
   }
 
 }
+
+
