@@ -12,9 +12,38 @@ import {
 } from '../../shared/battleCore.js';
 
 const GROUND_LIFT_BY_TYPE = {
-  Swordsman: 100, // то же число, что ты настроил в units.js
+  Swordsman: 100,
+  Crossbowman: 100,
+  Knight: 100,
 };
 
+
+const UNIT_ATLAS_DEFS = [
+  {
+    type: 'Swordsman',
+    atlasKey: 'sworman_atlas',
+    atlasPath: '/assets/units/swordman/atlas/swordman_atlas',
+    idleAnim: 'swordman_idle',
+    walkAnim: 'swordman_walk',
+    deadAnim: 'swordman_dead',
+  },
+  {
+    type: 'Crossbowman',
+    atlasKey: 'crossbowman_atlas',
+    atlasPath: '/assets/units/crossbowman/atlas/swordman_atlas',
+    idleAnim: 'crossbowman_idle',
+    walkAnim: 'crossbowman_walk',
+    deadAnim: 'crossbowman_dead',
+  },
+  {
+    type: 'Knight',
+    atlasKey: 'knight_atlas',
+    atlasPath: '/assets/units/knight/atlas/swordman_atlas',
+    idleAnim: 'knight_idle',
+    walkAnim: 'knight_walk',
+    deadAnim: 'knight_dead',
+  },
+];
 
 export default class BattleScene extends Phaser.Scene {
   constructor() {
@@ -31,11 +60,13 @@ export default class BattleScene extends Phaser.Scene {
     this.load.image('crownexp', '/assets/crownexp.png');
 
     // ✅ swordman atlas (png+json)
-    this.load.atlas(
-      'sworman_atlas',
-      '/assets/units/swordman/atlas/swordman_atlas.png',
-      '/assets/units/swordman/atlas/swordman_atlas.json'
-    );
+    for (const def of UNIT_ATLAS_DEFS) {
+      this.load.atlas(
+        def.atlasKey,
+        `${def.atlasPath}.png`,
+        `${def.atlasPath}.json`
+      );
+    }
 
     // дебаг загрузки: покажет ключ и URL, который не смог загрузиться
     this.load.on('loaderror', (file) => {
@@ -254,29 +285,41 @@ export default class BattleScene extends Phaser.Scene {
     this.unitSys = createUnitSystem(this);
 
     // ✅ anims: swordman from atlas
-    if (!this.anims.exists('swordman_idle')) {
-      // idle — 1 кадр (можно просто держать как анимацию, чтобы единообразно play())
-      this.anims.create({
-        key: 'swordman_idle',
-        frames: [{ key: 'sworman_atlas', frame: 'psd_animation/idle.png' }], // <-- имя кадра в json
-        frameRate: 1,
-        repeat: -1,
-      });
-    }
+    for (const def of UNIT_ATLAS_DEFS) {
+      if (!this.anims.exists(def.idleAnim)) {
+        this.anims.create({
+          key: def.idleAnim,
+          frames: [{ key: def.atlasKey, frame: 'psd_animation/idle.png' }],
+          frameRate: 1,
+          repeat: -1,
+        });
+      }
 
-    if (!this.anims.exists('swordman_walk')) {
-      this.anims.create({
-        key: 'swordman_walk',
-        frames: this.anims.generateFrameNames('sworman_atlas', {
-          prefix: 'psd_animation/walk_',
-          start: 1,
-          end: 20,
-          zeroPad: 4,
-          suffix: '.png',
-        }),
-        frameRate: 12,
-        repeat: -1,
-      });
+      if (!this.anims.exists(def.walkAnim)) {
+        const texture = this.textures.get(def.atlasKey);
+        const walkFrames = (texture?.getFrameNames?.() ?? [])
+          .filter((name) => /^psd_animation\/walk_\d{4}\.png$/.test(name))
+          .sort()
+          .map((frame) => ({ key: def.atlasKey, frame }));
+
+        this.anims.create({
+          key: def.walkAnim,
+          frames: walkFrames.length > 0
+            ? walkFrames
+            : [{ key: def.atlasKey, frame: 'psd_animation/idle.png' }],
+          frameRate: 12,
+          repeat: -1,
+        });
+      }
+
+      if (!this.anims.exists(def.deadAnim)) {
+        this.anims.create({
+          key: def.deadAnim,
+          frames: [{ key: def.atlasKey, frame: 'psd_animation/dead.png' }],
+          frameRate: 1,
+          repeat: -1,
+        });
+      }
     }
 
     // drag state
@@ -324,6 +367,9 @@ export default class BattleScene extends Phaser.Scene {
       this.battleState = msg.state;
       this.activeUnitId = msg?.you?.unitId ?? null; // теперь может быть null (старт пустой)
 
+      this.draggingUnitId = null;
+      this.dragHover = null;
+      this.shadowOverride = null;
       this.renderFromState();
       this.drawGrid();
       this.syncPhaseUI();
@@ -336,6 +382,10 @@ export default class BattleScene extends Phaser.Scene {
       // сервер прислал обновлённый state после чьего-то хода
       this.battleState = state;
       this.shadowOverride = null;
+      if (state?.phase !== 'prep' || state?.result) {
+        this.draggingUnitId = null;
+        this.dragHover = null;
+      }
 
       this.renderFromState();
       this.drawGrid();
@@ -434,9 +484,19 @@ export default class BattleScene extends Phaser.Scene {
     });
 
     this.input.on('dragend', (pointer, gameObject) => {
-      if (this.battleState?.phase !== 'prep') return;
-
       const uid = gameObject?.data?.get?.('unitId');
+
+      // Всегда сбрасываем локальный drag-state, даже если prep уже закончился.
+      this.draggingUnitId = null;
+      this.dragHover = null;
+      this.shadowOverride = null;
+
+      if (this.battleState?.phase !== 'prep') {
+        this.renderFromState();
+        this.drawGrid();
+        return;
+      }
+
       if (!uid) return;
 
       const core = (this.battleState?.units ?? []).find(u => u.id === uid);
@@ -524,11 +584,11 @@ export default class BattleScene extends Phaser.Scene {
       if (this.roundText) this.roundText.setPosition(this.scale.width / 2, 10);
       if (this.prepTimerText) this.prepTimerText.setPosition(this.scale.width / 2, 60);
 
-      if (this.battleBtn) this.battleBtn.setPosition(this.scale.width / 2 + 220, 14);
       if (this.resultText) this.resultText.setPosition(this.scale.width / 2, 60);
       if (this.resultText) this.resultText.setWordWrapWidth(Math.min(520, this.scale.width - 40));
 
       positionFullscreenButton(this);
+      this.positionDebugUI?.();
       this.positionShop();
       this.positionCoinsHUD();
     });
@@ -543,17 +603,79 @@ export default class BattleScene extends Phaser.Scene {
     positionFullscreenButton(this);
     this.positionCoinsHUD();
 
-    // --- TOP CENTER UI ---
-    this.battleBtn = this.add.text(this.scale.width / 2 + 220, 14, 'БОЙ', {
+    // --- DEBUG UI (top-right button + modal) ---
+    this.debugMenuOpen = false;
+    this.debugCanStartBattle = false;
+
+    this.debugBtn = this.add.text(this.scale.width - 14, 14, 'Debug', {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-      fontSize: '22px',
+      fontSize: '18px',
+      color: '#ffffff',
+      backgroundColor: 'rgba(0,0,0,0.6)',
+      padding: { left: 10, right: 10, top: 6, bottom: 6 },
+    })
+      .setOrigin(1, 0)
+      .setDepth(10020)
+      .setInteractive({ useHandCursor: true });
+
+    this.debugBtn.on('pointerdown', (pointer) => {
+      pointer?.event?.stopPropagation?.();
+      this.toggleDebugMenu();
+    });
+
+    this.debugModal = this.add.container(0, 0)
+      .setDepth(10030)
+      .setScrollFactor(0)
+      .setVisible(false);
+
+    this.debugModalBg = this.add.rectangle(0, 0, 180, 126, 0x111111, 0.94)
+      .setOrigin(0, 0)
+      .setStrokeStyle(2, 0x666666, 0.95);
+
+    this.debugModalTitle = this.add.text(90, 12, 'DEBUG', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '16px',
+      color: '#ffffff',
+      fontStyle: 'bold',
+    }).setOrigin(0.5, 0);
+
+    this.battleBtn = this.add.text(90, 44, 'БОЙ', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '18px',
       color: '#ffffff',
       backgroundColor: 'rgba(0,0,0,0.55)',
-      padding: { left: 14, right: 14, top: 8, bottom: 8 },
+      padding: { left: 18, right: 18, top: 8, bottom: 8 },
     })
     .setOrigin(0.5, 0)
-    .setDepth(9999)
+    .setDepth(10031)
     .setInteractive({ useHandCursor: true });
+
+    this.debugExitBtn = this.add.text(90, 82, 'ВЫХОД', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '18px',
+      color: '#ffffff',
+      backgroundColor: 'rgba(120,0,0,0.65)',
+      padding: { left: 14, right: 14, top: 8, bottom: 8 },
+    })
+      .setOrigin(0.5, 0)
+      .setDepth(10031)
+      .setInteractive({ useHandCursor: true });
+
+    this.debugModalHit = this.add.zone(0, 0, 180, 126)
+      .setOrigin(0, 0)
+      .setInteractive();
+
+    this.debugModalHit.on('pointerdown', (pointer) => {
+      pointer?.event?.stopPropagation?.();
+    });
+
+    this.debugModal.add([
+      this.debugModalHit,
+      this.debugModalBg,
+      this.debugModalTitle,
+      this.battleBtn,
+      this.debugExitBtn,
+    ]);
 
     // --- ROUND + TIMER (top center) ---
     this.roundText = this.add.text(this.scale.width / 2, 10, '', {
@@ -579,6 +701,12 @@ export default class BattleScene extends Phaser.Scene {
 
     this.battleBtn.on('pointerdown', () => {
       this.ws?.sendIntentStartBattle();
+      this.hideDebugMenu?.();
+    });
+
+    this.debugExitBtn.on('pointerdown', () => {
+      this.ws?.sendIntentResetGame?.();
+      this.hideDebugMenu?.();
     });
 
     this.resultText = this.add.text(this.scale.width / 2, 60, '', { // на месте таймера
@@ -591,6 +719,9 @@ export default class BattleScene extends Phaser.Scene {
     .setOrigin(0.5, 0)  // ✅ верхняя граница текста фиксирована по y=48
     .setDepth(9999)
     .setVisible(false);
+
+    this.positionDebugUI();
+    this.syncDebugUI();
 
     // --- SHOP UI (5 offers) ---
     this.shopButtons = [];
@@ -654,6 +785,51 @@ export default class BattleScene extends Phaser.Scene {
     this.positionCoinsHUD();
   }
 
+  positionDebugUI() {
+    if (this.debugBtn) {
+      this.debugBtn.setPosition(this.scale.width - 14, 14);
+    }
+
+    if (this.debugModal) {
+      const modalW = this.debugModalBg?.width ?? 180;
+      const x = this.scale.width - modalW - 14;
+      const y = 48;
+      this.debugModal.setPosition(x, y);
+    }
+  }
+
+  showDebugMenu() {
+    this.debugMenuOpen = true;
+    this.syncDebugUI();
+  }
+
+  hideDebugMenu() {
+    this.debugMenuOpen = false;
+    this.syncDebugUI();
+  }
+
+  toggleDebugMenu() {
+    this.debugMenuOpen = !this.debugMenuOpen;
+    this.syncDebugUI();
+  }
+
+  syncDebugUI() {
+    if (this.debugBtn) this.debugBtn.setVisible(true);
+    if (this.debugModal) this.debugModal.setVisible(!!this.debugMenuOpen);
+
+    const canBattle = !!this.debugCanStartBattle;
+
+    if (this.battleBtn) {
+      this.battleBtn.setVisible(!!this.debugMenuOpen);
+      if (this.battleBtn.input) this.battleBtn.input.enabled = canBattle;
+      this.battleBtn.setAlpha(canBattle ? 1 : 0.4);
+    }
+
+    if (this.debugExitBtn) {
+      this.debugExitBtn.setVisible(!!this.debugMenuOpen);
+    }
+  }
+
 
   positionShop() {
     if (!this.shopButtons?.length) return;
@@ -697,8 +873,8 @@ export default class BattleScene extends Phaser.Scene {
     const view = this.scale.getViewPort();
 
     // базовая линия по Y — как у кнопки "Бой"
-    const btnTop = this.battleBtn
-      ? (this.battleBtn.y - (this.battleBtn.height ?? this.battleBtn.displayHeight ?? 0) * (this.battleBtn.originY ?? 0.5))
+    const btnTop = this.debugBtn
+      ? (this.debugBtn.y - (this.debugBtn.height ?? this.debugBtn.displayHeight ?? 0) * (this.debugBtn.originY ?? 0.5))
       : (view.y + 14);
 
     // базовый X — левый край поля
@@ -1069,8 +1245,8 @@ export default class BattleScene extends Phaser.Scene {
             id: u.id,
             type: u.type,
             label: (
-              u.type === 'Archer' ? 'A' :
-              u.type === 'Tank' ? 'T' :
+              u.type === 'Crossbowman' ? 'C' :
+              u.type === 'Knight' ? 'K' :
               u.type === 'Swordsman' ? 'S' :
               '?'
             ),
@@ -1086,8 +1262,8 @@ export default class BattleScene extends Phaser.Scene {
             id: u.id,
             type: u.type,
             label: (
-              u.type === 'Archer' ? 'A' :
-              u.type === 'Tank' ? 'T' :
+              u.type === 'Crossbowman' ? 'C' :
+              u.type === 'Knight' ? 'K' :
               u.type === 'Swordsman' ? 'S' :
               '?'
             ),
@@ -1137,6 +1313,8 @@ export default class BattleScene extends Phaser.Scene {
           if (created) updateHpBar(this, created);
         }
 
+        this.unitSys.setUnitDead?.(u.id, !!u.dead);
+
         continue;
       }
 
@@ -1164,7 +1342,7 @@ export default class BattleScene extends Phaser.Scene {
         // на доске hpBar показываем обратно (если был скрыт)
         const vu = this.unitSys.findUnit(u.id);
         if (vu?.hpBar) vu.hpBar.setVisible(true);
-        if (vu?.rankIcon) vu.rankIcon.setVisible(true);
+        if (vu?.rankIcon) vu.rankIcon.setVisible((phase === 'prep') && !u.dead);
       }
 
       const vuRank = this.unitSys.findUnit(u.id);
@@ -1172,6 +1350,7 @@ export default class BattleScene extends Phaser.Scene {
 
       // HP
       this.unitSys.setUnitHp(u.id, u.hp, u.maxHp ?? existing.maxHp);
+      this.unitSys.setUnitDead?.(u.id, !!u.dead);
 
       // draggable всем юнитам игрока в prep + обновление буквы
       const vu = this.unitSys.findUnit(u.id);
@@ -1179,8 +1358,8 @@ export default class BattleScene extends Phaser.Scene {
       if (vu?.label) {
         const t = String(u.type ?? '').toLowerCase();
         const ch =
-          (t === 'archer') ? 'A' :
-          (t === 'tank') ? 'T' :
+          (t === 'crossbowman') ? 'C' :
+          (t === 'knight') ? 'K' :
           (t === 'swordsman' || t === 'swordmen') ? 'S' :
           '?';
         vu.label.setText(ch);
@@ -1199,16 +1378,22 @@ export default class BattleScene extends Phaser.Scene {
 
     // ✅ sync swordsman anim by phase/zone
     const result = this.battleState?.result ?? null;
+    const animByType = {
+      Swordsman: { idle: 'swordman_idle', walk: 'swordman_walk', dead: 'swordman_dead' },
+      Crossbowman: { idle: 'crossbowman_idle', walk: 'crossbowman_walk', dead: 'crossbowman_dead' },
+      Knight: { idle: 'knight_idle', walk: 'knight_walk', dead: 'knight_dead' },
+    };
 
     for (const u of (this.battleState?.units ?? [])) {
       // в prep враги скрыты, но это не важно — просто синкаем тех, кто есть
       const vu = this.unitSys.findUnit(u.id);
       if (!vu?.art) continue;
 
-      if (u.type !== 'Swordsman') continue;
+      const animDef = animByType[u.type];
+      if (!animDef) continue;
 
-      const wantWalk = (phase === 'battle') && !result && (u.zone === 'board');
-      const animKey = wantWalk ? 'swordman_walk' : 'swordman_idle';
+      const wantWalk = (phase === 'battle') && !result && (u.zone === 'board') && !u.dead;
+      const animKey = u.dead ? animDef.dead : (wantWalk ? animDef.walk : animDef.idle);
 
       // не дёргаем play каждый тик/рендер если уже играет то же самое
       if (vu.art.anims?.getName?.() === animKey) continue;
@@ -1226,7 +1411,8 @@ export default class BattleScene extends Phaser.Scene {
 
     // если есть результат — показываем текст и прячем кнопку
     if (result) {
-      this.battleBtn?.setVisible(false);
+      this.debugCanStartBattle = false;
+      this.syncDebugUI?.();
 
       // ✅ таймер скрываем, результат показываем вместо него
       this.prepTimerText?.setVisible(false);
@@ -1266,12 +1452,9 @@ export default class BattleScene extends Phaser.Scene {
     // результата нет
     this.resultText?.setVisible(false);
 
-    // в prep показываем кнопку, в battle — прячем
-    if (phase === 'prep') {
-      this.battleBtn?.setVisible(true);
-    } else {
-      this.battleBtn?.setVisible(false);
-    }
+    // debug-кнопка "Бой" доступна только в prep (сама живёт в модалке)
+    this.debugCanStartBattle = (phase === 'prep');
+    this.syncDebugUI?.();
 
     // drag управляется в renderFromState(): всем player-юнитам в prep
   }
@@ -1321,6 +1504,7 @@ export default class BattleScene extends Phaser.Scene {
     for (const u of (this.battleState?.units ?? [])) {
       // в prep врагов не затемняем (они скрыты)
       if (this.battleState?.phase === 'prep' && u.team === 'enemy') continue;
+      if (u.dead) continue;
 
       // если это юнит, который сейчас тащим — не рисуем старую "занятую" тень
       if (this.draggingUnitId != null && u.id === this.draggingUnitId) continue;

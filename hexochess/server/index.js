@@ -146,9 +146,39 @@ function stopPrepTimer() {
   }
 }
 
+function resetGameToStart() {
+  stopBattleTimers();
+  stopPrepTimer();
+
+  prepSnapshot = null;
+  nextUnitId = 1;
+
+  state.phase = 'prep';
+  state.result = null;
+  state.units = [];
+
+  state.round = 1;
+  state.prepSecondsLeft = 0;
+  state.battleSecondsLeft = 0;
+  state.winStreak = 0;
+  state.loseStreak = 0;
+
+  state.kings = {
+    player: { hp: 100, maxHp: 100, coins: 100, level: 1, xp: 0 },
+    enemy:  { hp: 100, maxHp: 100, coins: 0, visible: false, level: 1, xp: 0 },
+  };
+
+  state.shop = { offers: [] };
+
+  for (const owned of clientToUnits.values()) {
+    owned.clear();
+  }
+
+  broadcast(makeStateMessage(state));
+}
+
 function prepDurationForRound(round) {
-  // 1-3: 10 сек, 4+: 20 сек
-  return (round >= 4) ? 20 : 10;
+  return 40;
 }
 
 function startPrepCountdown() {
@@ -313,9 +343,9 @@ const COST_BY_POWER_TYPE = {
 
 // пока “класс юнита” (для арта/поведения) отделён от “силе-типа” (для цены/редкости)
 const UNIT_CATALOG = [
-  { type: 'Swordsman', powerType: 'Пешка', hp: 60,  atk: 20, moveSpeed: 2.6 },
-  { type: 'Archer',    powerType: 'Конь',  hp: 40,  atk: 25, moveSpeed: 2.3 },
-  { type: 'Tank',      powerType: 'Ладья', hp: 120, atk: 12, moveSpeed: 1.6 },
+  { type: 'Swordsman',   powerType: 'Пешка', hp: 60,  atk: 20, moveSpeed: 2.6 },
+  { type: 'Crossbowman', powerType: 'Конь',  hp: 40,  atk: 25, moveSpeed: 2.3 },
+  { type: 'Knight',      powerType: 'Ладья', hp: 120, atk: 12, moveSpeed: 1.6 },
   // хочешь — добавь ещё юнитов с powerType: 'Слон' и 'Ферзь'
 ];
 
@@ -362,9 +392,9 @@ function spawnBotArmy() {
   const botUnits = [
     { q: 6, r: 5, type: 'Swordsman' },
     { q: 7, r: 5, type: 'Swordsman' },
-    { q: 6, r: 6, type: 'Archer'   },
-    { q: 7, r: 6, type: 'Archer'   },
-    { q: 8, r: 6, type: 'Tank'     },
+    { q: 6, r: 6, type: 'Crossbowman' },
+    { q: 7, r: 6, type: 'Crossbowman' },
+    { q: 8, r: 6, type: 'Knight'      },
   ];
 
   for (const b of botUnits) {
@@ -409,6 +439,7 @@ const NEIGHBORS = [
 ];
 
 function findClosestOpponent(attacker) {
+  if (!attacker || attacker.dead) return null;
   const opponentTeam = attacker.team === 'player' ? 'enemy' : 'player';
 
   let best = null;
@@ -416,6 +447,7 @@ function findClosestOpponent(attacker) {
 
   for (const u of state.units) {
     if (u.zone !== 'board') continue;
+    if (u.dead) continue;
     if (u.team !== opponentTeam) continue;
 
     const d = hexDistance(attacker.q, attacker.r, u.q, u.r);
@@ -473,8 +505,8 @@ function spawnPlayerUnitFor(clientId) {
 
 
 function computeResult() {
-  const hasPlayer = state.units.some(u => u.team === 'player' && u.zone === 'board');
-  const hasEnemy = state.units.some(u => u.team === 'enemy' && u.zone === 'board');
+  const hasPlayer = state.units.some(u => u.team === 'player' && u.zone === 'board' && !u.dead);
+  const hasEnemy = state.units.some(u => u.team === 'enemy' && u.zone === 'board' && !u.dead);
 
   // смерть короля = конец
   const pKing = state.kings?.player;
@@ -606,7 +638,7 @@ function startBattle() {
 
     // ходят все юниты на доске (player + enemy)
     const actors = state.units
-      .filter(u => u.zone === 'board' && (u.team === 'player' || u.team === 'enemy'))
+      .filter(u => u.zone === 'board' && !u.dead && (u.team === 'player' || u.team === 'enemy'))
       .slice()
       .sort((a, b) => a.id - b.id);
 
@@ -667,7 +699,7 @@ function handleIntent(clientId, msg, ws) {
   if (!clientToUnits.get(clientId)) clientToUnits.set(clientId, owned);
 
   // разрешаем "системные" intents даже если у клиента пока нет юнитов
-  const ALLOW_WITHOUT_UNITS = new Set(['shopBuy', 'startGame', 'startBattle', 'buyXp']);
+  const ALLOW_WITHOUT_UNITS = new Set(['shopBuy', 'startGame', 'startBattle', 'buyXp', 'resetGame']);
   if (!ALLOW_WITHOUT_UNITS.has(msg.action) && owned.size === 0) {
     ws.send(JSON.stringify(makeErrorMessage('NO_UNIT', 'No unit assigned to this client')));
     return;
@@ -711,6 +743,11 @@ function handleIntent(clientId, msg, ws) {
       return;
     }
     startBattle();
+    return;
+  }
+
+  if (msg.action === 'resetGame') {
+    resetGameToStart();
     return;
   }
 

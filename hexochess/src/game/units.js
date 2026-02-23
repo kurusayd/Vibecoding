@@ -11,8 +11,29 @@ const SWORDSMAN_ART_PX = 170; // целевая "высота/ширина" на
 // Подбирай: 0..80. Если мечник низко — УВЕЛИЧЬ.
 const GROUND_LIFT_BY_TYPE = {
   Swordsman: 100,
-  // Archer: 20,
-  // Tank: 10,
+  Crossbowman: 100,
+  Knight: 100,
+};
+
+const UNIT_ATLAS_BY_TYPE = {
+  Swordsman: {
+    atlasKey: 'sworman_atlas',
+    idleAnim: 'swordman_idle',
+    walkAnim: 'swordman_walk',
+    deadAnim: 'swordman_dead',
+  },
+  Crossbowman: {
+    atlasKey: 'crossbowman_atlas',
+    idleAnim: 'crossbowman_idle',
+    walkAnim: 'crossbowman_walk',
+    deadAnim: 'crossbowman_dead',
+  },
+  Knight: {
+    atlasKey: 'knight_atlas',
+    idleAnim: 'knight_idle',
+    walkAnim: 'knight_walk',
+    deadAnim: 'knight_dead',
+  },
 };
 
 function makeHexHitArea(scene, w, h) {
@@ -93,10 +114,11 @@ export function createUnitSystem(scene) {
 
     let art = null;
 
-    const atlasKey = 'sworman_atlas';
+    const atlasCfg = UNIT_ATLAS_BY_TYPE[opts.type] ?? null;
+    const atlasKey = atlasCfg?.atlasKey;
     const idleFrame = 'psd_animation/idle.png';
 
-    if (opts.type === 'Swordsman' && scene.textures.exists(atlasKey)) {
+    if (atlasCfg && scene.textures.exists(atlasKey)) {
       const g = scene.hexToGroundPixel(q, r, GROUND_LIFT_BY_TYPE[opts.type] ?? 0);
       art = scene.add.sprite(g.x, g.y, atlasKey, idleFrame) // ✅ было p.x/p.y
         .setDepth(1050)
@@ -111,8 +133,8 @@ export function createUnitSystem(scene) {
         const frameW = art.frame?.realWidth ?? art.frame?.width ?? 256;
         art.setScale(SWORDSMAN_ART_PX / frameW);
 
-        if (scene.anims.exists('swordman_idle')) art.play('swordman_idle');
-        else if (scene.anims.exists('swordman_walk')) art.play('swordman_walk');
+        if (scene.anims.exists(atlasCfg.idleAnim)) art.play(atlasCfg.idleAnim);
+        else if (scene.anims.exists(atlasCfg.walkAnim)) art.play(atlasCfg.walkAnim);
         if (opts.team === 'enemy') art.setFlipX(true);
 
         sprite.setVisible(false);
@@ -154,6 +176,7 @@ export function createUnitSystem(scene) {
       hpInstant: hp,
       hpLag: hp,
       rank,
+      dead: Boolean(opts.dead ?? false),
       rankIcon,
       sprite,
       dragHandle,
@@ -191,10 +214,11 @@ export function createUnitSystem(scene) {
 
     let art = null;
 
-    const atlasKey = 'sworman_atlas';
+    const atlasCfg = UNIT_ATLAS_BY_TYPE[opts.type] ?? null;
+    const atlasKey = atlasCfg?.atlasKey;
     const idleFrame = 'psd_animation/idle.png';
 
-    if (opts.type === 'Swordsman' && scene.textures.exists(atlasKey)) {
+    if (atlasCfg && scene.textures.exists(atlasKey)) {
       const lift = GROUND_LIFT_BY_TYPE[opts.type] ?? 0;
       art = scene.add.sprite(x, y + scene.hexSize - lift, atlasKey, idleFrame) // ✅ вниз к "земле" этого гекса
         .setDepth(1050)
@@ -208,8 +232,8 @@ export function createUnitSystem(scene) {
         const frameW = art.frame?.realWidth ?? art.frame?.width ?? 256;
         art.setScale(SWORDSMAN_ART_PX / frameW);
 
-        if (scene.anims.exists('swordman_idle')) art.play('swordman_idle');
-        else if (scene.anims.exists('swordman_walk')) art.play('swordman_walk');
+        if (scene.anims.exists(atlasCfg.idleAnim)) art.play(atlasCfg.idleAnim);
+        else if (scene.anims.exists(atlasCfg.walkAnim)) art.play(atlasCfg.walkAnim);
 
         if (opts.team === 'enemy') art.setFlipX(true);
 
@@ -253,6 +277,7 @@ export function createUnitSystem(scene) {
       hpInstant: hp,
       hpLag: hp,
       rank,
+      dead: Boolean(opts.dead ?? false),
       rankIcon,
       sprite,
       dragHandle,
@@ -294,8 +319,24 @@ export function createUnitSystem(scene) {
     const u = findUnit(id);
     if (!u) return;
 
-    // если координаты не менялись — ничего не делаем
-    if (u.q === q && u.r === r) {
+    const p = scene.hexToPixel(q, r);
+    const lift = GROUND_LIFT_BY_TYPE[u.type] ?? 0;
+    const g = scene.hexToGroundPixel(q, r, lift);
+
+    // Если координаты совпадают, но визуально объект "уехал" (например, из-за гонки
+    // локального дропа и серверного state), всё равно нужно дотянуть его в правильную точку.
+    const sameCell = (u.q === q && u.r === r);
+    const isAtTarget =
+      Math.abs((u.sprite?.x ?? p.x) - p.x) < 0.5 &&
+      Math.abs((u.sprite?.y ?? p.y) - p.y) < 0.5 &&
+      Math.abs((u.dragHandle?.x ?? p.x) - p.x) < 0.5 &&
+      Math.abs((u.dragHandle?.y ?? p.y) - p.y) < 0.5 &&
+      Math.abs((u.label?.x ?? p.x) - p.x) < 0.5 &&
+      Math.abs((u.label?.y ?? p.y) - p.y) < 0.5 &&
+      Math.abs((u.art?.x ?? g.x) - g.x) < 0.5 &&
+      Math.abs((u.art?.y ?? g.y) - g.y) < 0.5;
+
+    if (sameCell && isAtTarget) {
       updateHpBar(scene, u);
       return;
     }
@@ -307,11 +348,6 @@ export function createUnitSystem(scene) {
     // запоминаем новые q/r (логика)
     u.q = q;
     u.r = r;
-
-    const p = scene.hexToPixel(q, r);
-
-    const lift = GROUND_LIFT_BY_TYPE[u.type] ?? 0;
-    const g = scene.hexToGroundPixel(q, r, lift);
 
     // если tween не нужен — телепорт
     const tweenMs = Number(opts.tweenMs ?? 0);
@@ -371,6 +407,43 @@ export function createUnitSystem(scene) {
 
     updateHpBar(scene, u);
     updateRankStroke(u);
+  }
+
+  function setUnitDead(id, dead) {
+    const u = findUnit(id);
+    if (!u) return;
+
+    const nextDead = Boolean(dead);
+    u.dead = nextDead;
+
+    if (nextDead) {
+      if (u.hpBar) u.hpBar.setVisible(false);
+      if (u.rankIcon) u.rankIcon.setVisible(false);
+      if (u.label) u.label.setVisible(false);
+      if (u.dragHandle?.input) u.dragHandle.input.enabled = false;
+    } else {
+      // Для "живого" юнита не форсим hp/rank visibility:
+      // их видимость управляется renderFromState + updateHpBar (phase/zone).
+      if (u.label) u.label.setVisible(!u.art);
+      if (u.dragHandle?.input) u.dragHandle.input.enabled = true;
+    }
+
+    if (u.art) {
+      const atlasCfg = UNIT_ATLAS_BY_TYPE[u.type] ?? null;
+      const deadAnim = atlasCfg?.deadAnim ?? null;
+
+      if (nextDead) {
+        if (u._moveTween) {
+          try { u._moveTween.stop(); } catch {}
+          u._moveTween = null;
+        }
+        if (deadAnim && scene.anims.exists(deadAnim) && u.art.anims?.getName?.() !== deadAnim) {
+          u.art.play(deadAnim);
+        } else if (u.art.frame?.name !== 'psd_animation/dead.png') {
+          u.art.setFrame('psd_animation/dead.png');
+        }
+      }
+    }
   }
 
   function moveUnit(unit, newQ, newR) {
@@ -438,6 +511,7 @@ export function createUnitSystem(scene) {
     destroyUnit,
     setUnitPos,
     setUnitHp,
+    setUnitDead,
     moveUnit,
     removeUnit,
     relayoutUnits,

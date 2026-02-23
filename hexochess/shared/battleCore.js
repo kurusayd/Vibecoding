@@ -34,18 +34,20 @@ export function addUnit(state, unit) {
     zone: unit.zone ?? 'board',
     benchSlot: unit.benchSlot ?? null,
     moveSpeed: unit.moveSpeed ?? 2.0,
+    dead: Boolean(unit.dead ?? false),
   });
 }
 
 
 export function getUnitAt(state, q, r) {
-  return state.units.find(u => u.zone === 'board' && u.q === q && u.r === r) ?? null;
+  return state.units.find(u => u.zone === 'board' && !u.dead && u.q === q && u.r === r) ?? null;
 }
 
 export function moveUnit(state, unitId, q, r) {
   const unit = state.units.find(u => u.id === unitId);
   if (!unit) return false;
   if (unit.zone !== 'board') return false;
+  if (unit.dead) return false;
 
   const occupied = getUnitAt(state, q, r);
   if (occupied && occupied.id !== unitId) return false;
@@ -68,6 +70,8 @@ export function attack(state, attackerId, targetId) {
   if (!attacker || !target) return { success: false, reason: 'NO_UNIT' };
   if (attacker.zone !== 'board') return { success: false, reason: 'ATTACKER_NOT_ON_BOARD' };
   if (target.zone !== 'board') return { success: false, reason: 'TARGET_NOT_ON_BOARD' };
+  if (attacker.dead) return { success: false, reason: 'ATTACKER_DEAD' };
+  if (target.dead) return { success: false, reason: 'TARGET_DEAD' };
 
   if (attacker.team === target.team) return { success: false };
 
@@ -77,7 +81,8 @@ export function attack(state, attackerId, targetId) {
   target.hp -= attacker.atk;
 
   if (target.hp <= 0) {
-    state.units = state.units.filter(u => u.id !== target.id);
+    target.hp = 0;
+    target.dead = true;
     return { success: true, killed: true };
   }
 

@@ -3,6 +3,7 @@
 import {
   makeStartBattleIntent,
   makeShopBuyIntent,
+  makeResetGameIntent,
 } from '../../shared/messages.js';
 
 export class WSClient {
@@ -84,6 +85,12 @@ export class WSClient {
   sendIntentShopBuy(offerIndex) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     const msg = makeShopBuyIntent(offerIndex);
+    this.ws.send(JSON.stringify(msg));
+  }
+
+  sendIntentResetGame() {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    const msg = makeResetGameIntent();
     this.ws.send(JSON.stringify(msg));
   }
 

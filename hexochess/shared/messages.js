@@ -54,3 +54,7 @@ export function makeSetBenchIntent(unitId, slot) {
 export function makeShopBuyIntent(offerIndex) {
   return { type: 'intent', action: 'shopBuy', offerIndex };
 }
+
+export function makeResetGameIntent() {
+  return { type: 'intent', action: 'resetGame' };
+}
