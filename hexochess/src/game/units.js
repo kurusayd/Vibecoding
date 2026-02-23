@@ -15,6 +15,10 @@ const GROUND_LIFT_BY_TYPE = {
   Knight: 100,
 };
 
+const UNIT_ART_DEPTH_LIVE = 1040;
+const UNIT_ART_DEPTH_DEAD = 990; // труп ниже любых "живых" артов, чтобы юниты визуально шли по нему
+const UNIT_ART_DEPTH_Y_FACTOR = 0.01; // lower row (bigger Y) => draw on top
+
 const UNIT_ATLAS_BY_TYPE = {
   Swordsman: {
     atlasKey: 'sworman_atlas',
@@ -76,6 +80,13 @@ function updateRankStroke(unit) {
   }
 }
 
+function updateArtDepth(unit) {
+  if (!unit?.art) return;
+  const y = Number(unit.art.y ?? unit.sprite?.y ?? 0);
+  const base = unit.dead ? UNIT_ART_DEPTH_DEAD : UNIT_ART_DEPTH_LIVE;
+  unit.art.setDepth(base + y * UNIT_ART_DEPTH_Y_FACTOR);
+}
+
 export function createUnitSystem(scene) {
   const state = {
     units: [],
@@ -121,7 +132,7 @@ export function createUnitSystem(scene) {
     if (atlasCfg && scene.textures.exists(atlasKey)) {
       const g = scene.hexToGroundPixel(q, r, GROUND_LIFT_BY_TYPE[opts.type] ?? 0);
       art = scene.add.sprite(g.x, g.y, atlasKey, idleFrame) // ✅ было p.x/p.y
-        .setDepth(1050)
+        .setDepth(UNIT_ART_DEPTH_LIVE)
         .setOrigin(0.5, 1);
 
       // ✅ если вдруг всё равно missing (например race condition) — откатываемся на круг
@@ -191,6 +202,7 @@ export function createUnitSystem(scene) {
     state.occupied.add(key);
 
     updateHpBar(scene, unit);
+    updateArtDepth(unit);
     updateRankStroke(unit);
     return unit;
   }
@@ -221,7 +233,7 @@ export function createUnitSystem(scene) {
     if (atlasCfg && scene.textures.exists(atlasKey)) {
       const lift = GROUND_LIFT_BY_TYPE[opts.type] ?? 0;
       art = scene.add.sprite(x, y + scene.hexSize - lift, atlasKey, idleFrame) // ✅ вниз к "земле" этого гекса
-        .setDepth(1050)
+        .setDepth(UNIT_ART_DEPTH_LIVE)
         .setOrigin(0.5, 1); // ✅ якорь по низу
 
       if (art.texture?.key === '__MISSING' || art.frame?.name == null) {
@@ -292,6 +304,7 @@ export function createUnitSystem(scene) {
 
     // occupied НЕ трогаем
     updateHpBar(scene, unit);
+    updateArtDepth(unit);
     updateRankStroke(unit);
     return unit;
   }
@@ -356,6 +369,7 @@ export function createUnitSystem(scene) {
       u.dragHandle?.setPosition(p.x, p.y);
       if (u.art) u.art.setPosition(g.x, g.y);   // ✅ art на земле
       u.label.setPosition(p.x, p.y);
+      updateArtDepth(u);
       updateHpBar(scene, u);
       return;
     }
@@ -387,6 +401,8 @@ export function createUnitSystem(scene) {
         y: g.y,
         duration: tweenMs,
         ease: 'Linear',
+        onUpdate: () => updateArtDepth(u),
+        onComplete: () => updateArtDepth(u),
       });
     }
   }
@@ -443,6 +459,7 @@ export function createUnitSystem(scene) {
           u.art.setFrame('psd_animation/dead.png');
         }
       }
+      updateArtDepth(u);
     }
   }
 
@@ -466,6 +483,7 @@ export function createUnitSystem(scene) {
     if (unit.art) unit.art.setPosition(g.x, g.y);
     unit.label.setPosition(p.x, p.y);
 
+    updateArtDepth(unit);
     updateHpBar(scene, unit);
     updateRankStroke(unit);
     return true;
@@ -485,6 +503,7 @@ export function createUnitSystem(scene) {
       u.dragHandle?.setPosition(p.x, p.y);
       if (u.art) u.art.setPosition(g.x, g.y);
       u.label.setPosition(p.x, p.y);
+      updateArtDepth(u);
       updateHpBar(scene, u);
       updateRankStroke(u);
     }

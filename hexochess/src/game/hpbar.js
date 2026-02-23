@@ -47,8 +47,12 @@ export function updateHpBar(scene, unit) {
     const tipY = Math.round(cy + scene.hexSize * 0.98);
     unit.rankIcon.setPosition(cx, starsY);
 
-    // видимость: только в prep (не завязана на hpBar.visible)
-    unit.rankIcon.setVisible(scene.battleState?.phase === 'prep');
+    // видимость:
+    // - на скамейке ранг показываем всегда;
+    // - на поле — только в prep.
+    const coreUnit = (scene.battleState?.units ?? []).find((u) => u.id === unit.id);
+    const isBench = coreUnit?.zone === 'bench';
+    unit.rankIcon.setVisible(Boolean(isBench || scene.battleState?.phase === 'prep'));
   }
 
   // цвета

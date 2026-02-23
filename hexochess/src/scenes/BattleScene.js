@@ -371,6 +371,7 @@ export default class BattleScene extends Phaser.Scene {
     this.dragHover = null; // { zone:'board', q,r } | { zone:'bench', slot }
     this.mergeAbsorbAnimatingIds = new Set(); // visual-only merge animation for disappearing units
     this.mergeBounceAnimatingIds = new Set(); // avoid stacking bounce on the same merge target
+    this.pendingMergeTargetBounces = new Map(); // targetId -> { targetCoreUnit, delayMs }
 
     // --- SERVER CONNECTION ---
     const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -586,7 +587,10 @@ export default class BattleScene extends Phaser.Scene {
           if (vu?.art) vu.art.setPosition(p.x, p.y + this.hexSize - lift);
           // на скамейке hpBar не показываем
           if (vu.hpBar) vu.hpBar.setVisible(false);
-          if (vu.rankIcon) vu.rankIcon.setVisible(false);
+          if (vu.rankIcon) {
+            vu.rankIcon.setPosition(p.x, Math.round(p.y + this.hexSize * 0.98));
+            vu.rankIcon.setVisible(!core.dead);
+          }
         }
 
         this.shadowOverride = { unitId: uid, zone: 'bench', slot };
@@ -1512,7 +1516,16 @@ export default class BattleScene extends Phaser.Scene {
     if (this.mergeBounceAnimatingIds?.has(targetCoreUnit.id)) return;
 
     const targetVu = this.unitSys?.findUnit?.(targetCoreUnit.id);
-    if (!targetVu) return;
+    if (!targetVu) {
+      const prev = this.pendingMergeTargetBounces?.get?.(targetCoreUnit.id);
+      const prevDelay = Number(prev?.delayMs ?? Infinity);
+      const nextDelay = Math.min(prevDelay, Number(delayMs ?? 0));
+      this.pendingMergeTargetBounces?.set?.(targetCoreUnit.id, {
+        targetCoreUnit: { ...targetCoreUnit },
+        delayMs: Number.isFinite(nextDelay) ? nextDelay : 0,
+      });
+      return;
+    }
 
     const art = targetVu.art ?? null;
     const centerTargets = [targetVu.sprite, targetVu.label].filter(Boolean);
@@ -1529,8 +1542,8 @@ export default class BattleScene extends Phaser.Scene {
     const rankScaleX = rankIcon?.scaleX ?? 1;
     const rankScaleY = rankIcon?.scaleY ?? 1;
 
-    const up = 1.18;
-    const upMs = 150;
+    const up = 1.18; //изменить размер бануса при повышении ранга
+    const upMs = 150; //Изменить скорость анимации баунса при повышении ранга
     if (art) {
       this.tweens.add({
         targets: art,
@@ -1596,6 +1609,18 @@ export default class BattleScene extends Phaser.Scene {
 
     if (pending === 0) {
       this.mergeBounceAnimatingIds?.delete?.(targetCoreUnit.id);
+    }
+  }
+
+  flushPendingMergeTargetBounces() {
+    if (!this.pendingMergeTargetBounces?.size) return;
+
+    for (const [targetId, payload] of this.pendingMergeTargetBounces.entries()) {
+      const targetVu = this.unitSys?.findUnit?.(targetId);
+      if (!targetVu) continue;
+
+      this.pendingMergeTargetBounces.delete(targetId);
+      this.playMergeTargetBounce(payload?.targetCoreUnit ?? { id: targetId }, payload?.delayMs ?? 0);
     }
   }
 
@@ -1802,6 +1827,7 @@ export default class BattleScene extends Phaser.Scene {
 
           // на скамейке hpBar не показываем
           if (created.hpBar) created.hpBar.setVisible(false);
+          if (created.rankIcon) created.rankIcon.setVisible(!u.dead);
           if (created) updateHpBar(this, created);
         }
 
@@ -1831,6 +1857,7 @@ export default class BattleScene extends Phaser.Scene {
         if (vu?.label) vu.label.setPosition(p.x, p.y);
 
         if (vu?.hpBar) vu.hpBar.setVisible(false);
+        if (vu?.rankIcon) vu.rankIcon.setVisible(!u.dead);
       } else {
         const result = this.battleState?.result ?? null;
         // серверный tick в бою сейчас 450мс
@@ -1900,6 +1927,8 @@ export default class BattleScene extends Phaser.Scene {
         vu.art.play(animKey);
       }
     }
+
+    this.flushPendingMergeTargetBounces();
   }
 
 
