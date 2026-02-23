@@ -864,55 +864,6 @@ function handleIntent(clientId, msg, ws) {
     return;
   }
 
-  if (msg.action === 'move') {
-    if (!requireOwnedUnit()) return;
-
-    const me = findUnitById(requestedUnitId);
-    if (!me) {
-      ws.send(JSON.stringify(makeErrorMessage('NO_UNIT', 'Unit not found')));
-      return;
-    }
-
-    if (me.zone !== 'board') {
-      ws.send(JSON.stringify(makeErrorMessage('MOVE_DENIED', 'Unit is on bench'))); // оставим правило
-      return;
-    }
-
-    const q = Number(msg.q);
-    const r = Number(msg.r);
-
-    if (!Number.isFinite(q) || !Number.isFinite(r) || !Number.isInteger(q) || !Number.isInteger(r)) {
-      ws.send(JSON.stringify(makeErrorMessage('BAD_ARGS', 'q/r must be integers')));
-      return;
-    }
-
-    if (!isInsideBoard(q, r)) {
-      ws.send(JSON.stringify(makeErrorMessage('OUT_OF_BOUNDS', 'Cell is outside board')));
-      return;
-    }
-
-    const ok = moveUnit(state, requestedUnitId, q, r);
-    if (!ok) {
-      ws.send(JSON.stringify(makeErrorMessage('MOVE_DENIED', 'Move is not allowed')));
-      return;
-    }
-
-    broadcast(makeStateMessage(state));
-    return;
-  }
-
-  if (msg.action === 'attack') {
-    if (!requireOwnedUnit()) return;
-
-    const res = attack(state, requestedUnitId, msg.targetId);
-    if (!res.success) {
-      ws.send(JSON.stringify(makeErrorMessage('ATTACK_DENIED', 'Attack is not allowed')));
-      return;
-    }
-    broadcast(makeStateMessage(state));
-    return;
-  }
-
   if (msg.action === 'buyXp') {
     if (state.phase !== 'prep' || state.result) {
       ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'buyXp allowed only in prep (no result)')));
