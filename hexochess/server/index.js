@@ -361,6 +361,8 @@ const UNIT_CATALOG = [
   // хочешь — добавь ещё юнитов с powerType: 'Слон' и 'Ферзь'
 ];
 
+const SHOP_OFFER_COUNT = 5;
+
 function makeRandomOffer() {
   const base = UNIT_CATALOG.length
     ? UNIT_CATALOG[randInt(UNIT_CATALOG.length)]
@@ -382,7 +384,7 @@ function makeRandomOffer() {
 function generateShopOffers() {
   state.shop = state.shop ?? { offers: [] };
   state.shop.offers = [];
-  for (let i = 0; i < 5; i++) state.shop.offers.push(makeRandomOffer());
+  for (let i = 0; i < SHOP_OFFER_COUNT; i++) state.shop.offers.push(makeRandomOffer());
 }
 
 function findFirstFreeBenchSlot() {
@@ -939,14 +941,15 @@ function handleIntent(clientId, msg, ws) {
   }
 
   if (msg.action === 'shopBuy') {
-    if (state.phase !== 'prep' || state.result) {
-      ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'shopBuy allowed only in prep (no result)')));
+    const canBuyFromShop = (state.phase === 'prep' || state.phase === 'battle') && !state.result;
+    if (!canBuyFromShop) {
+      ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'shopBuy allowed only in prep/battle (no result)')));
       return;
     }
 
     const idx = Number(msg.offerIndex);
-    if (!Number.isInteger(idx) || idx < 0 || idx >= 5) {
-      ws.send(JSON.stringify(makeErrorMessage('BAD_ARGS', 'offerIndex must be 0..4')));
+    if (!Number.isInteger(idx) || idx < 0 || idx >= SHOP_OFFER_COUNT) {
+      ws.send(JSON.stringify(makeErrorMessage('BAD_ARGS', `offerIndex must be 0..${SHOP_OFFER_COUNT - 1}`)));
       return;
     }
 
@@ -1033,7 +1036,7 @@ wss.on('connection', (ws) => {
   // выдаём юнит этому клиенту
   const unitId = spawnPlayerUnitFor(clientId);
 
-  if (!state.shop?.offers || state.shop.offers.length !== 5) {
+  if (!state.shop?.offers || state.shop.offers.length !== SHOP_OFFER_COUNT) {
     generateShopOffers();
   }
 

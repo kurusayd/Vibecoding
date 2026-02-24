@@ -64,6 +64,9 @@ const UNIT_ATLAS_DEFS = [
   },
 ];
 
+const SHOP_OFFER_COUNT = 5;
+const SHOP_CARD_ART_LIFT_Y = 75; // увеличивай/уменьшай, чтобы поднять/опустить арт в сером блоке карточки
+
 export default class BattleScene extends Phaser.Scene {
   constructor() {
     super('BattleScene');
@@ -414,6 +417,9 @@ export default class BattleScene extends Phaser.Scene {
       this.battleState = msg.state;
       this.activeUnitId = msg?.you?.unitId ?? null; // теперь может быть null (старт пустой)
 
+      if (this.battleState?.phase === 'battle' && !this.battleState?.result) this.shopCollapsed = true;
+      if (this.battleState?.phase === 'prep' && !this.battleState?.result) this.shopCollapsed = false;
+
       this.draggingUnitId = null;
       this.dragHover = null;
       this.shadowOverride = null;
@@ -427,6 +433,7 @@ export default class BattleScene extends Phaser.Scene {
 
     this.ws.onState = (state) => {
       // сервер прислал обновлённый state после чьего-то хода
+      const prevPhase = this.battleState?.phase ?? null;
       const draggedId = this.draggingUnitId;
       const incomingDragged = (state?.units ?? []).find(u => u.id === draggedId);
       const keepBenchDrag =
@@ -435,6 +442,12 @@ export default class BattleScene extends Phaser.Scene {
         incomingDragged.zone === 'bench';
 
       this.battleState = state;
+
+      if (state?.phase !== prevPhase) {
+        if (state?.phase === 'battle' && !state?.result) this.shopCollapsed = true;
+        if (state?.phase === 'prep' && !state?.result) this.shopCollapsed = false;
+      }
+
       if (!keepBenchDrag) this.shadowOverride = null;
       if ((state?.phase !== 'prep' || state?.result) && !keepBenchDrag) {
         this.draggingUnitId = null;
@@ -855,32 +868,53 @@ export default class BattleScene extends Phaser.Scene {
     this.positionDebugUI();
     this.syncDebugUI();
 
-    // --- SHOP UI (5 offers) ---
-    this.shopButtons = [];
-    const shopStyle = {
+    // --- SHOP UI (cards) ---
+    this.shopCards = [];
+    this.shopCollapsed = false;
+    this.shopCardLayout = {
+      width: 132,
+      height: 188,
+      gap: 10,
+      bottomMargin: 10,
+    };
+
+    for (let i = 0; i < SHOP_OFFER_COUNT; i++) {
+      this.shopCards.push(this.createShopCard(i));
+    }
+
+    this.shopToggleBtn = this.add.text(0, 0, 'X', {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
       fontSize: '16px',
       color: '#ffffff',
-      backgroundColor: 'rgba(0,0,0,0.55)',
-      padding: { left: 10, right: 10, top: 6, bottom: 6 },
-    };
+      backgroundColor: 'rgba(0,0,0,0.65)',
+      padding: { left: 8, right: 8, top: 5, bottom: 5 },
+    })
+      .setOrigin(0.5, 0.5)
+      .setDepth(10000)
+      .setScrollFactor(0)
+      .setInteractive({ useHandCursor: true });
 
-    const startX = this.scale.width / 2;
-    const startY = this.scale.height - 70;
-    const gap = 8;
+    this.shopToggleBtn.on('pointerdown', () => {
+      this.shopCollapsed = true;
+      this.syncShopUI();
+    });
 
-    for (let i = 0; i < 5; i++) {
-      const t = this.add.text(0, 0, `(${i}) ...`, shopStyle)
-        .setDepth(9999)
-        .setOrigin(0.5, 0.5)
-        .setInteractive({ useHandCursor: true });
+    this.shopOpenBtn = this.add.text(0, 0, 'МАГАЗИН', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '16px',
+      color: '#ffffff',
+      backgroundColor: 'rgba(0,0,0,0.72)',
+      padding: { left: 12, right: 12, top: 7, bottom: 7 },
+    })
+      .setOrigin(1, 1)
+      .setDepth(10000)
+      .setScrollFactor(0)
+      .setInteractive({ useHandCursor: true });
 
-      t.on('pointerdown', () => {
-        this.ws?.sendIntentShopBuy?.(i);
-      });
-
-      this.shopButtons.push(t);
-    }
+    this.shopOpenBtn.on('pointerdown', () => {
+      this.shopCollapsed = false;
+      this.syncShopUI();
+    });
 
     this.positionShop();
     this.syncShopUI();
@@ -1015,40 +1049,401 @@ export default class BattleScene extends Phaser.Scene {
   }
 
 
+  createShopCard(index) {
+    const layout = this.shopCardLayout ?? { width: 132, height: 188 };
+    const w = layout.width;
+    const h = layout.height;
+    const top = -h / 2;
+
+    const card = {
+      index,
+      width: w,
+      height: h,
+      enabled: false,
+      hovered: false,
+      pressed: false,
+    };
+
+    const container = this.add.container(0, 0)
+      .setDepth(9999)
+      .setScrollFactor(0);
+
+    const shadow = this.add.rectangle(4, 5, w, h, 0x000000, 0.35).setOrigin(0.5, 0.5);
+    const bg = this.add.rectangle(0, 0, w, h, 0xf6edd7, 0.97).setOrigin(0.5, 0.5);
+    const border = this.add.rectangle(0, 0, w, h)
+      .setOrigin(0.5, 0.5)
+      .setStrokeStyle(2, 0xb58a3c, 1);
+
+    const artPanel = this.add.rectangle(0, top + 55, w - 14, 86, 0x1b1b1b, 0.92)
+      .setOrigin(0.5, 0.5)
+      .setStrokeStyle(1, 0x6f5d3a, 0.85);
+
+    const divider1 = this.add.rectangle(0, top + 98, w - 16, 1, 0x6f5d3a, 0.55).setOrigin(0.5, 0.5);
+    const divider2 = this.add.rectangle(0, top + 126, w - 16, 1, 0x6f5d3a, 0.40).setOrigin(0.5, 0.5);
+    const divider3 = this.add.rectangle(0, top + 151, w - 16, 1, 0x6f5d3a, 0.35).setOrigin(0.5, 0.5);
+
+    const previewSprite = this.add.sprite(
+      0,
+      (artPanel.y + artPanel.height / 2) - SHOP_CARD_ART_LIFT_Y,
+      'sworman_atlas',
+      'psd_animation/idle.png'
+    )
+      .setOrigin(0.5, 1)
+      .setScale(0.68);
+
+    const previewFallback = this.add.text(0, top + 52, '?', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '34px',
+      color: '#f0d9a0',
+    }).setOrigin(0.5, 0.5).setVisible(false);
+
+    const nameText = this.add.text(0, top + 104, '...', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '14px',
+      color: '#17130d',
+      fontStyle: 'bold',
+      align: 'center',
+      wordWrap: { width: w - 16, useAdvancedWrap: true },
+    }).setOrigin(0.5, 0);
+
+    const typeText = this.add.text(0, top + 132, '', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '13px',
+      color: '#4f3f25',
+      align: 'center',
+      wordWrap: { width: w - 16, useAdvancedWrap: true },
+    }).setOrigin(0.5, 0);
+
+    const costText = this.add.text(0, top + 157, '', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '13px',
+      color: '#7c5b00',
+      fontStyle: 'bold',
+      align: 'center',
+    }).setOrigin(0.5, 0);
+
+    const hit = this.add.zone(0, 0, w, h)
+      .setOrigin(0.5, 0.5)
+      .setInteractive({ useHandCursor: true });
+
+    card.container = container;
+    card.shadow = shadow;
+    card.bg = bg;
+    card.border = border;
+    card.artPanel = artPanel;
+    card.previewSprite = previewSprite;
+    card.previewFallback = previewFallback;
+    card.nameText = nameText;
+    card.typeText = typeText;
+    card.costText = costText;
+    card.hit = hit;
+
+    card.refreshVisual = () => {
+      const enabled = !!card.enabled;
+      const hovered = enabled && !!card.hovered;
+      const pressed = enabled && !!card.pressed;
+
+      const fill = enabled
+        ? (pressed ? 0xe4d6b8 : hovered ? 0xfcf4e4 : 0xf6edd7)
+        : 0xaea79b;
+      const fillAlpha = enabled ? 0.97 : 0.62;
+      const borderColor = enabled ? (hovered ? 0xe1b754 : 0xb58a3c) : 0x7f786b;
+
+      card.bg.setFillStyle(fill, fillAlpha);
+      card.border.setStrokeStyle(2, borderColor, 1);
+      card.artPanel.setAlpha(enabled ? 1 : 0.55);
+      card.container.setScale(pressed ? 0.985 : 1);
+      card.previewSprite.setAlpha(enabled ? 1 : 0.55);
+      card.previewFallback.setAlpha(enabled ? 1 : 0.55);
+      card.nameText.setAlpha(enabled ? 1 : 0.75);
+      card.typeText.setAlpha(enabled ? 1 : 0.75);
+      card.costText.setAlpha(enabled ? 1 : 0.75);
+
+      if (card.hit?.input) {
+        card.hit.input.enabled = enabled;
+        card.hit.input.cursor = enabled ? 'pointer' : 'default';
+      }
+    };
+
+    hit.on('pointerover', () => {
+      card.hovered = true;
+      card.refreshVisual();
+    });
+    hit.on('pointerout', () => {
+      card.hovered = false;
+      card.pressed = false;
+      card.refreshVisual();
+    });
+    hit.on('pointerdown', () => {
+      if (!card.enabled) return;
+      card.pressed = true;
+      card.refreshVisual();
+      this.ws?.sendIntentShopBuy?.(index);
+    });
+    hit.on('pointerup', () => {
+      card.pressed = false;
+      card.refreshVisual();
+    });
+
+    container.add([
+      shadow,
+      bg,
+      artPanel,
+      previewSprite,
+      previewFallback,
+      divider1,
+      nameText,
+      divider2,
+      typeText,
+      divider3,
+      costText,
+      border,
+      hit,
+    ]);
+
+    card.refreshVisual();
+    return card;
+  }
+
   positionShop() {
-    if (!this.shopButtons?.length) return;
+    if (!this.shopCards?.length) return;
 
-    const startY = this.scale.height - 70;
-    const totalW = this.shopButtons.reduce((sum, b) => sum + b.width, 0) + (this.shopButtons.length - 1) * 8;
-    let x = this.scale.width / 2 - totalW / 2;
+    const layout = this.shopCardLayout ?? { width: 132, height: 188, gap: 10, bottomMargin: 10 };
+    const totalW = this.shopCards.length * layout.width + (this.shopCards.length - 1) * layout.gap;
+    let x = this.scale.width / 2 - totalW / 2 + layout.width / 2;
+    const y = this.scale.height - layout.bottomMargin - layout.height / 2;
 
-    for (let i = 0; i < this.shopButtons.length; i++) {
-      const b = this.shopButtons[i];
-      b.setPosition(x + b.width / 2, startY);
-      x += b.width + 8;
+    for (const card of this.shopCards) {
+      card.container?.setPosition(x, y);
+      x += layout.width + layout.gap;
     }
+
+    if (this.shopToggleBtn) {
+      const rightEdge = this.scale.width / 2 + totalW / 2;
+      const btnX = rightEdge + 18;
+      const btnY = y - layout.height / 2 + 16;
+      this.shopToggleBtn.setPosition(btnX, btnY);
+    }
+
+    if (this.shopOpenBtn) {
+      const view = this.scale.getViewPort();
+      this.shopOpenBtn.setPosition(view.x + view.width - 12, view.y + view.height - 12);
+    }
+  }
+
+  stopShopUiTweens() {
+    for (const card of (this.shopCards ?? [])) {
+      if (card?.container) this.tweens.killTweensOf(card.container);
+    }
+    if (this.shopToggleBtn) this.tweens.killTweensOf(this.shopToggleBtn);
+    if (this.shopOpenBtn) this.tweens.killTweensOf(this.shopOpenBtn);
+  }
+
+  setShopCardsVisual(open, { immediate = false } = {}) {
+    const cards = this.shopCards ?? [];
+    const slide = 18;
+
+    for (let i = 0; i < cards.length; i++) {
+      const card = cards[i];
+      const c = card?.container;
+      if (!c) continue;
+
+      const baseX = c.x;
+      const baseY = c.y;
+      c._shopBaseX = baseX;
+      c._shopBaseY = baseY;
+
+      this.tweens.killTweensOf(c);
+
+      if (open) {
+        c.setVisible(true);
+
+        if (immediate) {
+          c.setAlpha(1);
+          c.setPosition(baseX, baseY);
+        } else {
+          c.setAlpha(Math.min(Number(c.alpha ?? 1), 0.01));
+          c.setPosition(baseX, baseY + slide);
+          this.tweens.add({
+            targets: c,
+            alpha: 1,
+            x: baseX,
+            y: baseY,
+            duration: 170,
+            delay: i * 16,
+            ease: 'Cubic.Out',
+          });
+        }
+        continue;
+      }
+
+      if (immediate) {
+        c.setAlpha(0);
+        c.setPosition(baseX, baseY + slide);
+        c.setVisible(false);
+      } else {
+        c.setVisible(true);
+        this.tweens.add({
+          targets: c,
+          alpha: 0,
+          y: baseY + slide,
+          duration: 130,
+          delay: Math.max(0, (cards.length - 1 - i)) * 10,
+          ease: 'Cubic.In',
+          onComplete: () => {
+            if (this.shopUiMode !== 'open') c.setVisible(false);
+          },
+        });
+      }
+    }
+  }
+
+  setShopButtonVisual(btn, visible, { immediate = false, slideY = 8 } = {}) {
+    if (!btn) return;
+
+    const baseX = btn.x;
+    const baseY = btn.y;
+    btn._shopBaseX = baseX;
+    btn._shopBaseY = baseY;
+
+    this.tweens.killTweensOf(btn);
+
+    if (btn.input) btn.input.enabled = visible;
+
+    if (visible) {
+      btn.setVisible(true);
+
+      if (immediate) {
+        btn.setAlpha(1);
+        btn.setPosition(baseX, baseY);
+        return;
+      }
+
+      btn.setAlpha(Math.min(Number(btn.alpha ?? 1), 0.01));
+      btn.setPosition(baseX, baseY + slideY);
+      this.tweens.add({
+        targets: btn,
+        alpha: 1,
+        x: baseX,
+        y: baseY,
+        duration: 150,
+        ease: 'Cubic.Out',
+      });
+      return;
+    }
+
+    if (immediate) {
+      btn.setAlpha(0);
+      btn.setPosition(baseX, baseY + slideY);
+      btn.setVisible(false);
+      return;
+    }
+
+    btn.setVisible(true);
+    this.tweens.add({
+      targets: btn,
+      alpha: 0,
+      y: baseY + slideY,
+      duration: 110,
+      ease: 'Cubic.In',
+      onComplete: () => btn.setVisible(false),
+    });
+  }
+
+  applyShopUiMode(mode, { animate = true } = {}) {
+    const immediate = !animate;
+
+    if (this.shopToggleBtn) {
+      this.shopToggleBtn.setText('X');
+      this.shopToggleBtn.setStyle({ backgroundColor: 'rgba(0,0,0,0.65)' });
+    }
+
+    if (mode === 'open') {
+      this.setShopCardsVisual(true, { immediate });
+      this.setShopButtonVisual(this.shopToggleBtn, true, { immediate, slideY: 6 });
+      this.setShopButtonVisual(this.shopOpenBtn, false, { immediate, slideY: 10 });
+      return;
+    }
+
+    if (mode === 'collapsed') {
+      this.setShopCardsVisual(false, { immediate });
+      this.setShopButtonVisual(this.shopToggleBtn, false, { immediate, slideY: 6 });
+      this.setShopButtonVisual(this.shopOpenBtn, true, { immediate, slideY: 10 });
+      return;
+    }
+
+    // hidden (например result screen)
+    this.setShopCardsVisual(false, { immediate });
+    this.setShopButtonVisual(this.shopToggleBtn, false, { immediate, slideY: 6 });
+    this.setShopButtonVisual(this.shopOpenBtn, false, { immediate, slideY: 10 });
   }
 
   syncShopUI() {
     const phase = this.battleState?.phase ?? 'prep';
     const result = this.battleState?.result ?? null;
+    const show = (phase === 'prep' || phase === 'battle') && !result;
+    const mode = !show ? 'hidden' : (this.shopCollapsed ? 'collapsed' : 'open');
 
-    const show = (phase === 'prep') && !result;
+    this.positionShop();
 
-    for (const b of (this.shopButtons ?? [])) b.setVisible(show);
+    if (this.shopUiMode !== mode) {
+      const firstApply = (this.shopUiMode == null);
+      this.shopUiMode = mode;
+      this.applyShopUiMode(mode, { animate: !firstApply });
+    }
+
     if (!show) return;
 
     const offers = this.battleState?.shop?.offers ?? [];
-    for (let i = 0; i < (this.shopButtons?.length ?? 0); i++) {
-      const o = offers[i];
-      const txt = o
-        ? `${o.type} [${o.powerType ?? '?'}]  ${o.cost}💰  HP:${o.hp} ATK:${o.atk}`
-        : '...';
-      this.shopButtons[i].setText(txt);
+
+    for (let i = 0; i < (this.shopCards?.length ?? 0); i++) {
+      const card = this.shopCards[i];
+      if (!card) continue;
+
+      const o = offers[i] ?? null;
+      if (!o) {
+        card.enabled = false;
+        card.nameText.setText('Пусто');
+        card.typeText.setText('—');
+        card.costText.setText('');
+        card.previewSprite.setVisible(false);
+        card.previewFallback.setText('…').setVisible(true);
+        card.refreshVisual();
+        continue;
+      }
+
+      card.enabled = true;
+      card.nameText.setText(String(o.type ?? 'Unknown'));
+      card.typeText.setText(String(o.powerType ?? '—'));
+      card.costText.setText(`${Number(o.cost ?? 0)} золота`);
+
+      const atlasDef = UNIT_ATLAS_DEFS.find((def) => def.type === o.type) ?? null;
+      if (atlasDef && this.textures.exists(atlasDef.atlasKey)) {
+        card.previewSprite.setVisible(true);
+        card.previewFallback.setVisible(false);
+        card.previewSprite.setTexture(atlasDef.atlasKey, 'psd_animation/idle.png');
+
+        const frame = card.previewSprite.frame;
+        const fw = frame?.realWidth ?? frame?.width ?? 256;
+        const fh = frame?.realHeight ?? frame?.height ?? 256;
+        const panelW = card.artPanel?.width ?? (card.width - 14);
+        const panelH = card.artPanel?.height ?? 86;
+        const targetW = (panelW - 10) * 1.84; // примерно x2 от предыдущего лимита
+        const targetH = (panelH - 6) * 1.96;  // примерно x2 от предыдущего лимита
+        const scale = Math.max(0.12, Math.min(targetW / fw, targetH / fh));
+        card.previewSprite.setScale(scale);
+
+        if (this.anims.exists(atlasDef.idleAnim)) {
+          card.previewSprite.play(atlasDef.idleAnim, true);
+        }
+      } else {
+        card.previewSprite.setVisible(false);
+        card.previewFallback.setText(String(o.type ?? '?').slice(0, 1).toUpperCase()).setVisible(true);
+      }
+
+      card.refreshVisual();
     }
 
-    // после смены текста ширины меняются — перепозиционируем
-    this.positionShop();
   }
 
   positionCoinsHUD() {
