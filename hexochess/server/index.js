@@ -396,7 +396,9 @@ function findFirstFreeBenchSlot() {
 
 function findFirstFreeBoardCell() {
   for (let r = 0; r < GRID_ROWS; r++) {
-    for (let col = 0; col < GRID_COLS; col++) {
+    // В prep игроку разрешена только "своя" половина поля (как на клиенте: первые 6 колонок).
+    const maxPlayerPrepCols = Math.min(GRID_COLS, 6);
+    for (let col = 0; col < maxPlayerPrepCols; col++) {
       const q = col - Math.floor(r / 2);
       if (!isInsideBoard(q, r)) continue;
       if (getUnitAt(state, q, r)) continue;
