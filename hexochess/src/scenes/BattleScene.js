@@ -80,6 +80,7 @@ export default class BattleScene extends Phaser.Scene {
     this.load.image('rank2', '/assets/rank2.png');
     this.load.image('rank3', '/assets/rank3.png');
     this.load.image('crownexp', '/assets/crownexp.png');
+    this.load.image('updateMarketIcon', '/assets/icons/update_market.png');
 
     for (const asset of EXTRA_PORTRAIT_ASSETS) {
       this.load.image(asset.key, asset.path);
@@ -434,6 +435,7 @@ export default class BattleScene extends Phaser.Scene {
     this.ws.onState = (state) => {
       // сервер прислал обновлённый state после чьего-то хода
       const prevPhase = this.battleState?.phase ?? null;
+      const prevResult = this.battleState?.result ?? null;
       const draggedId = this.draggingUnitId;
       const incomingDragged = (state?.units ?? []).find(u => u.id === draggedId);
       const keepBenchDrag =
@@ -442,6 +444,12 @@ export default class BattleScene extends Phaser.Scene {
         incomingDragged.zone === 'bench';
 
       this.battleState = state;
+
+      // На фазовых переходах/показе результата не анимируем UI магазина,
+      // иначе кнопки "доезжают" как при ручном закрытии.
+      if ((state?.phase ?? null) !== prevPhase || (state?.result ?? null) !== prevResult) {
+        this.shopUiSkipNextModeAnimation = true;
+      }
 
       if (state?.phase !== prevPhase) {
         if (state?.phase === 'battle' && !state?.result) this.shopCollapsed = true;
@@ -871,6 +879,8 @@ export default class BattleScene extends Phaser.Scene {
     // --- SHOP UI (cards) ---
     this.shopCards = [];
     this.shopCollapsed = false;
+    this.shopRefreshBusy = false;
+    this.shopRefreshUnlockTimer = null;
     this.shopCardLayout = {
       width: 132,
       height: 188,
@@ -899,6 +909,62 @@ export default class BattleScene extends Phaser.Scene {
       this.syncShopUI();
     });
 
+    this.shopRefreshBtn = this.add.container(0, 0)
+      .setDepth(10000)
+      .setScrollFactor(0);
+
+    this.shopRefreshBtnBody = this.add.container(30, 0);
+
+    this.shopRefreshBtnBg = this.add.rectangle(0, 0, 60, 64, 0x463700, 0.78)
+      .setOrigin(0.5, 0.5)
+      .setStrokeStyle(1, 0x8f7a33, 0.75);
+
+    this.shopRefreshBtnIcon = this.add.image(0, -12, 'updateMarketIcon')
+      .setOrigin(0.5, 0.5)
+      .setDisplaySize(36, 36);
+
+    this.shopRefreshBtnCoin = this.add.image(-8, 18, 'coin')
+      .setOrigin(0.5, 0.5)
+      .setDisplaySize(14, 14);
+
+    this.shopRefreshBtnCost = this.add.text(4, 18, '2', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '17px',
+      color: '#ffffff',
+      fontStyle: 'bold',
+    }).setOrigin(0, 0.5);
+
+    this.shopRefreshBtnBody.add([
+      this.shopRefreshBtnBg,
+      this.shopRefreshBtnIcon,
+      this.shopRefreshBtnCoin,
+      this.shopRefreshBtnCost,
+    ]);
+    this.shopRefreshBtn.add(this.shopRefreshBtnBody);
+
+    this.shopRefreshBtn.setSize(60, 64);
+    this.shopRefreshBtnHit = this.add.zone(30, 0, 60, 64)
+      .setOrigin(0.5, 0.5)
+      .setInteractive({ useHandCursor: true });
+    this.shopRefreshBtn.add(this.shopRefreshBtnHit);
+
+    this.shopRefreshBtnHit.on('pointerdown', () => {
+      if (this.shopRefreshBusy) return;
+
+      this.shopRefreshBusy = true;
+      this.syncShopUI();
+      this.playPressFeedback?.(this.shopRefreshBtnBody, { scaleTo: 0.96, duration: 70 });
+      this.playShopRefreshTilesAnimation?.();
+      this.ws?.sendIntentShopRefresh?.();
+
+      try { this.shopRefreshUnlockTimer?.remove?.(false); } catch {}
+      this.shopRefreshUnlockTimer = this.time.delayedCall(420, () => {
+        this.shopRefreshBusy = false;
+        this.shopRefreshUnlockTimer = null;
+        this.syncShopUI();
+      });
+    });
+
     this.shopOpenBtn = this.add.text(0, 0, 'МАГАЗИН', {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
       fontSize: '16px',
@@ -906,14 +972,15 @@ export default class BattleScene extends Phaser.Scene {
       backgroundColor: 'rgba(0,0,0,0.72)',
       padding: { left: 12, right: 12, top: 7, bottom: 7 },
     })
-      .setOrigin(1, 1)
+      .setOrigin(0.5, 0.5)
       .setDepth(10000)
       .setScrollFactor(0)
       .setInteractive({ useHandCursor: true });
 
     this.shopOpenBtn.on('pointerdown', () => {
-      this.shopCollapsed = false;
+      this.shopCollapsed = !this.shopCollapsed;
       this.syncShopUI();
+      this.playPressFeedback?.(this.shopOpenBtn, { scaleTo: 0.96, duration: 70 });
     });
 
     this.positionShop();
@@ -1223,11 +1290,25 @@ export default class BattleScene extends Phaser.Scene {
       const btnX = rightEdge + 18;
       const btnY = y - layout.height / 2 + 16;
       this.shopToggleBtn.setPosition(btnX, btnY);
+
+      if (this.shopRefreshBtn) {
+        const xHalfW = (this.shopToggleBtn.width ?? this.shopToggleBtn.displayWidth ?? 0) / 2;
+        const refreshHalfH = (this.shopRefreshBtn.height ?? this.shopRefreshBtn.displayHeight ?? 0) / 2;
+        const tileBottomY = y + layout.height / 2;
+        const refreshY = tileBottomY - refreshHalfH; // выравниваем по нижнему краю тайлов
+        const leftEdgeX = btnX - xHalfW;
+        this.shopRefreshBtn.setPosition(leftEdgeX, refreshY); // у контейнера локальная точка = левый край по X
+      }
     }
 
     if (this.shopOpenBtn) {
       const view = this.scale.getViewPort();
-      this.shopOpenBtn.setPosition(view.x + view.width - 12, view.y + view.height - 12);
+      const btnW = this.shopOpenBtn.width ?? this.shopOpenBtn.displayWidth ?? 0;
+      const btnH = this.shopOpenBtn.height ?? this.shopOpenBtn.displayHeight ?? 0;
+      this.shopOpenBtn.setPosition(
+        view.x + view.width - 12 - btnW / 2,
+        view.y + view.height - 12 - btnH / 2,
+      );
     }
   }
 
@@ -1236,6 +1317,8 @@ export default class BattleScene extends Phaser.Scene {
       if (card?.container) this.tweens.killTweensOf(card.container);
     }
     if (this.shopToggleBtn) this.tweens.killTweensOf(this.shopToggleBtn);
+    if (this.shopRefreshBtn) this.tweens.killTweensOf(this.shopRefreshBtn);
+    if (this.shopRefreshBtnBody) this.tweens.killTweensOf(this.shopRefreshBtnBody);
     if (this.shopOpenBtn) this.tweens.killTweensOf(this.shopOpenBtn);
   }
 
@@ -1298,6 +1381,66 @@ export default class BattleScene extends Phaser.Scene {
     }
   }
 
+  isShopButtonExpectedVisible(btn) {
+    if (!btn) return false;
+    const mode = this.shopUiMode ?? 'hidden';
+
+    if (btn === this.shopToggleBtn) return mode === 'open';
+    if (btn === this.shopRefreshBtn) return mode === 'open';
+    if (btn === this.shopOpenBtn) return mode === 'collapsed' || mode === 'open';
+
+    return false;
+  }
+
+  playShopRefreshTilesAnimation() {
+    if (this.shopUiMode !== 'open') return;
+
+    const cards = this.shopCards ?? [];
+    const slide = 18;
+    const outDuration = 95;
+    const inDuration = 140;
+    const stagger = 14;
+    const reopenDelay = 70;
+
+    for (let i = 0; i < cards.length; i++) {
+      const card = cards[i];
+      const c = card?.container;
+      if (!c || !c.visible) continue;
+
+      const baseX = c.x;
+      const baseY = c.y;
+      c._shopBaseX = baseX;
+      c._shopBaseY = baseY;
+
+      this.tweens.killTweensOf(c);
+      c.setVisible(true);
+
+      this.tweens.add({
+        targets: c,
+        alpha: 0,
+        y: baseY + slide,
+        duration: outDuration,
+        delay: i * stagger,
+        ease: 'Cubic.In',
+        onComplete: () => {
+          if (this.shopUiMode !== 'open') return;
+
+          c.setPosition(baseX, baseY + slide);
+
+          this.tweens.add({
+            targets: c,
+            alpha: 1,
+            x: baseX,
+            y: baseY,
+            duration: inDuration,
+            delay: reopenDelay,
+            ease: 'Cubic.Out',
+          });
+        },
+      });
+    }
+  }
+
   setShopButtonVisual(btn, visible, { immediate = false, slideY = 8 } = {}) {
     if (!btn) return;
 
@@ -1346,7 +1489,25 @@ export default class BattleScene extends Phaser.Scene {
       y: baseY + slideY,
       duration: 110,
       ease: 'Cubic.In',
-      onComplete: () => btn.setVisible(false),
+      onComplete: () => {
+        if (!this.isShopButtonExpectedVisible(btn)) btn.setVisible(false);
+      },
+    });
+  }
+
+  playPressFeedback(target, { scaleTo = 0.96, duration = 70 } = {}) {
+    if (!target) return;
+
+    this.tweens.killTweensOf(target);
+    target.setScale(1, 1);
+
+    this.tweens.add({
+      targets: target,
+      scaleX: scaleTo,
+      scaleY: scaleTo,
+      duration,
+      ease: 'Quad.Out',
+      yoyo: true,
     });
   }
 
@@ -1361,38 +1522,66 @@ export default class BattleScene extends Phaser.Scene {
     if (mode === 'open') {
       this.setShopCardsVisual(true, { immediate });
       this.setShopButtonVisual(this.shopToggleBtn, true, { immediate, slideY: 6 });
-      this.setShopButtonVisual(this.shopOpenBtn, false, { immediate, slideY: 10 });
+      this.setShopButtonVisual(this.shopRefreshBtn, true, { immediate, slideY: 6 });
+      // Кнопка "МАГАЗИН" теперь всегда на месте (в open/collapsed), без анимации "булькания".
+      this.setShopButtonVisual(this.shopOpenBtn, true, { immediate: true, slideY: 10 });
       return;
     }
 
     if (mode === 'collapsed') {
       this.setShopCardsVisual(false, { immediate });
       this.setShopButtonVisual(this.shopToggleBtn, false, { immediate, slideY: 6 });
-      this.setShopButtonVisual(this.shopOpenBtn, true, { immediate, slideY: 10 });
+      this.setShopButtonVisual(this.shopRefreshBtn, false, { immediate, slideY: 6 });
+      this.setShopButtonVisual(this.shopOpenBtn, true, { immediate: true, slideY: 10 });
       return;
     }
 
     // hidden (например result screen)
     this.setShopCardsVisual(false, { immediate });
     this.setShopButtonVisual(this.shopToggleBtn, false, { immediate, slideY: 6 });
-    this.setShopButtonVisual(this.shopOpenBtn, false, { immediate, slideY: 10 });
+    this.setShopButtonVisual(this.shopRefreshBtn, false, { immediate, slideY: 6 });
+    this.setShopButtonVisual(this.shopOpenBtn, false, { immediate: true, slideY: 10 });
   }
 
   syncShopUI() {
     const phase = this.battleState?.phase ?? 'prep';
     const result = this.battleState?.result ?? null;
-    const show = (phase === 'prep' || phase === 'battle') && !result;
+    const show = (phase === 'prep' || phase === 'battle');
     const mode = !show ? 'hidden' : (this.shopCollapsed ? 'collapsed' : 'open');
 
     this.positionShop();
 
     if (this.shopUiMode !== mode) {
       const firstApply = (this.shopUiMode == null);
+      const skipAnim = !!this.shopUiSkipNextModeAnimation;
+      this.shopUiSkipNextModeAnimation = false;
       this.shopUiMode = mode;
-      this.applyShopUiMode(mode, { animate: !firstApply });
+      this.applyShopUiMode(mode, { animate: !firstApply && !skipAnim });
+    }
+
+    if (this.shopOpenBtn) {
+      const isActive = (mode === 'open');
+      this.shopOpenBtn.setStyle({
+        backgroundColor: isActive ? 'rgba(110,95,20,0.82)' : 'rgba(0,0,0,0.72)',
+        color: isActive ? '#ffe08a' : '#ffffff',
+      });
+      this.shopOpenBtn.setAlpha(isActive ? 1 : 0.94);
     }
 
     if (!show) return;
+
+    const refreshCost = 2;
+    const coins = Number(this.battleState?.kings?.player?.coins ?? 0);
+    const canRefreshShop = (mode === 'open') && coins >= refreshCost && !this.shopRefreshBusy;
+    if (this.shopRefreshBtn) {
+      this.shopRefreshBtnBg?.setFillStyle(canRefreshShop ? 0x463700 : 0x4b4b4b, canRefreshShop ? 0.78 : 0.75);
+      this.shopRefreshBtnBg?.setStrokeStyle(1, canRefreshShop ? 0x8f7a33 : 0x787878, 0.75);
+      this.shopRefreshBtnCost?.setAlpha(canRefreshShop ? 1 : 0.82);
+      this.shopRefreshBtnIcon?.setAlpha(canRefreshShop ? 1 : 0.72);
+      this.shopRefreshBtnCoin?.setAlpha(canRefreshShop ? 1 : 0.72);
+      if (this.shopRefreshBtnHit?.input) this.shopRefreshBtnHit.input.enabled = canRefreshShop;
+      this.shopRefreshBtn.setAlpha(canRefreshShop ? 1 : 0.78);
+    }
 
     const offers = this.battleState?.shop?.offers ?? [];
 

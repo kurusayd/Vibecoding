@@ -55,6 +55,10 @@ export function makeShopBuyIntent(offerIndex) {
   return { type: 'intent', action: 'shopBuy', offerIndex };
 }
 
+export function makeShopRefreshIntent() {
+  return { type: 'intent', action: 'shopRefresh' };
+}
+
 export function makeResetGameIntent() {
   return { type: 'intent', action: 'resetGame' };
 }

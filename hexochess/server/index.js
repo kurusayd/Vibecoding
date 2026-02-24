@@ -551,9 +551,17 @@ function resetToPrep() {
   // enemy king скрыт в prep
   if (state.kings?.enemy) state.kings.enemy.visible = false;
 
-  if (prepSnapshot && prepSnapshot.length > 0) {
-    state.units = prepSnapshot.map(u => ({ ...u }));
-  }
+  // Сохраняем покупки во время result-screen: они появляются на bench и должны пережить resetToPrep().
+  const snapshotUnits = Array.isArray(prepSnapshot) ? prepSnapshot : [];
+  const snapshotIds = new Set(snapshotUnits.map(u => u.id));
+  const extraBenchBoughtDuringResult = (state.units ?? [])
+    .filter(u => u.team === 'player' && u.zone === 'bench' && !snapshotIds.has(u.id))
+    .map(u => ({ ...u }));
+
+  state.units = [
+    ...snapshotUnits.map(u => ({ ...u })),
+    ...extraBenchBoughtDuringResult,
+  ];
 
   // каждый prep — новый магазин
   generateShopOffers();
@@ -713,7 +721,7 @@ function handleIntent(clientId, msg, ws) {
   if (!clientToUnits.get(clientId)) clientToUnits.set(clientId, owned);
 
   // разрешаем "системные" intents даже если у клиента пока нет юнитов
-  const ALLOW_WITHOUT_UNITS = new Set(['shopBuy', 'startGame', 'startBattle', 'buyXp', 'resetGame']);
+  const ALLOW_WITHOUT_UNITS = new Set(['shopBuy', 'shopRefresh', 'startGame', 'startBattle', 'buyXp', 'resetGame']);
   if (!ALLOW_WITHOUT_UNITS.has(msg.action) && owned.size === 0) {
     ws.send(JSON.stringify(makeErrorMessage('NO_UNIT', 'No unit assigned to this client')));
     return;
@@ -940,10 +948,31 @@ function handleIntent(clientId, msg, ws) {
     return;
   }
 
+  if (msg.action === 'shopRefresh') {
+    const canRefreshShop = (state.phase === 'prep' || state.phase === 'battle');
+    if (!canRefreshShop) {
+      ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'shopRefresh allowed only in prep/battle')));
+      return;
+    }
+
+    const REFRESH_COST = 2;
+    const coins = Number(state.kings?.player?.coins ?? 0);
+    if (coins < REFRESH_COST) {
+      ws.send(JSON.stringify(makeErrorMessage('NO_COINS', 'Not enough coins to refresh shop')));
+      return;
+    }
+
+    state.kings.player.coins -= REFRESH_COST;
+    clampPlayerCoins();
+    generateShopOffers();
+    broadcast(makeStateMessage(state));
+    return;
+  }
+
   if (msg.action === 'shopBuy') {
-    const canBuyFromShop = (state.phase === 'prep' || state.phase === 'battle') && !state.result;
+    const canBuyFromShop = (state.phase === 'prep' || state.phase === 'battle');
     if (!canBuyFromShop) {
-      ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'shopBuy allowed only in prep/battle (no result)')));
+      ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'shopBuy allowed only in prep/battle')));
       return;
     }
 
