@@ -881,6 +881,7 @@ export default class BattleScene extends Phaser.Scene {
     this.shopCollapsed = false;
     this.shopRefreshBusy = false;
     this.shopRefreshUnlockTimer = null;
+    this.shopRefreshRequestTimer = null;
     this.shopCardLayout = {
       width: 132,
       height: 188,
@@ -954,11 +955,18 @@ export default class BattleScene extends Phaser.Scene {
       this.shopRefreshBusy = true;
       this.syncShopUI();
       this.playPressFeedback?.(this.shopRefreshBtnBody, { scaleTo: 0.96, duration: 70 });
-      this.playShopRefreshTilesAnimation?.();
-      this.ws?.sendIntentShopRefresh?.();
+      const refreshAnim = this.playShopRefreshTilesAnimation?.() ?? { sendDelayMs: 0, totalMs: 420 };
+      const sendDelayMs = Number(refreshAnim.sendDelayMs ?? 0);
+      const unlockDelayMs = Number(refreshAnim.totalMs ?? 420);
+
+      try { this.shopRefreshRequestTimer?.remove?.(false); } catch {}
+      this.shopRefreshRequestTimer = this.time.delayedCall(sendDelayMs, () => {
+        this.shopRefreshRequestTimer = null;
+        this.ws?.sendIntentShopRefresh?.();
+      });
 
       try { this.shopRefreshUnlockTimer?.remove?.(false); } catch {}
-      this.shopRefreshUnlockTimer = this.time.delayedCall(420, () => {
+      this.shopRefreshUnlockTimer = this.time.delayedCall(unlockDelayMs, () => {
         this.shopRefreshBusy = false;
         this.shopRefreshUnlockTimer = null;
         this.syncShopUI();
@@ -1181,13 +1189,17 @@ export default class BattleScene extends Phaser.Scene {
       wordWrap: { width: w - 16, useAdvancedWrap: true },
     }).setOrigin(0.5, 0);
 
-    const costText = this.add.text(0, top + 157, '', {
+    const costCoin = this.add.image(-10, top + 167, 'coin')
+      .setOrigin(0.5, 0.5)
+      .setDisplaySize(18, 18);
+
+    const costText = this.add.text(4, top + 167, '', {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-      fontSize: '13px',
+      fontSize: '17px',
       color: '#7c5b00',
       fontStyle: 'bold',
-      align: 'center',
-    }).setOrigin(0.5, 0);
+      align: 'left',
+    }).setOrigin(0, 0.5);
 
     const hit = this.add.zone(0, 0, w, h)
       .setOrigin(0.5, 0.5)
@@ -1202,6 +1214,7 @@ export default class BattleScene extends Phaser.Scene {
     card.previewFallback = previewFallback;
     card.nameText = nameText;
     card.typeText = typeText;
+    card.costCoin = costCoin;
     card.costText = costText;
     card.hit = hit;
 
@@ -1224,6 +1237,7 @@ export default class BattleScene extends Phaser.Scene {
       card.previewFallback.setAlpha(enabled ? 1 : 0.55);
       card.nameText.setAlpha(enabled ? 1 : 0.75);
       card.typeText.setAlpha(enabled ? 1 : 0.75);
+      card.costCoin.setAlpha(enabled ? 1 : 0.75);
       card.costText.setAlpha(enabled ? 1 : 0.75);
 
       if (card.hit?.input) {
@@ -1263,6 +1277,7 @@ export default class BattleScene extends Phaser.Scene {
       divider2,
       typeText,
       divider3,
+      costCoin,
       costText,
       border,
       hit,
@@ -1393,7 +1408,7 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   playShopRefreshTilesAnimation() {
-    if (this.shopUiMode !== 'open') return;
+    if (this.shopUiMode !== 'open') return { sendDelayMs: 0, totalMs: 0 };
 
     const cards = this.shopCards ?? [];
     const slide = 18;
@@ -1401,6 +1416,10 @@ export default class BattleScene extends Phaser.Scene {
     const inDuration = 140;
     const stagger = 14;
     const reopenDelay = 70;
+    const visibleCards = cards.filter((card) => !!card?.container?.visible).length;
+    const chainCount = Math.max(1, visibleCards);
+    const sendDelayMs = outDuration + Math.max(0, chainCount - 1) * stagger;
+    const totalMs = sendDelayMs + reopenDelay + inDuration;
 
     for (let i = 0; i < cards.length; i++) {
       const card = cards[i];
@@ -1439,6 +1458,8 @@ export default class BattleScene extends Phaser.Scene {
         },
       });
     }
+
+    return { sendDelayMs, totalMs };
   }
 
   setShopButtonVisual(btn, visible, { immediate = false, slideY = 8 } = {}) {
@@ -1595,6 +1616,7 @@ export default class BattleScene extends Phaser.Scene {
         card.nameText.setText('Пусто');
         card.typeText.setText('—');
         card.costText.setText('');
+        card.costCoin?.setVisible(false);
         card.previewSprite.setVisible(false);
         card.previewFallback.setText('…').setVisible(true);
         card.refreshVisual();
@@ -1604,7 +1626,8 @@ export default class BattleScene extends Phaser.Scene {
       card.enabled = true;
       card.nameText.setText(String(o.type ?? 'Unknown'));
       card.typeText.setText(String(o.powerType ?? '—'));
-      card.costText.setText(`${Number(o.cost ?? 0)} золота`);
+      card.costCoin?.setVisible(true);
+      card.costText.setText(`${Number(o.cost ?? 0)}`);
 
       const atlasDef = UNIT_ATLAS_DEFS.find((def) => def.type === o.type) ?? null;
       if (atlasDef && this.textures.exists(atlasDef.atlasKey)) {
@@ -2905,5 +2928,3 @@ export default class BattleScene extends Phaser.Scene {
   }
 
 }
-
-

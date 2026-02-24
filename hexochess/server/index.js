@@ -1026,7 +1026,7 @@ function handleIntent(clientId, msg, ws) {
     owned.add(newId);
 
     // заменяем купленный слот новым оффером
-    state.shop.offers[idx] = makeRandomOffer();
+    state.shop.offers[idx] = null;
 
     // ✅ MERGE: пробуем смёрджить, предпочитаем только что купленного
     applyMergesForClient(clientId, newId);
