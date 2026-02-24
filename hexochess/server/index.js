@@ -394,6 +394,18 @@ function findFirstFreeBenchSlot() {
   return null;
 }
 
+function findFirstFreeBoardCell() {
+  for (let r = 0; r < GRID_ROWS; r++) {
+    for (let col = 0; col < GRID_COLS; col++) {
+      const q = col - Math.floor(r / 2);
+      if (!isInsideBoard(q, r)) continue;
+      if (getUnitAt(state, q, r)) continue;
+      return { q, r };
+    }
+  }
+  return null;
+}
+
 // ---- BOT ARMY (MVP) ----
 function clearEnemyUnits() {
   state.units = state.units.filter(u => u.team !== 'enemy');
@@ -994,9 +1006,11 @@ function handleIntent(clientId, msg, ws) {
       return;
     }
 
-    const freeSlot = findFirstFreeBenchSlot();
-    if (freeSlot == null) {
-      ws.send(JSON.stringify(makeErrorMessage('BENCH_FULL', 'No free bench slot')));
+    const canPlaceOnBoardNow = (state.phase === 'prep') && !state.result;
+    const freeBoardCell = canPlaceOnBoardNow ? findFirstFreeBoardCell() : null;
+    const freeSlot = freeBoardCell ? null : findFirstFreeBenchSlot();
+    if (!freeBoardCell && freeSlot == null) {
+      ws.send(JSON.stringify(makeErrorMessage('NO_SPACE', 'No free board cell or bench slot')));
       return;
     }
 
@@ -1004,12 +1018,12 @@ function handleIntent(clientId, msg, ws) {
     state.kings.player.coins -= offer.cost;
     clampPlayerCoins();
 
-    // создаём купленного юнита на bench
+    // создаём купленного юнита: сначала на поле (если сейчас можно), иначе на bench
     const newId = nextUnitId++;
     addUnit(state, {
       id: newId,
-      q: 0,
-      r: 0,
+      q: freeBoardCell?.q ?? 0,
+      r: freeBoardCell?.r ?? 0,
       hp: offer.hp,
       maxHp: offer.maxHp ?? offer.hp,
       atk: offer.atk,
@@ -1017,8 +1031,8 @@ function handleIntent(clientId, msg, ws) {
       type: offer.type,
       powerType: offer.powerType,
       rank: 1,
-      zone: 'bench',
-      benchSlot: freeSlot,
+      zone: freeBoardCell ? 'board' : 'bench',
+      benchSlot: freeBoardCell ? null : freeSlot,
       moveSpeed: offer.moveSpeed,
     });
 

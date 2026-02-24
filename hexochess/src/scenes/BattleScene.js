@@ -732,6 +732,7 @@ export default class BattleScene extends Phaser.Scene {
           artX: p.x,
           artY: p.y + this.hexSize - lift,
           duration: 85,
+          syncOverlays: false,
         });
 
         if (vu) {
@@ -739,7 +740,7 @@ export default class BattleScene extends Phaser.Scene {
           if (vu.hpBar) vu.hpBar.setVisible(false);
           if (vu.rankIcon) {
             vu.rankIcon.setPosition(p.x, Math.round(p.y + this.hexSize * 0.98));
-            vu.rankIcon.setVisible(!core.dead);
+            vu.rankIcon.setVisible(false);
           }
         }
 
@@ -1352,7 +1353,7 @@ export default class BattleScene extends Phaser.Scene {
       const pressed = enabled && !!card.pressed;
 
       const fill = enabled
-        ? (pressed ? 0xe4d6b8 : hovered ? 0xfcf4e4 : 0xf6edd7)
+        ? (hovered ? 0xfcf4e4 : 0xf6edd7)
         : 0xaea79b;
       const fillAlpha = enabled ? 0.97 : 0.62;
       const borderColor = enabled ? (hovered ? 0xe1b754 : 0xb58a3c) : 0x7f786b;
@@ -1390,6 +1391,10 @@ export default class BattleScene extends Phaser.Scene {
       this.ws?.sendIntentShopBuy?.(index);
     });
     hit.on('pointerup', () => {
+      card.pressed = false;
+      card.refreshVisual();
+    });
+    hit.on('pointerupoutside', () => {
       card.pressed = false;
       card.refreshVisual();
     });
@@ -1769,7 +1774,7 @@ export default class BattleScene extends Phaser.Scene {
     }
   }
 
-  animateUnitDropToScreen(vu, { x, y, artX = x, artY = y, duration = 85 } = {}) {
+  animateUnitDropToScreen(vu, { x, y, artX = x, artY = y, duration = 85, syncOverlays = true } = {}) {
     if (!vu) return;
 
     const centerTargets = [vu.sprite, vu.dragHandle, vu.label].filter((obj) => obj?.active);
@@ -1779,8 +1784,10 @@ export default class BattleScene extends Phaser.Scene {
     if (!duration || duration <= 0) {
       for (const obj of centerTargets) obj.setPosition(x, y);
       if (vu.art?.active) vu.art.setPosition(artX, artY);
-      if (vu.rankIcon?.active) vu.rankIcon.setPosition(x, Math.round(y + this.hexSize * 0.98));
-      updateHpBar(this, vu);
+      if (syncOverlays) {
+        if (vu.rankIcon?.active) vu.rankIcon.setPosition(x, Math.round(y + this.hexSize * 0.98));
+        updateHpBar(this, vu);
+      }
       return;
     }
 
@@ -1792,12 +1799,14 @@ export default class BattleScene extends Phaser.Scene {
         duration,
         ease: 'Quad.Out',
         onUpdate: () => {
+          if (!syncOverlays) return;
           if (vu.rankIcon?.active) {
             vu.rankIcon.setPosition(vu.sprite?.x ?? x, Math.round((vu.sprite?.y ?? y) + this.hexSize * 0.98));
           }
           updateHpBar(this, vu);
         },
         onComplete: () => {
+          if (!syncOverlays) return;
           if (vu.rankIcon?.active) vu.rankIcon.setPosition(x, Math.round(y + this.hexSize * 0.98));
           updateHpBar(this, vu);
         },
@@ -1900,6 +1909,7 @@ export default class BattleScene extends Phaser.Scene {
       const o = offers[i] ?? null;
       if (!o) {
         card.enabled = false;
+        card.pressed = false;
         card.nameText.setText('Пусто');
         card.typeText.setText('—');
         card.costText.setText('');
@@ -1911,6 +1921,7 @@ export default class BattleScene extends Phaser.Scene {
       }
 
       card.enabled = true;
+      card.pressed = false;
       card.nameText.setText(String(o.type ?? 'Unknown'));
       card.typeText.setText(String(o.powerType ?? '—'));
       card.costCoin?.setVisible(true);
@@ -2723,6 +2734,12 @@ export default class BattleScene extends Phaser.Scene {
           if (created.hpBar) created.hpBar.setVisible(false);
           if (created.rankIcon) created.rankIcon.setVisible(!u.dead);
           if (created) updateHpBar(this, created);
+        } else {
+          // Новый юнит может появиться сразу на поле из магазина в prep:
+          // сразу выставляем корректную видимость hp/rank, чтобы не мигал HP-бар.
+          if (created.hpBar) created.hpBar.setVisible(phase !== 'prep');
+          if (created.rankIcon) created.rankIcon.setVisible((phase === 'prep') && !u.dead);
+          updateHpBar(this, created);
         }
 
         byId.set(created.id, created);
