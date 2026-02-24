@@ -24,9 +24,6 @@ export function updateHpBar(scene, unit) {
   // нижний угол "pointy-top" гекса
   const tipY = cy + scene.hexSize * 0.98;
 
-  // ⭐ звёзды — в самом низу
-  const starsY = Math.round(tipY);
-
   // HP бар — на том же уровне, но чуть выше (подними/опусти тут)
   const hpGap = Math.round(scene.hexSize * 2.75); // ≈ +5px при hexSize=44
   const y = Math.round(tipY - h - hpGap);
@@ -43,9 +40,9 @@ export function updateHpBar(scene, unit) {
       unit.rankIcon.setTexture(key);
     }
 
-    // позиция: нижний угол гекса (pointy-top)
-    const tipY = Math.round(cy + scene.hexSize * 0.98);
-    unit.rankIcon.setPosition(cx, starsY);
+    // Временно: ставим иконку ранга на уровень полоски HP (для визуальной проверки).
+    // rankIcon имеет origin(0.5, 1), поэтому привязываем её нижнюю точку к нижней границе HP-бара.
+    unit.rankIcon.setPosition(cx, y + h);
 
     // видимость:
     // - на скамейке ранг показываем всегда;
