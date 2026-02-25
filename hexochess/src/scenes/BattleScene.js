@@ -5,11 +5,9 @@ import { WSClient } from '../net/wsClient.js';
 import { createFullscreenButton, positionFullscreenButton } from '../game/ui.js';
 import { updateHpBar } from '../game/hpbar.js';
 
-import {
-  createBattleState,
-  KING_XP_COST,
-  KING_MAX_LEVEL,
-} from '../../shared/battleCore.js';
+import { createBattleState, KING_XP_COST, KING_MAX_LEVEL } from '../../shared/battleCore.js';
+import { installBattleSceneDrag } from './battleScene/dragController.js';
+import { TEST_SCENE_UNITS, installBattleSceneTestScene } from './battleScene/testScene.js';
 
 const GROUND_LIFT_BY_TYPE = {
   Swordsman: 100,
@@ -529,13 +527,11 @@ export default class BattleScene extends Phaser.Scene {
       }
     }
 
-    // drag state
-    this.draggingUnitId = null;
-    this.dragHover = null; // { zone:'board', q,r } | { zone:'bench', slot }
     this.mergeAbsorbAnimatingIds = new Set(); // visual-only merge animation for disappearing units
     this.mergeBounceAnimatingIds = new Set(); // avoid stacking bounce on the same merge target
     this.pendingMergeTargetBounces = new Map(); // targetId -> { targetCoreUnit, delayMs }
     this.pendingAttackAnimIds = new Set();
+    this.initDragState();
 
     // --- SERVER CONNECTION ---
     const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -580,10 +576,10 @@ export default class BattleScene extends Phaser.Scene {
 
       if (this.battleState?.phase === 'battle' && !this.battleState?.result) this.shopCollapsed = true;
       if (this.battleState?.phase === 'prep' && !this.battleState?.result) this.shopCollapsed = false;
-
       this.draggingUnitId = null;
-      this.dragHover = null;
-      this.shadowOverride = null;
+      this.dragBoardHover = null;
+      this.dragBenchHoverSlot = null;
+
       this.renderFromState();
       this.drawGrid();
       this.syncPhaseUI();
@@ -593,17 +589,14 @@ export default class BattleScene extends Phaser.Scene {
     };
 
     this.ws.onState = (state) => {
+      if (this.testSceneActive) {
+        this.testSceneQueuedLiveState = state;
+        return;
+      }
       // сервер прислал обновлённый state после чьего-то хода
       const prevState = this.battleState;
       const prevPhase = this.battleState?.phase ?? null;
       const prevResult = this.battleState?.result ?? null;
-      const draggedId = this.draggingUnitId;
-      const incomingDragged = (state?.units ?? []).find(u => u.id === draggedId);
-      const keepBenchDrag =
-        !!incomingDragged &&
-        incomingDragged.team === 'player' &&
-        incomingDragged.zone === 'bench';
-
       this.battleState = state;
 
       const phaseChanged = (state?.phase ?? null) !== prevPhase;
@@ -639,6 +632,11 @@ export default class BattleScene extends Phaser.Scene {
         if (state?.phase === 'battle' && !state?.result) this.shopCollapsed = true;
         if (state?.phase === 'prep' && !state?.result) this.shopCollapsed = false;
         this.gridStaticDirty = true;
+        if (state?.phase !== 'prep' || state?.result) {
+          this.draggingUnitId = null;
+          this.dragBoardHover = null;
+          this.dragBenchHoverSlot = null;
+        }
       }
 
       // Если атака была прервана сменой фазы/результата, animationcomplete может не прийти,
@@ -652,22 +650,13 @@ export default class BattleScene extends Phaser.Scene {
       }
 
       let gridDynamicNeedsRedraw = false;
-      if (!keepBenchDrag && this.shadowOverride != null) {
-        this.shadowOverride = null;
-        gridDynamicNeedsRedraw = true;
-      }
-      if ((state?.phase !== 'prep' || state?.result) && !keepBenchDrag) {
-        if (this.draggingUnitId != null || this.dragHover != null) gridDynamicNeedsRedraw = true;
-        this.draggingUnitId = null;
-        this.dragHover = null;
-      }
 
-      const needRender = unitsChanged || phaseChanged || resultChanged;
-      const needGrid = needRender || gridDynamicNeedsRedraw;
+      const needRender = (unitsChanged || phaseChanged || resultChanged);
+      const needGrid = (needRender || gridDynamicNeedsRedraw);
       const needPhaseUi = phaseUiChanged;
       const needKingsUi = phaseUiChanged || kingsChanged;
       const needShopUi = phaseChanged || resultChanged || kingsChanged || shopChanged;
-      const needRefreshDraggable = unitsChanged || phaseChanged || resultChanged;
+      const needRefreshDraggable = (unitsChanged || phaseChanged || resultChanged);
 
       if (needRender) this.renderFromState();
       if (needGrid) this.drawGrid();
@@ -678,12 +667,10 @@ export default class BattleScene extends Phaser.Scene {
     };
 
     this.ws.onError = (err) => {
+      if (this.testSceneActive) return;
       console.warn('Server error:', err?.code, err?.message || err);
 
       if (err?.code === 'OCCUPIED' || err?.code === 'MOVE_DENIED' || err?.code === 'NOT_OWNER') {
-        this.shadowOverride = null;
-        this.dragHover = null;
-        this.draggingUnitId = null;
         this.renderFromState();
         this.drawGrid();
       }
@@ -699,203 +686,13 @@ export default class BattleScene extends Phaser.Scene {
     this.events.once('destroy', () => {
       this.ws?.close();
     });
-
-    // --- DRAG HANDLERS ---
-    this.input.on('dragstart', (pointer, gameObject) => {
-      const uid = gameObject?.data?.get?.('unitId');
-      if (!uid) return;
-      const core = (this.battleState?.units ?? []).find(u => u.id === uid);
-      if (!core || core.team !== 'player') return;
-
-      const isPrepManage = (this.battleState?.phase === 'prep') && !this.battleState?.result;
-      const isBenchManageAnytime = core.zone === 'bench';
-      if (!isPrepManage && !isBenchManageAnytime) return;
-
-      this.draggingUnitId = uid;
-
-      // при поднятии сразу выставляем "куда целимся", чтобы не было мигания
-      const hitBench = this.tryPickBench(pointer.worldX, pointer.worldY);
-      if (hitBench) {
-        this.dragHover = { zone: 'bench', slot: hitBench.row };
-      } else {
-        const hitBoard = this.tryPickBoard(pointer.worldX, pointer.worldY);
-        this.dragHover = hitBoard ? { zone: 'board', q: hitBoard.q, r: hitBoard.r } : null;
-      }
-
-      // сбрасываем override только если он относится к этому же юниту
-      if (this.shadowOverride?.unitId === uid) this.shadowOverride = null;
-
-      const vu = this.unitSys.findUnit(uid);
-      if (vu?.hpBar) vu.hpBar.setVisible(false);
-      if (vu?.rankIcon) vu.rankIcon.setVisible(false);
-      // ❌ НЕ вызываем updateHpBar тут, он включает видимость обратно
-      this.animateUnitDragLiftScale?.(vu, { scaleMul: 1.1, duration: 110 });
-
-      this.drawGrid();
-    });
-
-    this.input.on('drag', (pointer, gameObject, dragX, dragY) => {
-      const uid = gameObject?.data?.get?.('unitId');
-      if (!uid) return;
-
-      const core = (this.battleState?.units ?? []).find(u => u.id === uid);
-      if (!core || core.team !== 'player') return;
-
-      const isPrepManage = (this.battleState?.phase === 'prep') && !this.battleState?.result;
-      const isBenchManageAnytime = core.zone === 'bench';
-      if (!isPrepManage && !isBenchManageAnytime) return;
-
-      gameObject.setPosition(dragX, dragY);
-
-      const vu = this.unitSys.findUnit(uid);
-      if (vu?.sprite) vu.sprite.setPosition(dragX, dragY);
-
-      const lift = GROUND_LIFT_BY_TYPE[core?.type] ?? 0;
-      const artY = dragY + this.hexSize - lift;
-
-      if (vu?.art) vu.art.setPosition(dragX, artY);
-      if (vu?.label) vu.label.setPosition(dragX, dragY);
-      if (vu?.hpBar) vu.hpBar.setVisible(false);
-      if (vu?.rankIcon) vu.rankIcon.setVisible(false);
-
-      // подсветка клетки под курсором
-      const hitBench = this.tryPickBench(pointer.worldX, pointer.worldY);
-      if (hitBench) {
-        this.dragHover = { zone: 'bench', slot: hitBench.row };
-      } else {
-        const hitBoard = this.tryPickBoard(pointer.worldX, pointer.worldY);
-        // важно: если курсор вне валидных клеток — НЕ гасим hover, оставляем последний валидный
-        if (hitBoard) this.dragHover = { zone: 'board', q: hitBoard.q, r: hitBoard.r };
-      }
-
-      this.drawGrid();
-    });
-
-    this.input.on('dragend', (pointer, gameObject) => {
-      const uid = gameObject?.data?.get?.('unitId');
-      const core = uid ? (this.battleState?.units ?? []).find(u => u.id === uid) : null;
-      const vu = uid ? this.unitSys.findUnit(uid) : null;
-      const dropHover = this.dragHover ? { ...this.dragHover } : null;
-      const isPrepManage = (this.battleState?.phase === 'prep') && !this.battleState?.result;
-      const isBenchManageAnytime = !!core && core.team === 'player' && core.zone === 'bench';
-
-      // Всегда сбрасываем локальный drag-state, даже если prep уже закончился.
-      this.draggingUnitId = null;
-      this.dragHover = null;
-      this.shadowOverride = null;
-
-      if (!isPrepManage && !isBenchManageAnytime) {
-        this.animateUnitDragReleaseScale?.(vu, { duration: 110 });
-        this.renderFromState();
-        this.drawGrid();
-        return;
-      }
-
-      if (!uid) return;
-      if (!core || core.team !== 'player') return;
-
-       // больше не тащим — можно снова рисовать "занято" тень
-      this.draggingUnitId = null;
-      this.dragHover = null;
-      this.shadowOverride = null; // локальная позиция тени для моего юнита до прихода state
-
-      // 1) сначала проверяем скамейку
-      const hitBench = (dropHover?.zone === 'bench')
-        ? { row: dropHover.slot }
-        : this.tryPickBench(pointer.worldX, pointer.worldY);
-      if (hitBench) {
-        const slot = hitBench.row; // 0..7
-
-        const p = this.benchSlotToScreen(slot);
-        const lift = GROUND_LIFT_BY_TYPE[core?.type] ?? 0;
-        this.animateUnitDragReleaseScale?.(vu, { duration: 110 });
-        this.animateUnitDropToScreen?.(vu, {
-          x: p.x,
-          y: p.y,
-          artX: p.x,
-          artY: p.y + this.hexSize - lift,
-          duration: 85,
-          syncOverlays: false,
-        });
-
-        if (vu) {
-          // на скамейке hpBar не показываем
-          if (vu.hpBar) vu.hpBar.setVisible(false);
-          if (vu.rankIcon) {
-            vu.rankIcon.setPosition(p.x, Math.round(p.y + this.hexSize * 0.98));
-            vu.rankIcon.setVisible(false);
-          }
-        }
-
-        this.shadowOverride = { unitId: uid, zone: 'bench', slot };
-        this.ws?.sendIntentSetBench(uid, slot); // если у тебя уже с unitId, оставь как есть
-        this.drawGrid(); // важно: сразу восстановить тени
-        return;
-      }
-
-      // Вне prep разрешаем только менеджмент скамейки (bench -> bench).
-      if (!isPrepManage) {
-        this.shadowOverride = null;
-        this.dragHover = null;
-        this.animateUnitDragReleaseScale?.(vu, { duration: 110 });
-        this.renderFromState();
-        this.drawGrid();
-        return;
-      }
-
-      // 2) иначе — обычная доска
-      const hit = (dropHover?.zone === 'board')
-        ? { q: dropHover.q, r: dropHover.r }
-        : this.tryPickBoard(pointer.worldX, pointer.worldY);
-      if (!hit) {
-        // откат по authoritative state + восстановить тени
-        this.shadowOverride = null;
-        this.dragHover = null;
-        this.animateUnitDragReleaseScale?.(vu, { duration: 110 });
-        this.renderFromState();
-        this.drawGrid();
-        return;
-      }
-
-      const p = this.hexToPixel(hit.q, hit.r);
-      const lift = GROUND_LIFT_BY_TYPE[core?.type] ?? 0;
-      const g = this.hexToGroundPixel(hit.q, hit.r, lift);
-
-      if (vu) {
-        const isPrepPhase = (this.battleState?.phase === 'prep') && !this.battleState?.result;
-        if (vu.hpBar) vu.hpBar.setVisible(!isPrepPhase);
-        this.animateUnitDragReleaseScale?.(vu, { duration: 110 });
-        const isSameBoardCellDrop =
-          core?.zone === 'board' &&
-          Number(core?.q) === Number(hit.q) &&
-          Number(core?.r) === Number(hit.r);
-
-        if (isSameBoardCellDrop) {
-          this.animateUnitDropToScreen?.(vu, {
-            x: p.x,
-            y: p.y,
-            artX: g.x,
-            artY: g.y,
-            duration: 85,
-          });
-        } else {
-          this.unitSys.setUnitPos(uid, hit.q, hit.r, { tweenMs: 85 });
-        }
-      }
-
-      this.shadowOverride = { unitId: uid, zone: 'board', q: hit.q, r: hit.r };
-      this.ws?.sendIntentSetStart(uid, hit.q, hit.r);
-      this.drawGrid();
-    });
+    this.bindDragHandlers();
 
     // resize
     this.scale.on('resize', () => {
-      // если браузер/фуллскрин дёрнул resize в момент каких-то pointer events —
-      // лучше сбросить локальные рисовалки тени
-      this.dragHover = null;
       this.draggingUnitId = null;
-      this.shadowOverride = null;
-
+      this.dragBoardHover = null;
+      this.dragBenchHoverSlot = null;
       this.layout();
       this.drawGrid();
 
@@ -926,6 +723,15 @@ export default class BattleScene extends Phaser.Scene {
     this.debugKingMenuOpen = false;
     this.debugCanStartBattle = false;
     this.debugKingSkinButtons = [];
+    this.testSceneActive = false;
+    this.testSceneUnitsMenuOpen = false;
+    this.testSceneBattleLoop = null;
+    this.testSceneRestartTimer = null;
+    this.testSceneNextUnitId = -1;
+    this.testSceneSelectedUnitType = null;
+    this.testSceneBattleStartSnapshot = null;
+    this.testSceneSavedLiveState = null;
+    this.testSceneQueuedLiveState = null;
 
     this.debugBtn = this.add.text(this.scale.width - 14, 14, 'Debug', {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
@@ -948,7 +754,7 @@ export default class BattleScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setVisible(false);
 
-    this.debugModalBg = this.add.rectangle(0, 0, 180, 164, 0x111111, 0.94)
+    this.debugModalBg = this.add.rectangle(0, 0, 180, 210, 0x111111, 0.94)
       .setOrigin(0, 0)
       .setStrokeStyle(2, 0x666666, 0.95);
 
@@ -979,6 +785,16 @@ export default class BattleScene extends Phaser.Scene {
       .setOrigin(0.5, 0)
       .setDepth(10031)
       .setInteractive({ useHandCursor: true });
+    this.debugTestSceneBtn = this.add.text(90, 158, 'TEST SCENE', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '17px',
+      color: '#ffffff',
+      backgroundColor: 'rgba(70,40,110,0.70)',
+      padding: { left: 10, right: 10, top: 7, bottom: 7 },
+    })
+      .setOrigin(0.5, 0)
+      .setDepth(10031)
+      .setInteractive({ useHandCursor: true });
     this.debugKingBtn = this.add.text(90, 82, '\u041a\u041e\u0420\u041e\u041b\u042c', {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
       fontSize: '18px',
@@ -989,7 +805,7 @@ export default class BattleScene extends Phaser.Scene {
       .setOrigin(0.5, 0)
       .setDepth(10031)
       .setInteractive({ useHandCursor: true });
-    this.debugModalHit = this.add.zone(0, 0, 180, 164)
+    this.debugModalHit = this.add.zone(0, 0, 180, 210)
       .setOrigin(0, 0)
       .setInteractive();
     this.debugModalHit.on('pointerdown', (pointer) => {
@@ -1002,6 +818,7 @@ export default class BattleScene extends Phaser.Scene {
       this.battleBtn,
       this.debugKingBtn,
       this.debugExitBtn,
+      this.debugTestSceneBtn,
     ]);
     // --- DEBUG KING MODAL (local player king skin only) ---
     this.debugKingModal = this.add.container(0, 0)
@@ -1071,7 +888,11 @@ export default class BattleScene extends Phaser.Scene {
       .setShadow(0, 0, '#000000', 2, true, true);
 
     this.battleBtn.on('pointerdown', () => {
-      this.ws?.sendIntentStartBattle();
+      if (this.testSceneActive) {
+        this.startTestSceneBattleFromPrep?.();
+      } else {
+        this.ws?.sendIntentStartBattle();
+      }
       this.hideDebugMenu?.();
     });
 
@@ -1080,10 +901,85 @@ export default class BattleScene extends Phaser.Scene {
       this.debugKingMenuOpen = !this.debugKingMenuOpen;
       this.syncDebugUI?.();
     });
+    this.debugTestSceneBtn.on('pointerdown', (pointer) => {
+      pointer?.event?.stopPropagation?.();
+      this.enterTestScene?.();
+      this.hideDebugMenu?.();
+    });
 
     this.debugExitBtn.on('pointerdown', () => {
       this.ws?.sendIntentResetGame?.();
       this.hideDebugMenu?.();
+    });
+
+    this.testSceneUnitsBtn = this.add.text(0, 0, 'UNITS', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '16px',
+      color: '#ffffff',
+      backgroundColor: 'rgba(0,70,110,0.72)',
+      padding: { left: 10, right: 10, top: 6, bottom: 6 },
+    })
+      .setOrigin(1, 0)
+      .setDepth(10020)
+      .setScrollFactor(0)
+      .setInteractive({ useHandCursor: true })
+      .setVisible(false);
+    this.testSceneUnitsBtn.on('pointerdown', (pointer) => {
+      pointer?.event?.stopPropagation?.();
+      if (!this.testSceneActive) return;
+      this.testSceneUnitsMenuOpen = !this.testSceneUnitsMenuOpen;
+      this.syncDebugUI?.();
+    });
+
+    this.testSceneExitBtn = this.add.text(0, 0, 'EXIT', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '16px',
+      color: '#ffffff',
+      backgroundColor: 'rgba(120,0,0,0.72)',
+      padding: { left: 10, right: 10, top: 6, bottom: 6 },
+    })
+      .setOrigin(1, 0)
+      .setDepth(10020)
+      .setScrollFactor(0)
+      .setInteractive({ useHandCursor: true })
+      .setVisible(false);
+    this.testSceneExitBtn.on('pointerdown', (pointer) => {
+      pointer?.event?.stopPropagation?.();
+      if (!this.testSceneActive) return;
+      this.exitTestScene?.();
+    });
+
+    this.testSceneUnitsMenu = this.add.container(0, 0)
+      .setDepth(10025)
+      .setScrollFactor(0)
+      .setVisible(false);
+    this.testSceneUnitsMenuBg = this.add.rectangle(0, 0, 170, 210, 0x111111, 0.94)
+      .setOrigin(0, 0)
+      .setStrokeStyle(2, 0x666666, 0.95);
+    this.testSceneUnitsMenuHit = this.add.zone(0, 0, 170, 210).setOrigin(0, 0).setInteractive();
+    this.testSceneUnitsMenuHit.on('pointerdown', (pointer) => pointer?.event?.stopPropagation?.());
+    this.testSceneUnitButtons = [];
+    this.testSceneUnitsMenu.add([this.testSceneUnitsMenuHit, this.testSceneUnitsMenuBg]);
+    TEST_SCENE_UNITS.forEach((def, idx) => {
+      const btn = this.add.text(85, 14 + idx * 46, def.label, {
+        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+        fontSize: '15px',
+        color: '#ffffff',
+        backgroundColor: 'rgba(0,0,0,0.55)',
+        padding: { left: 8, right: 8, top: 6, bottom: 6 },
+      })
+        .setOrigin(0.5, 0)
+        .setDepth(10026)
+        .setInteractive({ useHandCursor: true });
+      btn.on('pointerdown', (pointer) => {
+        pointer?.event?.stopPropagation?.();
+        if (!this.testSceneActive) return;
+        this.spawnTestScenePlayerUnit?.(def.type);
+        this.testSceneUnitsMenuOpen = false;
+        this.syncDebugUI?.();
+      });
+      this.testSceneUnitButtons.push(btn);
+      this.testSceneUnitsMenu.add(btn);
     });
 
     this.resultText = this.add.text(this.scale.width / 2, 60, '', { // на месте таймера
@@ -1256,6 +1152,21 @@ export default class BattleScene extends Phaser.Scene {
     if (this.debugBtn) {
       this.debugBtn.setPosition(this.scale.width - 14, 14);
     }
+    if (this.testSceneExitBtn && this.debugBtn) {
+      const gap = 8;
+      const debugLeft = this.debugBtn.x - (this.debugBtn.width ?? this.debugBtn.displayWidth ?? 0);
+      this.testSceneExitBtn.setPosition(debugLeft - gap, 14);
+    }
+    if (this.testSceneUnitsBtn && this.testSceneExitBtn) {
+      const gap = 8;
+      const exitLeft = this.testSceneExitBtn.x - (this.testSceneExitBtn.width ?? this.testSceneExitBtn.displayWidth ?? 0);
+      this.testSceneUnitsBtn.setPosition(exitLeft - gap, 14);
+    }
+    if (this.testSceneUnitsMenu && this.testSceneUnitsBtn) {
+      const menuW = this.testSceneUnitsMenuBg?.width ?? 170;
+      const x = Math.max(8, (this.testSceneUnitsBtn.x - (this.testSceneUnitsBtn.width ?? this.testSceneUnitsBtn.displayWidth ?? 0)));
+      this.testSceneUnitsMenu.setPosition(Math.max(8, x - (menuW - (this.testSceneUnitsBtn.width ?? 80))), 48);
+    }
 
     if (this.debugModal) {
       const modalW = this.debugModalBg?.width ?? 180;
@@ -1308,6 +1219,9 @@ export default class BattleScene extends Phaser.Scene {
     if (this.debugBtn) this.debugBtn.setVisible(true);
     if (this.debugModal) this.debugModal.setVisible(!!this.debugMenuOpen);
     if (this.debugKingModal) this.debugKingModal.setVisible(!!this.debugMenuOpen && !!this.debugKingMenuOpen);
+    if (this.testSceneUnitsBtn) this.testSceneUnitsBtn.setVisible(!!this.testSceneActive);
+    if (this.testSceneExitBtn) this.testSceneExitBtn.setVisible(!!this.testSceneActive);
+    if (this.testSceneUnitsMenu) this.testSceneUnitsMenu.setVisible(!!this.testSceneActive && !!this.testSceneUnitsMenuOpen);
 
     const canBattle = !!this.debugCanStartBattle;
 
@@ -1319,6 +1233,11 @@ export default class BattleScene extends Phaser.Scene {
 
     if (this.debugExitBtn) {
       this.debugExitBtn.setVisible(!!this.debugMenuOpen);
+    }
+
+    if (this.debugTestSceneBtn) {
+      this.debugTestSceneBtn.setVisible(!!this.debugMenuOpen);
+      this.debugTestSceneBtn.setAlpha(this.testSceneActive ? 0.7 : 1);
     }
 
     if (this.debugKingBtn) {
@@ -1789,138 +1708,6 @@ export default class BattleScene extends Phaser.Scene {
     }
   }
 
-  animateUnitDragLiftScale(vu, { scaleMul = 1.1, duration = 110 } = {}) {
-    if (!vu) return;
-
-    const parts = [
-      ['sprite', vu.sprite],
-      ['art', vu.art],
-      ['label', vu.label],
-    ].filter(([, obj]) => obj?.active);
-
-    if (parts.length === 0) return;
-
-    vu._dragLiftScales = vu._dragLiftScales ?? {};
-    vu._dragLiftActive = true;
-
-    for (const [key, obj] of parts) {
-      if (!vu._dragLiftScales[key]) {
-        vu._dragLiftScales[key] = {
-          x: Number(obj.scaleX ?? 1),
-          y: Number(obj.scaleY ?? 1),
-        };
-      }
-      const base = vu._dragLiftScales[key];
-
-      this.tweens.killTweensOf(obj);
-      this.tweens.add({
-        targets: obj,
-        scaleX: base.x * scaleMul,
-        scaleY: base.y * scaleMul,
-        duration,
-        ease: 'Quad.Out',
-      });
-    }
-  }
-
-  animateUnitDragReleaseScale(vu, { duration = 110 } = {}) {
-    if (!vu || !vu._dragLiftScales) return;
-
-    const parts = [
-      ['sprite', vu.sprite],
-      ['art', vu.art],
-      ['label', vu.label],
-    ].filter(([, obj]) => obj?.active);
-
-    if (parts.length === 0) {
-      vu._dragLiftActive = false;
-      vu._dragLiftScales = null;
-      return;
-    }
-
-    let pending = 0;
-    const done = () => {
-      pending -= 1;
-      if (pending <= 0) {
-        vu._dragLiftActive = false;
-        vu._dragLiftScales = null;
-      }
-    };
-
-    for (const [key, obj] of parts) {
-      const base = vu._dragLiftScales[key];
-      if (!base) continue;
-      pending += 1;
-      this.tweens.killTweensOf(obj);
-      this.tweens.add({
-        targets: obj,
-        scaleX: base.x,
-        scaleY: base.y,
-        duration,
-        ease: 'Quad.Out',
-        onComplete: () => {
-          if (obj?.active) obj.setScale(base.x, base.y);
-          done();
-        },
-      });
-    }
-
-    if (pending === 0) {
-      vu._dragLiftActive = false;
-      vu._dragLiftScales = null;
-    }
-  }
-
-  animateUnitDropToScreen(vu, { x, y, artX = x, artY = y, duration = 85, syncOverlays = true } = {}) {
-    if (!vu) return;
-
-    const centerTargets = [vu.sprite, vu.dragHandle, vu.label].filter((obj) => obj?.active);
-    if (centerTargets.length > 0) this.tweens.killTweensOf(centerTargets);
-    if (vu.art?.active) this.tweens.killTweensOf(vu.art);
-
-    if (!duration || duration <= 0) {
-      for (const obj of centerTargets) obj.setPosition(x, y);
-      if (vu.art?.active) vu.art.setPosition(artX, artY);
-      if (syncOverlays) {
-        if (vu.rankIcon?.active) vu.rankIcon.setPosition(x, Math.round(y + this.hexSize * 0.98));
-        updateHpBar(this, vu);
-      }
-      return;
-    }
-
-    if (centerTargets.length > 0) {
-      this.tweens.add({
-        targets: centerTargets,
-        x,
-        y,
-        duration,
-        ease: 'Quad.Out',
-        onUpdate: () => {
-          if (!syncOverlays) return;
-          if (vu.rankIcon?.active) {
-            vu.rankIcon.setPosition(vu.sprite?.x ?? x, Math.round((vu.sprite?.y ?? y) + this.hexSize * 0.98));
-          }
-          updateHpBar(this, vu);
-        },
-        onComplete: () => {
-          if (!syncOverlays) return;
-          if (vu.rankIcon?.active) vu.rankIcon.setPosition(x, Math.round(y + this.hexSize * 0.98));
-          updateHpBar(this, vu);
-        },
-      });
-    }
-
-    if (vu.art?.active) {
-      this.tweens.add({
-        targets: vu.art,
-        x: artX,
-        y: artY,
-        duration,
-        ease: 'Quad.Out',
-      });
-    }
-  }
-
   applyShopUiMode(mode, { animate = true } = {}) {
     const immediate = !animate;
 
@@ -1956,7 +1743,7 @@ export default class BattleScene extends Phaser.Scene {
   syncShopUI() {
     const phase = this.battleState?.phase ?? 'prep';
     const result = this.battleState?.result ?? null;
-    const show = (phase === 'prep' || phase === 'battle');
+    const show = !this.testSceneActive && (phase === 'prep' || phase === 'battle');
     const mode = !show ? 'hidden' : (this.shopCollapsed ? 'collapsed' : 'open');
 
     this.positionShop();
@@ -2198,7 +1985,7 @@ export default class BattleScene extends Phaser.Scene {
       return;
     }
 
-    this.roundText.setText(`Раунд ${round}`);
+    this.roundText.setText(this.testSceneActive ? 'Тестовая сцена' : `Раунд ${round}`);
 
     // таймер показываем только в prep и пока нет результата
     const isPrep = (phase === 'prep') && (result == null);
@@ -2404,18 +2191,6 @@ export default class BattleScene extends Phaser.Scene {
       const cx = x + w / 2;
       this.coinHit.setPosition(cx, 0);
       this.coinHit.setSize(hitW, hitH);
-    }
-  }
-
-  setSpriteDraggable(sprite, enabled) {
-    if (!sprite || !sprite.active) return;
-
-    if (enabled) {
-      this.input.setDraggable(sprite, true);
-      if (sprite.input) sprite.input.enabled = true;
-    } else {
-      this.input.setDraggable(sprite, false);
-      if (sprite.input) sprite.input.enabled = false;
     }
   }
 
@@ -2722,11 +2497,11 @@ export default class BattleScene extends Phaser.Scene {
     // 1) кого оставляем
     const phase = this.battleState?.phase ?? 'prep';
 
-    // в prep скрываем enemy, в battle показываем всех
+    // в обычном prep скрываем enemy, в test scene prep показываем всех
     const visibleUnits = [];
     const aliveIds = new Set();
     for (const u of (this.battleState?.units ?? [])) {
-      if (phase === 'prep' && u.team === 'enemy') continue;
+      if (!this.testSceneActive && phase === 'prep' && u.team === 'enemy') continue;
       visibleUnits.push(u);
       aliveIds.add(u.id);
     }
@@ -2750,6 +2525,22 @@ export default class BattleScene extends Phaser.Scene {
     }
 
     // 3) индекс визуальных юнитов по id (после удаления)
+    // Локальный occupied иногда рассинхронизируется после сложных переходов (bench/board/result/test).
+    // Перед CREATE-проходом пересобираем его из текущих визуалов на доске, чтобы не получать ложный "occupied".
+    if (this.unitSys?.state) {
+      this.unitSys.state.occupied = new Set(
+        (this.unitSys.state.units ?? [])
+          .filter((vu) =>
+            vu &&
+            aliveIds.has(vu.id) &&
+            vu.zone === 'board' &&
+            Number.isFinite(vu.q) &&
+            Number.isFinite(vu.r)
+          )
+          .map((vu) => `${vu.q},${vu.r}`)
+      );
+    }
+
     const byId = new Map();
     for (const vu of this.unitSys.state.units) {
       byId.set(vu.id, vu);
@@ -2810,16 +2601,18 @@ export default class BattleScene extends Phaser.Scene {
         created.dragHandle.setDataEnabled();
         created.dragHandle.data.set('unitId', created.id);
 
-        // Скамейка доступна всегда, поле — только в prep.
-        const canDrag =
-          (u.team === 'player') &&
-          ((u.zone === 'bench') || ((this.battleState?.phase === 'prep') && !this.battleState?.result));
-        this.setSpriteDraggable(created.dragHandle, canDrag);
-
         // если сервер сказал "bench" — сразу переставим на скамейку
         if (u.zone === 'bench') {
           const slot = Number.isInteger(u.benchSlot) ? u.benchSlot : 0;
           const p = this.benchSlotToScreen(slot);
+
+          // Визуал ушёл с доски на bench: освобождаем его старую клетку в локальном occupied,
+          // иначе следующие спавны/создания визуалов на этой клетке могут падать с "occupied".
+          if (created.zone === 'board') {
+            this.unitSys.state.occupied?.delete?.(`${created.q},${created.r}`);
+          }
+          created.zone = 'bench';
+          created.benchSlot = slot;
 
           created.sprite.setPosition(p.x, p.y);
           created.label?.setPosition(p.x, p.y);
@@ -2832,6 +2625,8 @@ export default class BattleScene extends Phaser.Scene {
           if (created.rankIcon) created.rankIcon.setVisible(!u.dead);
           if (created) updateHpBar(this, created);
         } else {
+          created.zone = 'board';
+          created.benchSlot = null;
           // Новый юнит может появиться сразу на поле из магазина в prep:
           // сразу выставляем корректную видимость hp/rank, чтобы не мигал HP-бар.
           if (created.hpBar) created.hpBar.setVisible(phase !== 'prep');
@@ -2853,9 +2648,8 @@ export default class BattleScene extends Phaser.Scene {
       // ---- UPDATE ----
       const vu = existing;
 
-      // Пока тащим юнита со скамейки (например во время battle-tick'ов), не снапаем его обратно state-апдейтами.
-      if (u.id === this.draggingUnitId && u.team === 'player' && u.zone === 'bench') {
-        if (vu?.dragHandle) this.setSpriteDraggable(vu.dragHandle, true);
+      // Пока юнит в локальном drag, не пересаживаем его визуал из state.
+      if (this.draggingUnitId != null && String(u.id) === String(this.draggingUnitId)) {
         continue;
       }
 
@@ -2863,6 +2657,12 @@ export default class BattleScene extends Phaser.Scene {
       if (u.zone === 'bench') {
         const slot = Number.isInteger(u.benchSlot) ? u.benchSlot : 0;
         const p = this.benchSlotToScreen(slot);
+
+        if (vu.zone === 'board') {
+          this.unitSys.state.occupied?.delete?.(`${vu.q},${vu.r}`);
+        }
+        vu.zone = 'bench';
+        vu.benchSlot = slot;
 
         if (vu?.sprite) vu.sprite.setPosition(p.x, p.y);
         if (vu?.dragHandle) vu.dragHandle.setPosition(p.x, p.y);
@@ -2877,6 +2677,10 @@ export default class BattleScene extends Phaser.Scene {
         // серверный tick в бою сейчас 450мс
         const MOVE_TWEEN_MS = 380; // чуть меньше, чтобы успевал “доехать” до следующего снапшота
         const tweenMs = (phase === 'battle' && !result) ? MOVE_TWEEN_MS : 0;
+        if (vu) {
+          vu.zone = 'board';
+          vu.benchSlot = null;
+        }
         this.unitSys.setUnitPos(u.id, u.q, u.r, { tweenMs });
 
         // На доске показываем HP только вне prep (в prep скрываем по запросу).
@@ -2893,14 +2697,6 @@ export default class BattleScene extends Phaser.Scene {
       // draggable всем юнитам игрока в prep + обновление буквы
       if (vu?.label) {
         vu.label.setText(getUnitShortLabel(u.type));
-      }
-
-      if (vu?.dragHandle) {
-        const canDrag =
-          (u.team === 'player') &&
-          ((u.zone === 'bench') || ((this.battleState?.phase === 'prep') && !this.battleState?.result));
-
-        this.setSpriteDraggable(vu.dragHandle, canDrag);
       }
 
     }
@@ -2921,7 +2717,7 @@ export default class BattleScene extends Phaser.Scene {
       // в prep враги скрыты, но это не важно — просто синкаем тех, кто есть
       const vu = byId.get(u.id);
       if (!vu?.art) continue;
-
+      if (this.draggingUnitId != null && String(u.id) === String(this.draggingUnitId)) continue;
       const animDef = UNIT_ANIMS_BY_TYPE[u.type];
       if (!animDef) continue;
 
@@ -3087,7 +2883,8 @@ export default class BattleScene extends Phaser.Scene {
     g.clear();
 
     if (this.battleState?.phase === 'prep') {
-      for (const cell of (this.cachedPrepBoardHexCenters ?? [])) {
+      const prepCells = this.testSceneActive ? (this.cachedBoardHexCenters ?? []) : (this.cachedPrepBoardHexCenters ?? []);
+      for (const cell of prepCells) {
         this.drawHexOn(g, cell.x, cell.y, 0xffffff, 0.35);
       }
     }
@@ -3106,27 +2903,12 @@ export default class BattleScene extends Phaser.Scene {
     // затемнение занятых гексов (доска + скамейка)
     for (const u of (this.battleState?.units ?? [])) {
       // в prep врагов не затемняем (они скрыты)
-      if (this.battleState?.phase === 'prep' && u.team === 'enemy') continue;
+      if (!this.testSceneActive && this.battleState?.phase === 'prep' && u.team === 'enemy') continue;
       if (u.dead) continue;
-
-      // если это юнит, который сейчас тащим — не рисуем старую "занятую" тень
-      if (this.draggingUnitId != null && u.id === this.draggingUnitId) continue;
-
-      // если для этого юнита есть локальный override — тень рисуем по override, а не по battleState
-      if (this.shadowOverride && u.id === this.shadowOverride.unitId) {
-        if (this.shadowOverride.zone === 'board') {
-          const p = this.hexToPixel(this.shadowOverride.q, this.shadowOverride.r);
-          this.drawHexFilledOn(g, p.x, p.y, 0x000000, 0.35);
-        } else if (this.shadowOverride.zone === 'bench') {
-          const p = this.benchSlotToScreen(this.shadowOverride.slot);
-          this.drawHexFilledOn(g, p.x, p.y, 0x000000, 0.35);
-        }
-        continue;
-      }
 
       if (u.zone === 'board') {
         // ✅ в prep не рисуем тени в скрытых колонках
-        if (this.battleState?.phase === 'prep') {
+        if (!this.testSceneActive && this.battleState?.phase === 'prep') {
           const col = u.q + Math.floor(u.r / 2);
           if (col >= 6) continue;
         }
@@ -3144,15 +2926,15 @@ export default class BattleScene extends Phaser.Scene {
       }
     }
 
-    // тень под курсором во время drag (куда кладём)
-    if (this.dragHover && this.battleState?.phase === 'prep' && !this.battleState?.result) {
-      if (this.dragHover.zone === 'board') {
-        const p = this.hexToPixel(this.dragHover.q, this.dragHover.r);
-        this.drawHexFilledOn(g, p.x, p.y, 0x000000, 0.55);
-      } else if (this.dragHover.zone === 'bench') {
-        const p = this.benchSlotToScreen(this.dragHover.slot);
-        this.drawHexFilledOn(g, p.x, p.y, 0x000000, 0.55);
-      }
+    if (this.dragBoardHover && this.battleState?.phase === 'prep' && !this.battleState?.result) {
+      const p = this.hexToPixel(this.dragBoardHover.q, this.dragBoardHover.r);
+      this.drawHexFilledOn(g, p.x, p.y, 0x000000, 0.55);
+      this.drawHexOn(g, p.x, p.y, 0xffffff, 0.85);
+    }
+    if (Number.isInteger(this.dragBenchHoverSlot) && this.battleState?.phase === 'prep' && !this.battleState?.result) {
+      const p = this.benchSlotToScreen(this.dragBenchHoverSlot);
+      this.drawHexFilledOn(g, p.x, p.y, 0x000000, 0.55);
+      this.drawHexOn(g, p.x, p.y, 0xffcc66, 0.95);
     }
 
     // выделение
@@ -3172,22 +2954,6 @@ export default class BattleScene extends Phaser.Scene {
     this.drawGridDynamic();
   }
 
-  // ===== Picking =====
-  tryPickBoard(x, y) {
-    const { q, r } = this.pixelToHex(x, y);
-    const row = r;
-    const col = q + Math.floor(row / 2);
-
-    if (row < 0 || row >= this.gridRows) return null;
-    if (col < 0 || col >= this.gridCols) return null;
-
-    // ✅ В prep разрешаем только первые 6 колонок
-    if (this.battleState?.phase === 'prep' && col >= 6) return null;
-
-    return { q, r, row, col };
-  }
-
-
   benchSlotToScreen(slot) {
     const cached = this.cachedBenchSlotScreen?.[slot];
     if (cached) return cached;
@@ -3198,42 +2964,6 @@ export default class BattleScene extends Phaser.Scene {
     const row = slot; // слот = ряд (0..7)
     const p = this.hexToPixel(0 - Math.floor(row / 2), row);
     return { x: p.x - dx, y: p.y };
-  }
-
-  tryPickBench(x, y) {
-    const leftTop = this.hexToPixel(0 - Math.floor(0 / 2), 0);
-    const benchOriginX = leftTop.x - this.benchGap;
-
-    const dx = (this.originX - benchOriginX);
-    const { q, r } = this.pixelToHex(x + dx, y);
-
-    const row = r;
-    const col = q + Math.floor(row / 2);
-
-    if (row < 0 || row >= this.benchRows) return null;
-    if (col !== 0) return null;
-
-    const p = this.hexToPixel(0 - Math.floor(row / 2), row);
-    const bx = p.x - dx;
-    const by = p.y;
-
-    return { row, col: 0, screen: { x: bx, y: by } };
-  }
-
-  refreshAllDraggable() {
-    const phase = this.battleState?.phase ?? 'prep';
-    const result = this.battleState?.result ?? null;
-
-    for (const u of (this.battleState?.units ?? [])) {
-      const vu = this.unitSys.findUnit(u.id);
-      if (!vu?.dragHandle) continue;
-
-      const canDrag =
-        (u.team === 'player') &&
-        ((u.zone === 'bench') || ((phase === 'prep') && !result));
-
-      this.setSpriteDraggable(vu.dragHandle, canDrag);
-    }
   }
 
   showCoinInfoPopup() {
@@ -3384,3 +3114,6 @@ export default class BattleScene extends Phaser.Scene {
   }
 
 }
+
+installBattleSceneDrag(BattleScene);
+installBattleSceneTestScene(BattleScene);

@@ -9,7 +9,9 @@ const UNIT_UI_LIFT_BY_TYPE = {
 const HP_BAR_EXTRA_LIFT_PX = 3; // общий подъём HP-бара для всех юнитов (rank icon не трогаем)
 
 export function updateHpBar(scene, unit) {
-  if (!unit || !unit.hpBar) return;
+  // Tween callbacks can still fire during scene teardown/restart.
+  // In that moment Phaser scene getters (e.g. `scene.textures`) may throw because `scene.sys` is gone.
+  if (!scene || !scene.sys || !unit || !unit.hpBar) return;
 
   const g = unit.hpBar;
   g.clear();
@@ -42,9 +44,10 @@ export function updateHpBar(scene, unit) {
   if (unit.rankIcon) {
     const rank = Math.max(1, Math.min(3, unit.rank ?? 1));
     const key = `rank${rank}`;
+    const textures = scene?.sys?.textures;
 
     // если текстура есть — обновим (на случай изменения ранга)
-    if (scene.textures?.exists?.(key)) {
+    if (textures?.exists?.(key)) {
       unit.rankIcon.setTexture(key);
     }
 
