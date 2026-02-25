@@ -355,9 +355,10 @@ const COST_BY_POWER_TYPE = {
 
 // пока “класс юнита” (для арта/поведения) отделён от “силе-типа” (для цены/редкости)
 const UNIT_CATALOG = [
-  { type: 'Swordsman',   powerType: 'Пешка', hp: 60,  atk: 20, moveSpeed: 2.6 },
-  { type: 'Crossbowman', powerType: 'Конь',  hp: 40,  atk: 25, moveSpeed: 2.3 },
-  { type: 'Knight',      powerType: 'Ладья', hp: 120, atk: 12, moveSpeed: 1.6 },
+  { type: 'Swordsman',   powerType: 'Пешка', hp: 60,  atk: 20, moveSpeed: 2.6, attackSpeed: 100 },
+  { type: 'Skeleton',    powerType: 'Пешка', hp: 60,  atk: 20, moveSpeed: 2.6, attackSpeed: 100 },
+  { type: 'Crossbowman', powerType: 'Конь',  hp: 40,  atk: 25, moveSpeed: 2.3, attackSpeed: 100 },
+  { type: 'Knight',      powerType: 'Ладья', hp: 120, atk: 12, moveSpeed: 1.6, attackSpeed: 100 },
   // хочешь — добавь ещё юнитов с powerType: 'Слон' и 'Ферзь'
 ];
 
@@ -366,7 +367,7 @@ const SHOP_OFFER_COUNT = 5;
 function makeRandomOffer() {
   const base = UNIT_CATALOG.length
     ? UNIT_CATALOG[randInt(UNIT_CATALOG.length)]
-    : { type: 'Swordsman', powerType: 'Пешка', hp: 60, atk: 20, moveSpeed: 2.6 };
+    : { type: 'Swordsman', powerType: 'Пешка', hp: 60, atk: 20, moveSpeed: 2.6, attackSpeed: 100 };
 
   const cost = COST_BY_POWER_TYPE[base.powerType] ?? 1;
 
@@ -378,6 +379,7 @@ function makeRandomOffer() {
     maxHp: base.hp,
     atk: base.atk,
     moveSpeed: base.moveSpeed,
+    attackSpeed: base.attackSpeed ?? 100,
   };
 }
 
@@ -445,6 +447,7 @@ function spawnBotArmy() {
       zone: 'board',
       benchSlot: null,
       moveSpeed: base.moveSpeed,
+      attackSpeed: base.attackSpeed ?? 100,
     });
   }
 }
@@ -695,11 +698,12 @@ function startBattle() {
         const res = attack(state, me.id, target.id);
         if (res.success) {
           didSomething = true;
+          me.attackSeq = Number(me.attackSeq ?? 0) + 1;
 
-          // ✅ атака тоже "занимает время"
-          const spd = Number(me.moveSpeed ?? 2.0);
-          const stepMs = Math.max(120, Math.round(1000 / spd));
-          me.moveCdMs = stepMs;
+          // ✅ атака тоже "занимает время", но теперь по attackSpeed (100 = 1 атака/сек)
+          const atkSpd = Math.max(1, Number(me.attackSpeed ?? 100));
+          const atkCdMs = Math.max(120, Math.round(100000 / atkSpd));
+          me.moveCdMs = atkCdMs;
         }
         continue;
       }
@@ -1036,6 +1040,7 @@ function handleIntent(clientId, msg, ws) {
       zone: freeBoardCell ? 'board' : 'bench',
       benchSlot: freeBoardCell ? null : freeSlot,
       moveSpeed: offer.moveSpeed,
+      attackSpeed: offer.attackSpeed ?? 100,
     });
 
     // ownership: купленный юнит принадлежит этому клиенту

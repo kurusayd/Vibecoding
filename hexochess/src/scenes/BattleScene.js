@@ -15,6 +15,7 @@ const GROUND_LIFT_BY_TYPE = {
   Swordsman: 100,
   Crossbowman: 100,
   Knight: 100,
+  Skeleton: 100,
 };
 
 const PLAYER_KING_DISPLAY_NAME = 'Devis J. Jones';
@@ -36,31 +37,69 @@ const KING_DEBUG_SKINS = [
   { label: 'КОРОЛЬ', key: 'king_king' },
 ];
 
+function atlasFramePrefix(def) {
+  return String(def?.framePrefix ?? 'psd_animation');
+}
+
+function atlasIdleFrame(def) {
+  return `${atlasFramePrefix(def)}/idle.png`;
+}
+
+function atlasDeadFrame(def) {
+  return `${atlasFramePrefix(def)}/dead.png`;
+}
+
+function atlasWalkFrameRegex(def) {
+  const prefix = atlasFramePrefix(def).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^${prefix}/walk_\\d{4}\\.png$`);
+}
+
+function atlasAttackFrameRegex(def) {
+  const prefix = atlasFramePrefix(def).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^${prefix}/attack_?\\d{4}\\.png$`);
+}
+
 
 const UNIT_ATLAS_DEFS = [
   {
     type: 'Swordsman',
     atlasKey: 'sworman_atlas',
-    atlasPath: '/assets/units/swordman/atlas/swordman_atlas',
+    atlasPath: '/assets/units/human/swordman/atlas/swordman_atlas',
     idleAnim: 'swordman_idle',
     walkAnim: 'swordman_walk',
+    attackAnim: 'swordman_attack',
     deadAnim: 'swordman_dead',
+    framePrefix: 'psd_animation',
   },
   {
     type: 'Crossbowman',
     atlasKey: 'crossbowman_atlas',
-    atlasPath: '/assets/units/crossbowman/atlas/swordman_atlas',
+    atlasPath: '/assets/units/human/crossbowman/atlas/swordman_atlas',
     idleAnim: 'crossbowman_idle',
     walkAnim: 'crossbowman_walk',
+    attackAnim: 'crossbowman_attack',
     deadAnim: 'crossbowman_dead',
+    framePrefix: 'psd_animation',
   },
   {
     type: 'Knight',
     atlasKey: 'knight_atlas',
-    atlasPath: '/assets/units/knight/atlas/swordman_atlas',
+    atlasPath: '/assets/units/human/knight/atlas/swordman_atlas',
     idleAnim: 'knight_idle',
     walkAnim: 'knight_walk',
+    attackAnim: 'knight_attack',
     deadAnim: 'knight_dead',
+    framePrefix: 'psd_animation',
+  },
+  {
+    type: 'Skeleton',
+    atlasKey: 'skeleton_atlas',
+    atlasPath: '/assets/units/undead/skeleton/skeleton_atlas',
+    idleAnim: 'skeleton_idle',
+    walkAnim: 'skeleton_walk',
+    attackAnim: 'skeleton_attack',
+    deadAnim: 'skeleton_dead',
+    framePrefix: 'psd_animation2',
   },
 ];
 
@@ -69,9 +108,10 @@ const UNIT_ATLAS_DEF_BY_TYPE = Object.fromEntries(
 );
 
 const UNIT_ANIMS_BY_TYPE = {
-  Swordsman: { idle: 'swordman_idle', walk: 'swordman_walk', dead: 'swordman_dead' },
-  Crossbowman: { idle: 'crossbowman_idle', walk: 'crossbowman_walk', dead: 'crossbowman_dead' },
-  Knight: { idle: 'knight_idle', walk: 'knight_walk', dead: 'knight_dead' },
+  Swordsman: { idle: 'swordman_idle', walk: 'swordman_walk', attack: 'swordman_attack', dead: 'swordman_dead' },
+  Crossbowman: { idle: 'crossbowman_idle', walk: 'crossbowman_walk', attack: 'crossbowman_attack', dead: 'crossbowman_dead' },
+  Knight: { idle: 'knight_idle', walk: 'knight_walk', attack: 'knight_attack', dead: 'knight_dead' },
+  Skeleton: { idle: 'skeleton_idle', walk: 'skeleton_walk', attack: 'skeleton_attack', dead: 'skeleton_dead' },
 };
 
 const SHOP_OFFER_COUNT = 5;
@@ -81,6 +121,7 @@ function getUnitShortLabel(type) {
   const t = String(type ?? '').toLowerCase();
   if (t === 'crossbowman') return 'C';
   if (t === 'knight') return 'K';
+  if (t === 'skeleton') return 'Sk';
   if (t === 'swordsman' || t === 'swordmen') return 'S';
   return '?';
 }
@@ -127,7 +168,8 @@ function areShopOffersEqual(a, b) {
       x.hp !== y.hp ||
       (x.maxHp ?? x.hp) !== (y.maxHp ?? y.hp) ||
       x.atk !== y.atk ||
-      x.moveSpeed !== y.moveSpeed
+      x.moveSpeed !== y.moveSpeed ||
+      Number(x.attackSpeed ?? 100) !== Number(y.attackSpeed ?? 100)
     ) return false;
   }
   return true;
@@ -150,8 +192,10 @@ function areUnitsEqual(a, b) {
       x.team !== y.team ||
       x.type !== y.type ||
       x.rank !== y.rank ||
+      Number(x.attackSpeed ?? 100) !== Number(y.attackSpeed ?? 100) ||
       x.hp !== y.hp ||
       (x.maxHp ?? x.hp) !== (y.maxHp ?? y.hp) ||
+      Number(x.attackSeq ?? 0) !== Number(y.attackSeq ?? 0) ||
       x.dead !== y.dead
     ) return false;
   }
@@ -435,7 +479,7 @@ export default class BattleScene extends Phaser.Scene {
       if (!this.anims.exists(def.idleAnim)) {
         this.anims.create({
           key: def.idleAnim,
-          frames: [{ key: def.atlasKey, frame: 'psd_animation/idle.png' }],
+          frames: [{ key: def.atlasKey, frame: atlasIdleFrame(def) }],
           frameRate: 1,
           repeat: -1,
         });
@@ -444,7 +488,7 @@ export default class BattleScene extends Phaser.Scene {
       if (!this.anims.exists(def.walkAnim)) {
         const texture = this.textures.get(def.atlasKey);
         const walkFrames = (texture?.getFrameNames?.() ?? [])
-          .filter((name) => /^psd_animation\/walk_\d{4}\.png$/.test(name))
+          .filter((name) => atlasWalkFrameRegex(def).test(name))
           .sort()
           .map((frame) => ({ key: def.atlasKey, frame }));
 
@@ -452,16 +496,33 @@ export default class BattleScene extends Phaser.Scene {
           key: def.walkAnim,
           frames: walkFrames.length > 0
             ? walkFrames
-            : [{ key: def.atlasKey, frame: 'psd_animation/idle.png' }],
+            : [{ key: def.atlasKey, frame: atlasIdleFrame(def) }],
           frameRate: 12,
           repeat: -1,
+        });
+      }
+
+      if (!this.anims.exists(def.attackAnim)) {
+        const texture = this.textures.get(def.atlasKey);
+        const attackFrames = (texture?.getFrameNames?.() ?? [])
+          .filter((name) => atlasAttackFrameRegex(def).test(name))
+          .sort()
+          .map((frame) => ({ key: def.atlasKey, frame }));
+
+        this.anims.create({
+          key: def.attackAnim,
+          frames: attackFrames.length > 0
+            ? attackFrames
+            : [{ key: def.atlasKey, frame: atlasIdleFrame(def) }],
+          frameRate: 12,
+          repeat: 0,
         });
       }
 
       if (!this.anims.exists(def.deadAnim)) {
         this.anims.create({
           key: def.deadAnim,
-          frames: [{ key: def.atlasKey, frame: 'psd_animation/dead.png' }],
+          frames: [{ key: def.atlasKey, frame: atlasDeadFrame(def) }],
           frameRate: 1,
           repeat: -1,
         });
@@ -474,6 +535,7 @@ export default class BattleScene extends Phaser.Scene {
     this.mergeAbsorbAnimatingIds = new Set(); // visual-only merge animation for disappearing units
     this.mergeBounceAnimatingIds = new Set(); // avoid stacking bounce on the same merge target
     this.pendingMergeTargetBounces = new Map(); // targetId -> { targetCoreUnit, delayMs }
+    this.pendingAttackAnimIds = new Set();
 
     // --- SERVER CONNECTION ---
     const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -553,6 +615,16 @@ export default class BattleScene extends Phaser.Scene {
         Number(prevState?.prepSecondsLeft ?? 0) !== Number(state?.prepSecondsLeft ?? 0) ||
         Number(prevState?.battleSecondsLeft ?? 0) !== Number(state?.battleSecondsLeft ?? 0);
       const unitsChanged = !areUnitsEqual(prevState?.units, state?.units);
+      const pendingAttackAnimIds = new Set();
+      const prevUnitsById = new Map((prevState?.units ?? []).map((u) => [u.id, u]));
+      for (const u of (state?.units ?? [])) {
+        const prev = prevUnitsById.get(u.id);
+        if (!prev) continue;
+        const prevAttackSeq = Number(prev.attackSeq ?? 0);
+        const nextAttackSeq = Number(u.attackSeq ?? 0);
+        if (nextAttackSeq > prevAttackSeq) pendingAttackAnimIds.add(u.id);
+      }
+      this.pendingAttackAnimIds = pendingAttackAnimIds;
       const kingsChanged = !areKingsEqual(prevState?.kings, state?.kings);
       const shopChanged = !areShopOffersEqual(prevState?.shop, state?.shop);
 
@@ -567,6 +639,16 @@ export default class BattleScene extends Phaser.Scene {
         if (state?.phase === 'battle' && !state?.result) this.shopCollapsed = true;
         if (state?.phase === 'prep' && !state?.result) this.shopCollapsed = false;
         this.gridStaticDirty = true;
+      }
+
+      // Если атака была прервана сменой фазы/результата, animationcomplete может не прийти,
+      // и флаг атаки залипнет до следующего боя. Сбрасываем такие локальные флаги здесь.
+      if (phaseChanged || resultChanged) {
+        for (const vu of (this.unitSys?.state?.units ?? [])) {
+          vu._attackAnimPlaying = false;
+          vu._attackAnimForceReplay = false;
+        }
+        this.pendingAttackAnimIds?.clear?.();
       }
 
       let gridDynamicNeedsRedraw = false;
@@ -726,6 +808,7 @@ export default class BattleScene extends Phaser.Scene {
 
         const p = this.benchSlotToScreen(slot);
         const lift = GROUND_LIFT_BY_TYPE[core?.type] ?? 0;
+        this.animateUnitDragReleaseScale?.(vu, { duration: 110 });
         this.animateUnitDropToScreen?.(vu, {
           x: p.x,
           y: p.y,
@@ -745,7 +828,6 @@ export default class BattleScene extends Phaser.Scene {
         }
 
         this.shadowOverride = { unitId: uid, zone: 'bench', slot };
-        this.animateUnitDragReleaseScale?.(vu, { duration: 110 });
         this.ws?.sendIntentSetBench(uid, slot); // если у тебя уже с unitId, оставь как есть
         this.drawGrid(); // важно: сразу восстановить тени
         return;
@@ -782,11 +864,26 @@ export default class BattleScene extends Phaser.Scene {
       if (vu) {
         const isPrepPhase = (this.battleState?.phase === 'prep') && !this.battleState?.result;
         if (vu.hpBar) vu.hpBar.setVisible(!isPrepPhase);
-        this.unitSys.setUnitPos(uid, hit.q, hit.r, { tweenMs: 85 });
+        this.animateUnitDragReleaseScale?.(vu, { duration: 110 });
+        const isSameBoardCellDrop =
+          core?.zone === 'board' &&
+          Number(core?.q) === Number(hit.q) &&
+          Number(core?.r) === Number(hit.r);
+
+        if (isSameBoardCellDrop) {
+          this.animateUnitDropToScreen?.(vu, {
+            x: p.x,
+            y: p.y,
+            artX: g.x,
+            artY: g.y,
+            duration: 85,
+          });
+        } else {
+          this.unitSys.setUnitPos(uid, hit.q, hit.r, { tweenMs: 85 });
+        }
       }
 
       this.shadowOverride = { unitId: uid, zone: 'board', q: hit.q, r: hit.r };
-      this.animateUnitDragReleaseScale?.(vu, { duration: 110 });
       this.ws?.sendIntentSetStart(uid, hit.q, hit.r);
       this.drawGrid();
     });
@@ -1931,7 +2028,7 @@ export default class BattleScene extends Phaser.Scene {
       if (atlasDef && this.textures.exists(atlasDef.atlasKey)) {
         card.previewSprite.setVisible(true);
         card.previewFallback.setVisible(false);
-        card.previewSprite.setTexture(atlasDef.atlasKey, 'psd_animation/idle.png');
+        card.previewSprite.setTexture(atlasDef.atlasKey, atlasIdleFrame(atlasDef));
 
         const frame = card.previewSprite.frame;
         const fw = frame?.realWidth ?? frame?.width ?? 256;
@@ -2808,8 +2905,18 @@ export default class BattleScene extends Phaser.Scene {
 
     }
 
-    // ✅ sync swordsman anim by phase/zone
+    // ✅ sync unit anims by phase/zone (+ attack pulses from server attackSeq)
     const result = this.battleState?.result ?? null;
+    if (this.pendingAttackAnimIds?.size) {
+      for (const id of this.pendingAttackAnimIds) {
+        const vu = byId.get(id);
+        if (!vu?.art) continue;
+        vu._attackAnimPlaying = true;
+        vu._attackAnimForceReplay = true;
+      }
+      this.pendingAttackAnimIds.clear();
+    }
+
     for (const u of (this.battleState?.units ?? [])) {
       // в prep враги скрыты, но это не важно — просто синкаем тех, кто есть
       const vu = byId.get(u.id);
@@ -2818,14 +2925,35 @@ export default class BattleScene extends Phaser.Scene {
       const animDef = UNIT_ANIMS_BY_TYPE[u.type];
       if (!animDef) continue;
 
-      const wantWalk = (phase === 'battle') && !result && (u.zone === 'board') && !u.dead;
-      const animKey = u.dead ? animDef.dead : (wantWalk ? animDef.walk : animDef.idle);
+      const wantWalk =
+        (phase === 'battle') &&
+        !result &&
+        (u.zone === 'board') &&
+        !u.dead &&
+        !!vu._moveTween;
+      const wantAttack =
+        !u.dead &&
+        (phase === 'battle') &&
+        !result &&
+        (u.zone === 'board') &&
+        this.anims.exists(animDef.attack) &&
+        !!vu._attackAnimPlaying;
+      const animKey = u.dead ? animDef.dead : (wantAttack ? animDef.attack : (wantWalk ? animDef.walk : animDef.idle));
+      const forceReplayAttack = wantAttack && !!vu._attackAnimForceReplay;
 
       // не дёргаем play каждый тик/рендер если уже играет то же самое
-      if (vu.art.anims?.getName?.() === animKey) continue;
+      if (!forceReplayAttack && vu.art.anims?.getName?.() === animKey) continue;
 
       if (this.anims.exists(animKey)) {
-        vu.art.play(animKey);
+        vu.art.play(animKey, true);
+        if (forceReplayAttack) {
+          vu._attackAnimForceReplay = false;
+          vu.art.once('animationcomplete', (anim) => {
+            if (!vu?.art?.active) return;
+            if (anim?.key !== animDef.attack) return;
+            vu._attackAnimPlaying = false;
+          });
+        }
       }
     }
 

@@ -7,17 +7,33 @@ export function cellKey(q, r) {
 
 const RANK_ICON_SCALE = 0.10; //скейл размера иконки звёздочки. Чтобы менять в одном месте
 const SWORDSMAN_ART_PX = 170; // целевая "высота/ширина" на экране, подгони: 90..140
+const UNIT_ART_TARGET_PX_BY_TYPE = {
+  Skeleton: 150, // изменение размера арта скелета. Если слишком большой, сделай число меньше
+};
 // Насколько ПОДНЯТЬ "землю" для мечника (потому что в кадре много прозрачного снизу)
 // Подбирай: 0..80. Если мечник низко — УВЕЛИЧЬ.
 const GROUND_LIFT_BY_TYPE = {
   Swordsman: 100,
   Crossbowman: 100,
   Knight: 100,
+  Skeleton: 90,
 };
 
 const UNIT_ART_DEPTH_LIVE = 1040;
 const UNIT_ART_DEPTH_DEAD = 990; // труп ниже любых "живых" артов, чтобы юниты визуально шли по нему
 const UNIT_ART_DEPTH_Y_FACTOR = 0.01; // lower row (bigger Y) => draw on top
+
+function atlasFramePrefix(cfg) {
+  return String(cfg?.framePrefix ?? 'psd_animation');
+}
+
+function atlasIdleFrame(cfg) {
+  return `${atlasFramePrefix(cfg)}/idle.png`;
+}
+
+function atlasDeadFrame(cfg) {
+  return `${atlasFramePrefix(cfg)}/dead.png`;
+}
 
 const UNIT_ATLAS_BY_TYPE = {
   Swordsman: {
@@ -25,18 +41,28 @@ const UNIT_ATLAS_BY_TYPE = {
     idleAnim: 'swordman_idle',
     walkAnim: 'swordman_walk',
     deadAnim: 'swordman_dead',
+    framePrefix: 'psd_animation',
   },
   Crossbowman: {
     atlasKey: 'crossbowman_atlas',
     idleAnim: 'crossbowman_idle',
     walkAnim: 'crossbowman_walk',
     deadAnim: 'crossbowman_dead',
+    framePrefix: 'psd_animation',
   },
   Knight: {
     atlasKey: 'knight_atlas',
     idleAnim: 'knight_idle',
     walkAnim: 'knight_walk',
     deadAnim: 'knight_dead',
+    framePrefix: 'psd_animation',
+  },
+  Skeleton: {
+    atlasKey: 'skeleton_atlas',
+    idleAnim: 'skeleton_idle',
+    walkAnim: 'skeleton_walk',
+    deadAnim: 'skeleton_dead',
+    framePrefix: 'psd_animation2',
   },
 };
 
@@ -127,7 +153,7 @@ export function createUnitSystem(scene) {
 
     const atlasCfg = UNIT_ATLAS_BY_TYPE[opts.type] ?? null;
     const atlasKey = atlasCfg?.atlasKey;
-    const idleFrame = 'psd_animation/idle.png';
+    const idleFrame = atlasIdleFrame(atlasCfg);
 
     if (atlasCfg && scene.textures.exists(atlasKey)) {
       const g = scene.hexToGroundPixel(q, r, GROUND_LIFT_BY_TYPE[opts.type] ?? 0);
@@ -142,7 +168,8 @@ export function createUnitSystem(scene) {
         sprite.setVisible(true);
       } else {
         const frameW = art.frame?.realWidth ?? art.frame?.width ?? 256;
-        art.setScale(SWORDSMAN_ART_PX / frameW);
+        const targetPx = UNIT_ART_TARGET_PX_BY_TYPE[opts.type] ?? SWORDSMAN_ART_PX;
+        art.setScale(targetPx / frameW);
 
         if (scene.anims.exists(atlasCfg.idleAnim)) art.play(atlasCfg.idleAnim);
         else if (scene.anims.exists(atlasCfg.walkAnim)) art.play(atlasCfg.walkAnim);
@@ -228,7 +255,7 @@ export function createUnitSystem(scene) {
 
     const atlasCfg = UNIT_ATLAS_BY_TYPE[opts.type] ?? null;
     const atlasKey = atlasCfg?.atlasKey;
-    const idleFrame = 'psd_animation/idle.png';
+    const idleFrame = atlasIdleFrame(atlasCfg);
 
     if (atlasCfg && scene.textures.exists(atlasKey)) {
       const lift = GROUND_LIFT_BY_TYPE[opts.type] ?? 0;
@@ -242,7 +269,8 @@ export function createUnitSystem(scene) {
         sprite.setVisible(true);
       } else {
         const frameW = art.frame?.realWidth ?? art.frame?.width ?? 256;
-        art.setScale(SWORDSMAN_ART_PX / frameW);
+        const targetPx = UNIT_ART_TARGET_PX_BY_TYPE[opts.type] ?? SWORDSMAN_ART_PX;
+        art.setScale(targetPx / frameW);
 
         if (scene.anims.exists(atlasCfg.idleAnim)) art.play(atlasCfg.idleAnim);
         else if (scene.anims.exists(atlasCfg.walkAnim)) art.play(atlasCfg.walkAnim);
@@ -455,8 +483,8 @@ export function createUnitSystem(scene) {
         }
         if (deadAnim && scene.anims.exists(deadAnim) && u.art.anims?.getName?.() !== deadAnim) {
           u.art.play(deadAnim);
-        } else if (u.art.frame?.name !== 'psd_animation/dead.png') {
-          u.art.setFrame('psd_animation/dead.png');
+        } else if (u.art.frame?.name !== atlasDeadFrame(atlasCfg)) {
+          u.art.setFrame(atlasDeadFrame(atlasCfg));
         }
       }
       updateArtDepth(u);

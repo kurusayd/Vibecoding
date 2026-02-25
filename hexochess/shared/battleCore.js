@@ -34,6 +34,8 @@ export function addUnit(state, unit) {
     zone: unit.zone ?? 'board',
     benchSlot: unit.benchSlot ?? null,
     moveSpeed: unit.moveSpeed ?? 2.0,
+    attackSpeed: unit.attackSpeed ?? 100, // 100 = 1 attack/sec
+    attackSeq: unit.attackSeq ?? 0,
     dead: Boolean(unit.dead ?? false),
   });
 }

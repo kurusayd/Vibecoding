@@ -3,6 +3,11 @@
 // unit.hpLag     — “догоняющий” (жёлтый хвост)
 // unit.hp        — логическое (может совпадать с hpInstant)
 
+const UNIT_UI_LIFT_BY_TYPE = {
+  Skeleton: 10, // больше -> выше HP-бар и rank icon
+};
+const HP_BAR_EXTRA_LIFT_PX = 3; // общий подъём HP-бара для всех юнитов (rank icon не трогаем)
+
 export function updateHpBar(scene, unit) {
   if (!unit || !unit.hpBar) return;
 
@@ -20,13 +25,16 @@ export function updateHpBar(scene, unit) {
   // позиция относительно юнита (внизу гекса)
   const cx = unit.sprite?.x ?? 0;
   const cy = unit.sprite?.y ?? 0;
+  const coreUnit = (scene.battleState?.units ?? []).find((u) => u.id === unit.id);
+  const unitType = coreUnit?.type ?? unit.type ?? null;
+  const uiLift = Number(UNIT_UI_LIFT_BY_TYPE[unitType] ?? 0);
 
   // нижний угол "pointy-top" гекса
   const tipY = cy + scene.hexSize * 0.98;
 
   // HP бар — на том же уровне, но чуть выше (подними/опусти тут)
   const hpGap = Math.round(scene.hexSize * 2.75); // ≈ +5px при hexSize=44
-  const y = Math.round(tipY - h - hpGap);
+  const y = Math.round(tipY - h - hpGap - uiLift - HP_BAR_EXTRA_LIFT_PX);
 
   const x = Math.round(cx - w / 2);
 
@@ -40,14 +48,12 @@ export function updateHpBar(scene, unit) {
       unit.rankIcon.setTexture(key);
     }
 
-    // Временно: ставим иконку ранга на уровень полоски HP (для визуальной проверки).
-    // rankIcon имеет origin(0.5, 1), поэтому привязываем её нижнюю точку к нижней границе HP-бара.
-    unit.rankIcon.setPosition(cx, y + h);
+    // rankIcon привязываем к нижней границе HP-бара (originY = 1).
+    unit.rankIcon.setPosition(cx, y + h - 5);
 
     // видимость:
     // - на скамейке ранг показываем всегда;
     // - на поле — только в prep.
-    const coreUnit = (scene.battleState?.units ?? []).find((u) => u.id === unit.id);
     const isBench = coreUnit?.zone === 'bench';
     unit.rankIcon.setVisible(Boolean(isBench || scene.battleState?.phase === 'prep'));
   }
