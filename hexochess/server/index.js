@@ -241,8 +241,17 @@ function applyMergesForClient(clientId, preferredUnitId = null) {
   const owned = clientToUnits.get(clientId);
   if (!owned || owned.size === 0) return false;
 
+  // В prep можно мерджить все мои юниты (board + bench).
+  // Вне prep (идёт бой / экран результата) нельзя "трогать" юнитов на доске,
+  // иначе merge конфликтует с возвратом к prepSnapshot после боя.
+  const allowBoardUnitsInMerge = (state.phase === 'prep');
+
   // собираем только моих player-юнитов (ботов не трогаем)
-  const myUnits = state.units.filter(u => u.team === 'player' && owned.has(u.id));
+  const myUnits = state.units.filter(u =>
+    u.team === 'player' &&
+    owned.has(u.id) &&
+    (allowBoardUnitsInMerge || u.zone === 'bench')
+  );
 
   let changed = false;
 
@@ -579,6 +588,13 @@ function resetToPrep() {
     ...snapshotUnits.map(u => ({ ...u })),
     ...extraBenchBoughtDuringResult,
   ];
+
+  // Сразу после возврата в prep пересчитываем merge для всех игроков:
+  // это покрывает кейс "докупил 3-го во время боя/экрана результата",
+  // когда новый юнит на bench должен слиться с двумя юнитами на board.
+  for (const clientId of clientToUnits.keys()) {
+    applyMergesForClient(clientId);
+  }
 
   // каждый prep — новый магазин
   generateShopOffers();

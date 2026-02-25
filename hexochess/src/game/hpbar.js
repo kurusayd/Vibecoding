@@ -12,6 +12,8 @@ export function updateHpBar(scene, unit) {
   // Tween callbacks can still fire during scene teardown/restart.
   // In that moment Phaser scene getters (e.g. `scene.textures`) may throw because `scene.sys` is gone.
   if (!scene || !scene.sys || !unit || !unit.hpBar) return;
+  if (unit.hpBar && (!unit.hpBar.scene || !unit.hpBar.scene.sys)) return;
+  if (unit.sprite && (!unit.sprite.scene || !unit.sprite.scene.sys)) return;
 
   const g = unit.hpBar;
   g.clear();
@@ -42,6 +44,7 @@ export function updateHpBar(scene, unit) {
 
   // ⭐ rank icon (внизу гекса, поверх арта)
   if (unit.rankIcon) {
+    if (!unit.rankIcon.scene || !unit.rankIcon.scene.sys) return;
     const rank = Math.max(1, Math.min(3, unit.rank ?? 1));
     const key = `rank${rank}`;
     const textures = scene?.sys?.textures;

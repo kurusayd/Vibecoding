@@ -374,6 +374,9 @@ export function installBattleSceneTestScene(BattleScene) {
       this.testSceneSavedLiveState = this.battleState;
       this.testSceneQueuedLiveState = null;
       this.testSceneActive = true;
+      // Останавливаем/сбрасываем "живую" игру так же, как кнопка DEBUG->ВЫХОД.
+      // Пока testSceneActive=true, входящий state будет только поставлен в очередь.
+      this.ws?.sendIntentResetGame?.();
       this.testSceneUnitsMenuOpen = false;
       this.testSceneSelectedUnitType = null;
       this.testSceneBattleStartSnapshot = null;
