@@ -1,11 +1,5 @@
 import { updateHpBar } from '../../game/hpbar.js';
-
-const GROUND_LIFT_BY_TYPE = {
-  Swordsman: 100,
-  Crossbowman: 100,
-  Knight: 100,
-  Skeleton: 100,
-};
+import { getUnitArtOffsetXPx, getUnitGroundLiftPx } from '../../game/unitVisualConfig.js';
 
 export function installBattleSceneDrag(BattleScene) {
   Object.assign(BattleScene.prototype, {
@@ -83,8 +77,8 @@ export function installBattleSceneDrag(BattleScene) {
         vu.sprite?.setPosition(dragX, dragY);
         vu.dragHandle?.setPosition(dragX, dragY);
         vu.label?.setPosition(dragX, dragY);
-        const lift = GROUND_LIFT_BY_TYPE[core.type] ?? 0;
-        vu.art?.setPosition(dragX, dragY + this.hexSize - lift);
+        const lift = getUnitGroundLiftPx(core.type);
+        vu.art?.setPosition(dragX + getUnitArtOffsetXPx(core.type), dragY + this.hexSize - lift);
         if (vu.hpBar) vu.hpBar.setVisible(false);
         if (vu.rankIcon) vu.rankIcon.setVisible(false);
         if (!this.testSceneActive) {
@@ -155,11 +149,11 @@ export function installBattleSceneDrag(BattleScene) {
             const vu = this.unitSys.findUnit(uid);
             if (vu) {
               const p = this.benchSlotToScreen(dropBenchSlot);
-              const lift = GROUND_LIFT_BY_TYPE[core.type] ?? 0;
+              const lift = getUnitGroundLiftPx(core.type);
               vu.sprite?.setPosition(p.x, p.y);
               vu.dragHandle?.setPosition(p.x, p.y);
               vu.label?.setPosition(p.x, p.y);
-              vu.art?.setPosition(p.x, p.y + this.hexSize - lift);
+              vu.art?.setPosition(p.x + getUnitArtOffsetXPx(core.type), p.y + this.hexSize - lift);
               if (vu.hpBar) vu.hpBar.setVisible(false);
               if (vu.rankIcon) vu.rankIcon.setVisible(!core.dead);
               updateHpBar(this, vu);
@@ -200,12 +194,12 @@ export function installBattleSceneDrag(BattleScene) {
             const vu = this.unitSys.findUnit(uid);
             if (vu) {
               const p = this.hexToPixel(hit.q, hit.r);
-              const lift = GROUND_LIFT_BY_TYPE[core.type] ?? 0;
+              const lift = getUnitGroundLiftPx(core.type);
               const g = this.hexToGroundPixel(hit.q, hit.r, lift);
               vu.sprite?.setPosition(p.x, p.y);
               vu.dragHandle?.setPosition(p.x, p.y);
               vu.label?.setPosition(p.x, p.y);
-              vu.art?.setPosition(g.x, g.y);
+              vu.art?.setPosition(g.x + getUnitArtOffsetXPx(core.type), g.y);
               if (vu.hpBar) vu.hpBar.setVisible(false);
               if (vu.rankIcon) vu.rankIcon.setVisible(!core.dead);
               updateHpBar(this, vu);
@@ -284,4 +278,3 @@ export function installBattleSceneDrag(BattleScene) {
     },
   });
 }
-

@@ -6,18 +6,14 @@
   getUnitAt as coreGetUnitAt,
   hexDistance as coreHexDistance,
 } from '../../../shared/battleCore.js';
+import { UNIT_CATALOG as SHARED_UNIT_CATALOG } from '../../../shared/unitCatalog.js';
 
 const TEST_SCENE_TICK_MS = 450;
 const TEST_SCENE_RESTART_DELAY_MS = 500;
 const TEST_SCENE_PLAYER_SPAWN = { q: 3, r: 4 };
 const TEST_SCENE_ENEMY_SPAWN = { q: 7, r: 4 };
 
-export const TEST_SCENE_UNITS = [
-  { type: 'Swordsman', label: 'SWORDSMAN', powerType: 'Пешка', hp: 60, atk: 20, moveSpeed: 2.6, attackSpeed: 100 },
-  { type: 'Skeleton', label: 'SKELETON', powerType: 'Пешка', hp: 60, atk: 20, moveSpeed: 2.6, attackSpeed: 100 },
-  { type: 'Crossbowman', label: 'CROSSBOW', powerType: 'Конь', hp: 40, atk: 25, moveSpeed: 2.3, attackSpeed: 100 },
-  { type: 'Knight', label: 'KNIGHT', powerType: 'Ладья', hp: 120, atk: 12, moveSpeed: 1.6, attackSpeed: 100 },
-];
+export const TEST_SCENE_UNITS = SHARED_UNIT_CATALOG.map((u) => ({ ...u }));
 
 const TEST_SCENE_NEIGHBORS = [
   { dq: 1, dr: 0 },
@@ -378,6 +374,7 @@ export function installBattleSceneTestScene(BattleScene) {
       // Пока testSceneActive=true, входящий state будет только поставлен в очередь.
       this.ws?.sendIntentResetGame?.();
       this.testSceneUnitsMenuOpen = false;
+      this.testSceneUnitsMenuRace = null;
       this.testSceneSelectedUnitType = null;
       this.testSceneBattleStartSnapshot = null;
       this.stopTestSceneBattleLoop?.();
@@ -415,6 +412,7 @@ export function installBattleSceneTestScene(BattleScene) {
       this.stopTestSceneRestartTimer?.();
       this.testSceneActive = false;
       this.testSceneUnitsMenuOpen = false;
+      this.testSceneUnitsMenuRace = null;
       this.testSceneSelectedUnitType = null;
       this.testSceneBattleStartSnapshot = null;
       this.pendingAttackAnimIds?.clear?.();

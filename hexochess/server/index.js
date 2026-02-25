@@ -21,6 +21,7 @@ import {
   makeStateMessage,
   makeErrorMessage,
 } from '../shared/messages.js';
+import { UNIT_CATALOG } from '../shared/unitCatalog.js';
 
 // ---- game state (authoritative) ----
 const state = createBattleState();
@@ -361,15 +362,6 @@ const COST_BY_POWER_TYPE = {
   'Ладья': 4,
   'Ферзь': 5,
 };
-
-// пока “класс юнита” (для арта/поведения) отделён от “силе-типа” (для цены/редкости)
-const UNIT_CATALOG = [
-  { type: 'Swordsman',   powerType: 'Пешка', hp: 60,  atk: 20, moveSpeed: 2.6, attackSpeed: 100 },
-  { type: 'Skeleton',    powerType: 'Пешка', hp: 60,  atk: 20, moveSpeed: 2.6, attackSpeed: 100 },
-  { type: 'Crossbowman', powerType: 'Конь',  hp: 40,  atk: 25, moveSpeed: 2.3, attackSpeed: 100 },
-  { type: 'Knight',      powerType: 'Ладья', hp: 120, atk: 12, moveSpeed: 1.6, attackSpeed: 100 },
-  // хочешь — добавь ещё юнитов с powerType: 'Слон' и 'Ферзь'
-];
 
 const SHOP_OFFER_COUNT = 5;
 

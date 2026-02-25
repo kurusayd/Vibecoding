@@ -1,21 +1,16 @@
 ﻿import Phaser from 'phaser';
 import { hexToPixel, pixelToHex, hexCorners, hexToGroundPixel } from '../game/hex.js';
 import { createUnitSystem } from '../game/units.js';
+import { getUnitArtOffsetXPx, getUnitGroundLiftPx } from '../game/unitVisualConfig.js';
 import { WSClient } from '../net/wsClient.js';
 import { createFullscreenButton, positionFullscreenButton } from '../game/ui.js';
 import { updateHpBar } from '../game/hpbar.js';
 
-import { createBattleState, KING_XP_COST, KING_MAX_LEVEL } from '../../shared/battleCore.js';
+import { createBattleState, KING_XP_COST, KING_MAX_LEVEL, hexDistance } from '../../shared/battleCore.js';
 import { installBattleSceneDrag } from './battleScene/dragController.js';
 import { installBattleSceneShopUi } from './battleScene/shopUi.js';
-import { TEST_SCENE_UNITS, installBattleSceneTestScene } from './battleScene/testScene.js';
-
-const GROUND_LIFT_BY_TYPE = {
-  Swordsman: 100,
-  Crossbowman: 100,
-  Knight: 100,
-  Skeleton: 100,
-};
+import { installBattleSceneTestScene } from './battleScene/testScene.js';
+import { installBattleSceneDebugUi } from './battleScene/debugUi.js';
 
 const PLAYER_KING_DISPLAY_NAME = 'Devis J. Jones';
 const ENEMY_KING_DISPLAY_NAME = 'Enemy King';
@@ -28,12 +23,6 @@ const EXTRA_PORTRAIT_ASSETS = [
   { key: 'king_frog', path: '/assets/kings/king_frog.png' },
   { key: 'king_king', path: '/assets/kings/king_king.png' },
   { key: 'king_princess', path: '/assets/kings/king_princess.png' },
-];
-
-const KING_DEBUG_SKINS = [
-  { label: 'ЛЯГУШКА', key: 'king_frog' },
-  { label: 'ПРИНЦЕССА', key: 'king_princess' },
-  { label: 'КОРОЛЬ', key: 'king_king' },
 ];
 
 function atlasFramePrefix(def) {
@@ -50,7 +39,7 @@ function atlasDeadFrame(def) {
 
 function atlasWalkFrameRegex(def) {
   const prefix = atlasFramePrefix(def).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`^${prefix}/walk_\\d{4}\\.png$`);
+  return new RegExp(`^${prefix}/walk_?\\d{4}\\.png$`);
 }
 
 function atlasAttackFrameRegex(def) {
@@ -100,6 +89,66 @@ const UNIT_ATLAS_DEFS = [
     deadAnim: 'skeleton_dead',
     framePrefix: 'psd_animation2',
   },
+  {
+    type: 'BonesGolem',
+    atlasKey: 'bones_golem_atlas',
+    atlasPath: '/assets/units/undead/bones_golem/bones_golem_atlas',
+    idleAnim: 'bones_golem_idle',
+    walkAnim: 'bones_golem_walk',
+    attackAnim: 'bones_golem_attack',
+    deadAnim: 'bones_golem_dead',
+    framePrefix: 'psd_animation',
+  },
+  {
+    type: 'Ghost',
+    atlasKey: 'ghost_atlas',
+    atlasPath: '/assets/units/undead/ghost/ghost_atlas',
+    idleAnim: 'ghost_idle',
+    walkAnim: 'ghost_walk',
+    attackAnim: 'ghost_attack',
+    deadAnim: 'ghost_dead',
+    framePrefix: 'psd_animation',
+  },
+  {
+    type: 'Lich',
+    atlasKey: 'lich_atlas',
+    atlasPath: '/assets/units/undead/lich/lich_atlas',
+    idleAnim: 'lich_idle',
+    walkAnim: 'lich_walk',
+    attackAnim: 'lich_attack',
+    deadAnim: 'lich_dead',
+    framePrefix: 'psd_animation',
+  },
+  {
+    type: 'SkeletonArcher',
+    atlasKey: 'skeleton_archer_atlas',
+    atlasPath: '/assets/units/undead/skeleton_archer/skeleton_archer_atlas',
+    idleAnim: 'skeleton_archer_idle',
+    walkAnim: 'skeleton_archer_walk',
+    attackAnim: 'skeleton_archer_attack',
+    deadAnim: 'skeleton_archer_dead',
+    framePrefix: 'psd_animation',
+  },
+  {
+    type: 'Vampire',
+    atlasKey: 'vampire_atlas',
+    atlasPath: '/assets/units/undead/vampire/vampire_atlas',
+    idleAnim: 'vampire_idle',
+    walkAnim: 'vampire_walk',
+    attackAnim: 'vampire_attack',
+    deadAnim: 'vampire_dead',
+    framePrefix: 'psd_animation',
+  },
+  {
+    type: 'Zombie',
+    atlasKey: 'zombie_atlas',
+    atlasPath: '/assets/units/undead/zombie/zombie_atlas',
+    idleAnim: 'zombie_idle',
+    walkAnim: 'zombie_walk',
+    attackAnim: 'zombie_attack',
+    deadAnim: 'zombie_dead',
+    framePrefix: 'psd_animation',
+  },
 ];
 
 const UNIT_ATLAS_DEF_BY_TYPE = Object.fromEntries(
@@ -111,6 +160,12 @@ const UNIT_ANIMS_BY_TYPE = {
   Crossbowman: { idle: 'crossbowman_idle', walk: 'crossbowman_walk', attack: 'crossbowman_attack', dead: 'crossbowman_dead' },
   Knight: { idle: 'knight_idle', walk: 'knight_walk', attack: 'knight_attack', dead: 'knight_dead' },
   Skeleton: { idle: 'skeleton_idle', walk: 'skeleton_walk', attack: 'skeleton_attack', dead: 'skeleton_dead' },
+  BonesGolem: { idle: 'bones_golem_idle', walk: 'bones_golem_walk', attack: 'bones_golem_attack', dead: 'bones_golem_dead' },
+  Ghost: { idle: 'ghost_idle', walk: 'ghost_walk', attack: 'ghost_attack', dead: 'ghost_dead' },
+  Lich: { idle: 'lich_idle', walk: 'lich_walk', attack: 'lich_attack', dead: 'lich_dead' },
+  SkeletonArcher: { idle: 'skeleton_archer_idle', walk: 'skeleton_archer_walk', attack: 'skeleton_archer_attack', dead: 'skeleton_archer_dead' },
+  Vampire: { idle: 'vampire_idle', walk: 'vampire_walk', attack: 'vampire_attack', dead: 'vampire_dead' },
+  Zombie: { idle: 'zombie_idle', walk: 'zombie_walk', attack: 'zombie_attack', dead: 'zombie_dead' },
 };
 
 const SHOP_OFFER_COUNT = 5;
@@ -118,10 +173,16 @@ const SHOP_CARD_ART_LIFT_Y = 75; // увеличивай/уменьшай, чт�
 
 function getUnitShortLabel(type) {
   const t = String(type ?? '').toLowerCase();
+  if (t === 'bonesgolem' || t === 'bones_golem') return 'BG';
   if (t === 'crossbowman') return 'C';
+  if (t === 'ghost') return 'Gh';
   if (t === 'knight') return 'K';
+  if (t === 'lich') return 'L';
   if (t === 'skeleton') return 'Sk';
+  if (t === 'skeletonarcher' || t === 'skeleton_archer') return 'SA';
   if (t === 'swordsman' || t === 'swordmen') return 'S';
+  if (t === 'vampire') return 'V';
+  if (t === 'zombie') return 'Z';
   return '?';
 }
 
@@ -719,153 +780,8 @@ export default class BattleScene extends Phaser.Scene {
     positionFullscreenButton(this);
     this.positionCoinsHUD();
 
-    // --- DEBUG UI (top-right button + modal) ---
-    this.debugMenuOpen = false;
-    this.debugKingMenuOpen = false;
-    this.debugCanStartBattle = false;
-    this.debugKingSkinButtons = [];
-    this.testSceneActive = false;
-    this.testSceneUnitsMenuOpen = false;
-    this.testSceneBattleLoop = null;
-    this.testSceneRestartTimer = null;
-    this.testSceneNextUnitId = -1;
-    this.testSceneSelectedUnitType = null;
-    this.testSceneBattleStartSnapshot = null;
-    this.testSceneSavedLiveState = null;
-    this.testSceneQueuedLiveState = null;
-
-    this.debugBtn = this.add.text(this.scale.width - 14, 14, 'Debug', {
-      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-      fontSize: '18px',
-      color: '#ffffff',
-      backgroundColor: 'rgba(0,0,0,0.6)',
-      padding: { left: 10, right: 10, top: 6, bottom: 6 },
-    })
-      .setOrigin(1, 0)
-      .setDepth(10020)
-      .setInteractive({ useHandCursor: true });
-
-    this.debugBtn.on('pointerdown', (pointer) => {
-      pointer?.event?.stopPropagation?.();
-      this.toggleDebugMenu();
-    });
-
-    this.debugModal = this.add.container(0, 0)
-      .setDepth(10030)
-      .setScrollFactor(0)
-      .setVisible(false);
-
-    this.debugModalBg = this.add.rectangle(0, 0, 180, 210, 0x111111, 0.94)
-      .setOrigin(0, 0)
-      .setStrokeStyle(2, 0x666666, 0.95);
-
-    this.debugModalTitle = this.add.text(90, 12, 'DEBUG', {
-      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-      fontSize: '16px',
-      color: '#ffffff',
-      fontStyle: 'bold',
-    }).setOrigin(0.5, 0);
-
-    this.battleBtn = this.add.text(90, 44, 'БОЙ', {
-      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-      fontSize: '18px',
-      color: '#ffffff',
-      backgroundColor: 'rgba(0,0,0,0.55)',
-      padding: { left: 18, right: 18, top: 8, bottom: 8 },
-    })
-    .setOrigin(0.5, 0)
-    .setDepth(10031)
-    .setInteractive({ useHandCursor: true });
-    this.debugExitBtn = this.add.text(90, 120, '\u0412\u042b\u0425\u041e\u0414', {
-      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-      fontSize: '18px',
-      color: '#ffffff',
-      backgroundColor: 'rgba(120,0,0,0.65)',
-      padding: { left: 14, right: 14, top: 8, bottom: 8 },
-    })
-      .setOrigin(0.5, 0)
-      .setDepth(10031)
-      .setInteractive({ useHandCursor: true });
-    this.debugTestSceneBtn = this.add.text(90, 158, 'TEST SCENE', {
-      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-      fontSize: '17px',
-      color: '#ffffff',
-      backgroundColor: 'rgba(70,40,110,0.70)',
-      padding: { left: 10, right: 10, top: 7, bottom: 7 },
-    })
-      .setOrigin(0.5, 0)
-      .setDepth(10031)
-      .setInteractive({ useHandCursor: true });
-    this.debugKingBtn = this.add.text(90, 82, '\u041a\u041e\u0420\u041e\u041b\u042c', {
-      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-      fontSize: '18px',
-      color: '#ffffff',
-      backgroundColor: 'rgba(0,60,110,0.65)',
-      padding: { left: 12, right: 12, top: 8, bottom: 8 },
-    })
-      .setOrigin(0.5, 0)
-      .setDepth(10031)
-      .setInteractive({ useHandCursor: true });
-    this.debugModalHit = this.add.zone(0, 0, 180, 210)
-      .setOrigin(0, 0)
-      .setInteractive();
-    this.debugModalHit.on('pointerdown', (pointer) => {
-      pointer?.event?.stopPropagation?.();
-    });
-    this.debugModal.add([
-      this.debugModalHit,
-      this.debugModalBg,
-      this.debugModalTitle,
-      this.battleBtn,
-      this.debugKingBtn,
-      this.debugExitBtn,
-      this.debugTestSceneBtn,
-    ]);
-    // --- DEBUG KING MODAL (local player king skin only) ---
-    this.debugKingModal = this.add.container(0, 0)
-      .setDepth(10030)
-      .setScrollFactor(0)
-      .setVisible(false);
-    this.debugKingModalBg = this.add.rectangle(0, 0, 220, 168, 0x111111, 0.94)
-      .setOrigin(0, 0)
-      .setStrokeStyle(2, 0x666666, 0.95);
-    this.debugKingModalTitle = this.add.text(110, 12, 'KING (LOCAL)', {
-      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-      fontSize: '16px',
-      color: '#ffffff',
-      fontStyle: 'bold',
-    }).setOrigin(0.5, 0);
-    this.debugKingModalHit = this.add.zone(0, 0, 220, 168)
-      .setOrigin(0, 0)
-      .setInteractive();
-    this.debugKingModalHit.on('pointerdown', (pointer) => {
-      pointer?.event?.stopPropagation?.();
-    });
-    this.debugKingModal.add([
-      this.debugKingModalHit,
-      this.debugKingModalBg,
-      this.debugKingModalTitle,
-    ]);
-    KING_DEBUG_SKINS.forEach((skin, idx) => {
-      const btn = this.add.text(110, 42 + idx * 38, skin.label, {
-        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-        fontSize: '17px',
-        color: '#ffffff',
-        backgroundColor: 'rgba(0,0,0,0.55)',
-        padding: { left: 12, right: 12, top: 7, bottom: 7 },
-      })
-        .setOrigin(0.5, 0)
-        .setDepth(10031)
-        .setInteractive({ useHandCursor: true });
-      btn.on('pointerdown', (pointer) => {
-        pointer?.event?.stopPropagation?.();
-        this.applyLocalPlayerKingTexture?.(skin.key);
-        this.syncDebugUI?.();
-      });
-      btn._kingTextureKey = skin.key;
-      this.debugKingSkinButtons.push(btn);
-      this.debugKingModal.add(btn);
-    });
+    // Debug and test-scene UI are installed by a dedicated UI module.
+    this.initDebugUi?.();
     // --- ROUND + TIMER (top center) ---
     this.roundText = this.add.text(this.scale.width / 2, 10, '', {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
@@ -888,101 +804,6 @@ export default class BattleScene extends Phaser.Scene {
       .setStroke('#777777', 2)
       .setShadow(0, 0, '#000000', 2, true, true);
 
-    this.battleBtn.on('pointerdown', () => {
-      if (this.testSceneActive) {
-        this.startTestSceneBattleFromPrep?.();
-      } else {
-        this.ws?.sendIntentStartBattle();
-      }
-      this.hideDebugMenu?.();
-    });
-
-    this.debugKingBtn.on('pointerdown', (pointer) => {
-      pointer?.event?.stopPropagation?.();
-      this.debugKingMenuOpen = !this.debugKingMenuOpen;
-      this.syncDebugUI?.();
-    });
-    this.debugTestSceneBtn.on('pointerdown', (pointer) => {
-      pointer?.event?.stopPropagation?.();
-      this.enterTestScene?.();
-      this.hideDebugMenu?.();
-    });
-
-    this.debugExitBtn.on('pointerdown', () => {
-      this.ws?.sendIntentResetGame?.();
-      this.hideDebugMenu?.();
-    });
-
-    this.testSceneUnitsBtn = this.add.text(0, 0, 'UNITS', {
-      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-      fontSize: '16px',
-      color: '#ffffff',
-      backgroundColor: 'rgba(0,70,110,0.72)',
-      padding: { left: 10, right: 10, top: 6, bottom: 6 },
-    })
-      .setOrigin(1, 0)
-      .setDepth(10020)
-      .setScrollFactor(0)
-      .setInteractive({ useHandCursor: true })
-      .setVisible(false);
-    this.testSceneUnitsBtn.on('pointerdown', (pointer) => {
-      pointer?.event?.stopPropagation?.();
-      if (!this.testSceneActive) return;
-      this.testSceneUnitsMenuOpen = !this.testSceneUnitsMenuOpen;
-      this.syncDebugUI?.();
-    });
-
-    this.testSceneExitBtn = this.add.text(0, 0, 'EXIT', {
-      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-      fontSize: '16px',
-      color: '#ffffff',
-      backgroundColor: 'rgba(120,0,0,0.72)',
-      padding: { left: 10, right: 10, top: 6, bottom: 6 },
-    })
-      .setOrigin(1, 0)
-      .setDepth(10020)
-      .setScrollFactor(0)
-      .setInteractive({ useHandCursor: true })
-      .setVisible(false);
-    this.testSceneExitBtn.on('pointerdown', (pointer) => {
-      pointer?.event?.stopPropagation?.();
-      if (!this.testSceneActive) return;
-      this.exitTestScene?.();
-    });
-
-    this.testSceneUnitsMenu = this.add.container(0, 0)
-      .setDepth(10025)
-      .setScrollFactor(0)
-      .setVisible(false);
-    this.testSceneUnitsMenuBg = this.add.rectangle(0, 0, 170, 210, 0x111111, 0.94)
-      .setOrigin(0, 0)
-      .setStrokeStyle(2, 0x666666, 0.95);
-    this.testSceneUnitsMenuHit = this.add.zone(0, 0, 170, 210).setOrigin(0, 0).setInteractive();
-    this.testSceneUnitsMenuHit.on('pointerdown', (pointer) => pointer?.event?.stopPropagation?.());
-    this.testSceneUnitButtons = [];
-    this.testSceneUnitsMenu.add([this.testSceneUnitsMenuHit, this.testSceneUnitsMenuBg]);
-    TEST_SCENE_UNITS.forEach((def, idx) => {
-      const btn = this.add.text(85, 14 + idx * 46, def.label, {
-        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-        fontSize: '15px',
-        color: '#ffffff',
-        backgroundColor: 'rgba(0,0,0,0.55)',
-        padding: { left: 8, right: 8, top: 6, bottom: 6 },
-      })
-        .setOrigin(0.5, 0)
-        .setDepth(10026)
-        .setInteractive({ useHandCursor: true });
-      btn.on('pointerdown', (pointer) => {
-        pointer?.event?.stopPropagation?.();
-        if (!this.testSceneActive) return;
-        this.spawnTestScenePlayerUnit?.(def.type);
-        this.testSceneUnitsMenuOpen = false;
-        this.syncDebugUI?.();
-      });
-      this.testSceneUnitButtons.push(btn);
-      this.testSceneUnitsMenu.add(btn);
-    });
-
     this.resultText = this.add.text(this.scale.width / 2, 60, '', { // на месте таймера
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
       fontSize: '28px', // чуть меньше, чтобы не перекрывало UI
@@ -994,8 +815,8 @@ export default class BattleScene extends Phaser.Scene {
     .setDepth(9999)
     .setVisible(false);
 
-    this.positionDebugUI();
-    this.syncDebugUI();
+    this.positionDebugUI?.();
+    this.syncDebugUI?.();
 
     // --- SHOP UI (cards) ---
     this.shopOfferCount = SHOP_OFFER_COUNT;
@@ -1036,115 +857,6 @@ export default class BattleScene extends Phaser.Scene {
     this.positionKings();
     this.drawKingHpBars(); // чтобы бары не остались в старых координатах
     this.positionCoinsHUD();
-  }
-
-  positionDebugUI() {
-    if (this.debugBtn) {
-      this.debugBtn.setPosition(this.scale.width - 14, 14);
-    }
-    if (this.testSceneExitBtn && this.debugBtn) {
-      const gap = 8;
-      const debugLeft = this.debugBtn.x - (this.debugBtn.width ?? this.debugBtn.displayWidth ?? 0);
-      this.testSceneExitBtn.setPosition(debugLeft - gap, 14);
-    }
-    if (this.testSceneUnitsBtn && this.testSceneExitBtn) {
-      const gap = 8;
-      const exitLeft = this.testSceneExitBtn.x - (this.testSceneExitBtn.width ?? this.testSceneExitBtn.displayWidth ?? 0);
-      this.testSceneUnitsBtn.setPosition(exitLeft - gap, 14);
-    }
-    if (this.testSceneUnitsMenu && this.testSceneUnitsBtn) {
-      const menuW = this.testSceneUnitsMenuBg?.width ?? 170;
-      const x = Math.max(8, (this.testSceneUnitsBtn.x - (this.testSceneUnitsBtn.width ?? this.testSceneUnitsBtn.displayWidth ?? 0)));
-      this.testSceneUnitsMenu.setPosition(Math.max(8, x - (menuW - (this.testSceneUnitsBtn.width ?? 80))), 48);
-    }
-
-    if (this.debugModal) {
-      const modalW = this.debugModalBg?.width ?? 180;
-      const x = this.scale.width - modalW - 14;
-      const y = 48;
-      this.debugModal.setPosition(x, y);
-    }
-
-    if (this.debugKingModal) {
-      const mainX = this.debugModal?.x ?? (this.scale.width - (this.debugModalBg?.width ?? 180) - 14);
-      const mainY = this.debugModal?.y ?? 48;
-      const kingModalW = this.debugKingModalBg?.width ?? 220;
-      const kingModalH = this.debugKingModalBg?.height ?? 168;
-      const gap = 8;
-
-      let x = mainX - kingModalW - gap;
-      let y = mainY;
-
-      if (x < 8) {
-        x = mainX;
-        y = mainY + (this.debugModalBg?.height ?? 164) + gap;
-      }
-
-      if (y + kingModalH > this.scale.height - 8) {
-        y = Math.max(8, this.scale.height - kingModalH - 8);
-      }
-
-      this.debugKingModal.setPosition(x, y);
-    }
-  }
-
-  showDebugMenu() {
-    this.debugMenuOpen = true;
-    this.syncDebugUI();
-  }
-
-  hideDebugMenu() {
-    this.debugMenuOpen = false;
-    this.debugKingMenuOpen = false;
-    this.syncDebugUI();
-  }
-
-  toggleDebugMenu() {
-    this.debugMenuOpen = !this.debugMenuOpen;
-    if (!this.debugMenuOpen) this.debugKingMenuOpen = false;
-    this.syncDebugUI();
-  }
-
-  syncDebugUI() {
-    if (this.debugBtn) this.debugBtn.setVisible(true);
-    if (this.debugModal) this.debugModal.setVisible(!!this.debugMenuOpen);
-    if (this.debugKingModal) this.debugKingModal.setVisible(!!this.debugMenuOpen && !!this.debugKingMenuOpen);
-    if (this.testSceneUnitsBtn) this.testSceneUnitsBtn.setVisible(!!this.testSceneActive);
-    if (this.testSceneExitBtn) this.testSceneExitBtn.setVisible(!!this.testSceneActive);
-    if (this.testSceneUnitsMenu) this.testSceneUnitsMenu.setVisible(!!this.testSceneActive && !!this.testSceneUnitsMenuOpen);
-
-    const canBattle = !!this.debugCanStartBattle;
-
-    if (this.battleBtn) {
-      this.battleBtn.setVisible(!!this.debugMenuOpen);
-      if (this.battleBtn.input) this.battleBtn.input.enabled = canBattle;
-      this.battleBtn.setAlpha(canBattle ? 1 : 0.4);
-    }
-
-    if (this.debugExitBtn) {
-      this.debugExitBtn.setVisible(!!this.debugMenuOpen);
-    }
-
-    if (this.debugTestSceneBtn) {
-      this.debugTestSceneBtn.setVisible(!!this.debugMenuOpen);
-      this.debugTestSceneBtn.setAlpha(this.testSceneActive ? 0.7 : 1);
-    }
-
-    if (this.debugKingBtn) {
-      this.debugKingBtn.setVisible(!!this.debugMenuOpen);
-      this.debugKingBtn.setAlpha(this.debugKingMenuOpen ? 1 : 0.9);
-    }
-
-    for (const btn of (this.debugKingSkinButtons ?? [])) {
-      const active = btn?._kingTextureKey === this.localPlayerKingTextureKey;
-      btn?.setVisible?.(!!this.debugMenuOpen && !!this.debugKingMenuOpen);
-      btn?.setAlpha?.(active ? 1 : 0.85);
-      if (btn?.setStyle) {
-        btn.setStyle({
-          backgroundColor: active ? 'rgba(0,90,40,0.75)' : 'rgba(0,0,0,0.55)',
-        });
-      }
-    }
   }
 
   applyLocalPlayerKingTexture(textureKey) {
@@ -1544,7 +1256,7 @@ export default class BattleScene extends Phaser.Scene {
     if (!coreUnitLike && !fallbackVu) return null;
 
     const type = coreUnitLike?.type ?? fallbackVu?.type ?? null;
-    const lift = GROUND_LIFT_BY_TYPE[type] ?? 0;
+    const lift = getUnitGroundLiftPx(type);
 
     if ((coreUnitLike?.zone === 'bench') || (!coreUnitLike && fallbackVu)) {
       const slot = Number.isInteger(coreUnitLike?.benchSlot)
@@ -1553,23 +1265,63 @@ export default class BattleScene extends Phaser.Scene {
 
       if (slot != null) {
         const p = this.benchSlotToScreen(slot);
-        return { x: p.x, y: p.y, artX: p.x, artY: p.y + this.hexSize - lift };
+        return { x: p.x, y: p.y, artX: p.x + getUnitArtOffsetXPx(type), artY: p.y + this.hexSize - lift };
       }
     }
 
     if (coreUnitLike && coreUnitLike.zone === 'board') {
       const p = this.hexToPixel(coreUnitLike.q, coreUnitLike.r);
       const g = this.hexToGroundPixel(coreUnitLike.q, coreUnitLike.r, lift);
-      return { x: p.x, y: p.y, artX: g.x, artY: g.y };
+      return { x: p.x, y: p.y, artX: g.x + getUnitArtOffsetXPx(type), artY: g.y };
     }
 
     if (fallbackVu?.sprite) {
       const x = fallbackVu.sprite.x;
       const y = fallbackVu.sprite.y;
-      return { x, y, artX: x, artY: y + this.hexSize - lift };
+      return { x, y, artX: x + getUnitArtOffsetXPx(type), artY: y + this.hexSize - lift };
     }
 
     return null;
+  }
+
+  setUnitVisualFacingTowardX(vu, targetX) {
+    if (!vu?.art?.active) return;
+
+    const currentX = Number(vu.art.x ?? vu.sprite?.x ?? 0);
+    const dx = Number(targetX) - currentX;
+    if (!Number.isFinite(dx) || Math.abs(dx) < 1) return;
+
+    // Атласы в текущем проекте по умолчанию смотрят вправо.
+    vu.art.setFlipX(dx < 0);
+  }
+
+  faceUnitVisualTowardCoreUnit(vu, targetCoreUnit) {
+    if (!vu || !targetCoreUnit) return;
+    const targetPos = this.getUnitScreenAnchor(targetCoreUnit);
+    if (!targetPos) return;
+    this.setUnitVisualFacingTowardX(vu, targetPos.artX ?? targetPos.x);
+  }
+
+  findClosestOpponentForFacing(sourceCoreUnit) {
+    if (!sourceCoreUnit || sourceCoreUnit.dead || sourceCoreUnit.zone !== 'board') return null;
+    const enemyTeam = sourceCoreUnit.team === 'player' ? 'enemy' : 'player';
+
+    let best = null;
+    let bestDist = Infinity;
+
+    for (const u of (this.battleState?.units ?? [])) {
+      if (!u || u.dead) continue;
+      if (u.zone !== 'board') continue;
+      if (u.team !== enemyTeam) continue;
+
+      const d = hexDistance(sourceCoreUnit.q, sourceCoreUnit.r, u.q, u.r);
+      if (d < bestDist) {
+        bestDist = d;
+        best = u;
+      }
+    }
+
+    return best;
   }
 
   playMergeAbsorbAnimation(donorVu, targetCoreUnit, delayMs = 0) {
@@ -1963,8 +1715,8 @@ export default class BattleScene extends Phaser.Scene {
           created.sprite.setPosition(p.x, p.y);
           created.label?.setPosition(p.x, p.y);
           created.dragHandle?.setPosition(p.x, p.y);
-          const lift = GROUND_LIFT_BY_TYPE[u.type] ?? 0;
-          created.art?.setPosition(p.x, p.y + this.hexSize - lift);
+          const lift = getUnitGroundLiftPx(u.type);
+          created.art?.setPosition(p.x + getUnitArtOffsetXPx(u.type), p.y + this.hexSize - lift);
 
           // на скамейке hpBar не показываем
           if (created.hpBar) created.hpBar.setVisible(false);
@@ -2012,8 +1764,8 @@ export default class BattleScene extends Phaser.Scene {
 
         if (vu?.sprite) vu.sprite.setPosition(p.x, p.y);
         if (vu?.dragHandle) vu.dragHandle.setPosition(p.x, p.y);
-        const lift = GROUND_LIFT_BY_TYPE[u.type] ?? 0;
-        if (vu?.art) vu.art.setPosition(p.x, p.y + this.hexSize - lift);
+        const lift = getUnitGroundLiftPx(u.type);
+        if (vu?.art) vu.art.setPosition(p.x + getUnitArtOffsetXPx(u.type), p.y + this.hexSize - lift);
         if (vu?.label) vu.label.setPosition(p.x, p.y);
 
         if (vu?.hpBar) vu.hpBar.setVisible(false);
@@ -2026,6 +1778,15 @@ export default class BattleScene extends Phaser.Scene {
         if (vu) {
           vu.zone = 'board';
           vu.benchSlot = null;
+        }
+        const didBoardCellChange =
+          Number(vu?.q) !== Number(u.q) ||
+          Number(vu?.r) !== Number(u.r);
+        const shouldFaceMoveDirection = didBoardCellChange && !!vu?.art && tweenMs > 0;
+        if (shouldFaceMoveDirection) {
+          const lift = getUnitGroundLiftPx(u.type);
+          const targetGround = this.hexToGroundPixel(u.q, u.r, lift);
+          this.setUnitVisualFacingTowardX(vu, targetGround.x);
         }
         this.unitSys.setUnitPos(u.id, u.q, u.r, { tweenMs });
 
@@ -2053,6 +1814,9 @@ export default class BattleScene extends Phaser.Scene {
       for (const id of this.pendingAttackAnimIds) {
         const vu = byId.get(id);
         if (!vu?.art) continue;
+        const attackerCore = (this.battleState?.units ?? []).find((x) => x.id === id) ?? null;
+        const targetCore = this.findClosestOpponentForFacing(attackerCore);
+        this.faceUnitVisualTowardCoreUnit(vu, targetCore);
         vu._attackAnimPlaying = true;
         vu._attackAnimForceReplay = true;
       }
@@ -2066,6 +1830,12 @@ export default class BattleScene extends Phaser.Scene {
       if (this.draggingUnitId != null && String(u.id) === String(this.draggingUnitId)) continue;
       const animDef = UNIT_ANIMS_BY_TYPE[u.type];
       if (!animDef) continue;
+
+      // Вне активного боя возвращаем базовый разворот спрайта:
+      // player смотрит вправо, enemy — влево.
+      if ((phase !== 'battle') || !!result) {
+        vu.art.setFlipX(u.team === 'enemy');
+      }
 
       const wantWalk =
         (phase === 'battle') &&
@@ -2090,10 +1860,29 @@ export default class BattleScene extends Phaser.Scene {
         vu.art.play(animKey, true);
         if (forceReplayAttack) {
           vu._attackAnimForceReplay = false;
-          vu.art.once('animationcomplete', (anim) => {
+          vu.art.once(`animationcomplete-${animDef.attack}`, (anim) => {
             if (!vu?.art?.active) return;
             if (anim?.key !== animDef.attack) return;
             vu._attackAnimPlaying = false;
+            vu._attackAnimForceReplay = false;
+
+            // Между state-снапшотами (особенно в test scene) renderFromState может не вызываться,
+            // поэтому вручную возвращаем юнита в idle/walk сразу после завершения атаки.
+            const latest = (this.battleState?.units ?? []).find((x) => x.id === u.id);
+            if (!latest || latest.dead) return;
+
+            const latestPhase = this.battleState?.phase ?? 'prep';
+            const latestResult = this.battleState?.result ?? null;
+            const shouldWalk =
+              (latestPhase === 'battle') &&
+              !latestResult &&
+              (latest.zone === 'board') &&
+              !!vu._moveTween;
+
+            const fallbackAnimKey = shouldWalk ? animDef.walk : animDef.idle;
+            if (!this.anims.exists(fallbackAnimKey)) return;
+            if (vu.art.anims?.getName?.() === fallbackAnimKey) return;
+            vu.art.play(fallbackAnimKey, true);
           });
         }
       }
@@ -2464,5 +2253,6 @@ export default class BattleScene extends Phaser.Scene {
 installBattleSceneDrag(BattleScene);
 installBattleSceneShopUi(BattleScene);
 installBattleSceneTestScene(BattleScene);
+installBattleSceneDebugUi(BattleScene);
 
 

@@ -1,0 +1,100 @@
+const DEFAULT_ART_TARGET_PX = 170;
+const DEFAULT_GROUND_LIFT_PX = 100;
+const DEFAULT_ART_OFFSET_X_PX = 0;
+const DEFAULT_HP_UI_LIFT_PX = 0;
+
+// Centralized per-unit visual tuning used by scene rendering, drag visuals, and HP UI.
+// Field meanings:
+// - groundLiftPx: raises/lowers the character art relative to the hex ground anchor.
+//   Increase this to move the unit art higher on screen (use this for "raise the golem a bit").
+// - artTargetPx: target rendered art width in pixels (affects scale).
+// - artOffsetXPx: horizontal art offset relative to the hex center (positive = move right).
+// - hpUiLiftPx: extra vertical lift for HP bar + rank icon (positive = move UI higher).
+export const UNIT_VISUAL_CONFIG_BY_TYPE = {
+  Swordsman: {
+    // Baseline example config. Use this as reference when tuning other units.
+    groundLiftPx: 100,
+    artTargetPx: 170,
+    artOffsetXPx: 0,
+    hpUiLiftPx: 0,
+  },
+  Crossbowman: {
+    groundLiftPx: 100,
+    artTargetPx: 170,
+    artOffsetXPx: 0,
+    hpUiLiftPx: 0,
+  },
+  Knight: {
+    groundLiftPx: 100,
+    artTargetPx: 170,
+    artOffsetXPx: 0,
+    hpUiLiftPx: 0,
+  },
+  Skeleton: {
+    groundLiftPx: 90,
+    artTargetPx: 150,
+    artOffsetXPx: 0,
+    hpUiLiftPx: 10,
+  },
+  BonesGolem: {
+    // Tune BonesGolem here:
+    // - raise/lower the unit art: change groundLiftPx
+    // - make art bigger/smaller: change artTargetPx
+    // - move art left/right: change artOffsetXPx
+    // - move HP bar/rank icon: change hpUiLiftPx
+    groundLiftPx: 110,
+    artTargetPx: 187,
+    artOffsetXPx: 6,
+    hpUiLiftPx: 70,
+  },
+  Ghost: {
+    groundLiftPx: 100,
+    artTargetPx: 170,
+    artOffsetXPx: 0,
+    hpUiLiftPx: 0,
+  },
+  Lich: {
+    groundLiftPx: 100,
+    artTargetPx: 170,
+    artOffsetXPx: 0,
+    hpUiLiftPx: 0,
+  },
+  SkeletonArcher: {
+    groundLiftPx: 100,
+    artTargetPx: 170,
+    artOffsetXPx: 0,
+    hpUiLiftPx: 0,
+  },
+  Vampire: {
+    groundLiftPx: 100,
+    artTargetPx: 170,
+    artOffsetXPx: 0,
+    hpUiLiftPx: 0,
+  },
+  Zombie: {
+    groundLiftPx: 100,
+    artTargetPx: 170,
+    artOffsetXPx: 0,
+    hpUiLiftPx: 0,
+  },
+};
+
+function getUnitVisualConfig(type) {
+  return UNIT_VISUAL_CONFIG_BY_TYPE[type] ?? null;
+}
+
+export function getUnitGroundLiftPx(type) {
+  return getUnitVisualConfig(type)?.groundLiftPx ?? DEFAULT_GROUND_LIFT_PX;
+}
+
+export function getUnitArtTargetPx(type) {
+  return getUnitVisualConfig(type)?.artTargetPx ?? DEFAULT_ART_TARGET_PX;
+}
+
+export function getUnitArtOffsetXPx(type) {
+  return getUnitVisualConfig(type)?.artOffsetXPx ?? DEFAULT_ART_OFFSET_X_PX;
+}
+
+export function getUnitHpUiLiftPx(type) {
+  return getUnitVisualConfig(type)?.hpUiLiftPx ?? DEFAULT_HP_UI_LIFT_PX;
+}

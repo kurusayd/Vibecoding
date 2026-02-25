@@ -1,27 +1,20 @@
-import { updateHpBar } from './hpbar.js';
+﻿import { updateHpBar } from './hpbar.js';
 import Phaser from 'phaser';
+import { getUnitArtOffsetXPx, getUnitArtTargetPx, getUnitGroundLiftPx } from './unitVisualConfig.js';
 
 export function cellKey(q, r) {
   return `${q},${r}`;
 }
 
-const RANK_ICON_SCALE = 0.10; //скейл размера иконки звёздочки. Чтобы менять в одном месте
-const SWORDSMAN_ART_PX = 170; // целевая "высота/ширина" на экране, подгони: 90..140
-const UNIT_ART_TARGET_PX_BY_TYPE = {
-  Skeleton: 150, // изменение размера арта скелета. Если слишком большой, сделай число меньше
-};
-// Насколько ПОДНЯТЬ "землю" для мечника (потому что в кадре много прозрачного снизу)
-// Подбирай: 0..80. Если мечник низко — УВЕЛИЧЬ.
-const GROUND_LIFT_BY_TYPE = {
-  Swordsman: 100,
-  Crossbowman: 100,
-  Knight: 100,
-  Skeleton: 90,
-};
+const RANK_ICON_SCALE = 0.10;
 
 const UNIT_ART_DEPTH_LIVE = 1040;
-const UNIT_ART_DEPTH_DEAD = 990; // труп ниже любых "живых" артов, чтобы юниты визуально шли по нему
-const UNIT_ART_DEPTH_Y_FACTOR = 0.01; // lower row (bigger Y) => draw on top
+const UNIT_ART_DEPTH_DEAD = 990;
+const UNIT_ART_DEPTH_Y_FACTOR = 0.01;
+const UNIT_ART_TOON_OUTLINE_COLOR = 0x1a1208;
+const UNIT_ART_TOON_OUTLINE_DISTANCE = 3;
+const UNIT_ART_TOON_OUTLINE_OUTER = 1.05;
+const UNIT_ART_TOON_OUTLINE_INNER = 0;
 
 function atlasFramePrefix(cfg) {
   return String(cfg?.framePrefix ?? 'psd_animation');
@@ -64,6 +57,48 @@ const UNIT_ATLAS_BY_TYPE = {
     deadAnim: 'skeleton_dead',
     framePrefix: 'psd_animation2',
   },
+  BonesGolem: {
+    atlasKey: 'bones_golem_atlas',
+    idleAnim: 'bones_golem_idle',
+    walkAnim: 'bones_golem_walk',
+    deadAnim: 'bones_golem_dead',
+    framePrefix: 'psd_animation',
+  },
+  Ghost: {
+    atlasKey: 'ghost_atlas',
+    idleAnim: 'ghost_idle',
+    walkAnim: 'ghost_walk',
+    deadAnim: 'ghost_dead',
+    framePrefix: 'psd_animation',
+  },
+  Lich: {
+    atlasKey: 'lich_atlas',
+    idleAnim: 'lich_idle',
+    walkAnim: 'lich_walk',
+    deadAnim: 'lich_dead',
+    framePrefix: 'psd_animation',
+  },
+  SkeletonArcher: {
+    atlasKey: 'skeleton_archer_atlas',
+    idleAnim: 'skeleton_archer_idle',
+    walkAnim: 'skeleton_archer_walk',
+    deadAnim: 'skeleton_archer_dead',
+    framePrefix: 'psd_animation',
+  },
+  Vampire: {
+    atlasKey: 'vampire_atlas',
+    idleAnim: 'vampire_idle',
+    walkAnim: 'vampire_walk',
+    deadAnim: 'vampire_dead',
+    framePrefix: 'psd_animation',
+  },
+  Zombie: {
+    atlasKey: 'zombie_atlas',
+    idleAnim: 'zombie_idle',
+    walkAnim: 'zombie_walk',
+    deadAnim: 'zombie_dead',
+    framePrefix: 'psd_animation',
+  },
 };
 
 function makeHexHitArea(scene, w, h) {
@@ -88,20 +123,20 @@ function updateRankStroke(unit) {
 
   const rank = unit.rank ?? 1;
 
-  // сначала сбрасываем обводку
+
   unit.sprite.setStrokeStyle();
 
   if (rank === 2) {
-    // серая толстая обводка
+
     unit.sprite.setStrokeStyle(5, 0x888888, 1);
   }
 
   if (rank >= 3) {
-    // сначала серая
+
     unit.sprite.setStrokeStyle(5, 0x888888, 1);
 
-    // потом добавляем жёлтую поверх (Phaser не поддерживает 2 stroke,
-    // поэтому имитируем — увеличиваем толщину и меняем цвет)
+
+
     unit.sprite.setStrokeStyle(10, 0xffcc00, 1);
   }
 }
@@ -111,6 +146,39 @@ function updateArtDepth(unit) {
   const y = Number(unit.art.y ?? unit.sprite?.y ?? 0);
   const base = unit.dead ? UNIT_ART_DEPTH_DEAD : UNIT_ART_DEPTH_LIVE;
   unit.art.setDepth(base + y * UNIT_ART_DEPTH_Y_FACTOR);
+}
+
+function applyToonOutlineFx(art) {
+  if (!art) return;
+
+  try {
+
+
+    if (art.postFX?.addGlow) {
+      art.postFX.addGlow(
+        UNIT_ART_TOON_OUTLINE_COLOR,
+        UNIT_ART_TOON_OUTLINE_OUTER,
+        UNIT_ART_TOON_OUTLINE_INNER,
+        false,
+        0.08,
+        UNIT_ART_TOON_OUTLINE_DISTANCE
+      );
+      return;
+    }
+
+    if (art.preFX?.addGlow) {
+      art.preFX.addGlow(
+        UNIT_ART_TOON_OUTLINE_COLOR,
+        UNIT_ART_TOON_OUTLINE_OUTER,
+        UNIT_ART_TOON_OUTLINE_INNER,
+        false,
+        0.08,
+        UNIT_ART_TOON_OUTLINE_DISTANCE
+      );
+    }
+  } catch {
+
+  }
 }
 
 export function createUnitSystem(scene) {
@@ -138,7 +206,7 @@ export function createUnitSystem(scene) {
     const sprite = scene.add.circle(p.x, p.y, radius, opts.color ?? 0x66ccff)
     .setDepth(1000);
 
-    // ✅ невидимый drag-handle размером с гекс (лежит поверх всего)
+
     const w = scene.hexSize * 2;
     const h = scene.hexSize * 2;
 
@@ -156,20 +224,21 @@ export function createUnitSystem(scene) {
     const idleFrame = atlasIdleFrame(atlasCfg);
 
     if (atlasCfg && scene.textures.exists(atlasKey)) {
-      const g = scene.hexToGroundPixel(q, r, GROUND_LIFT_BY_TYPE[opts.type] ?? 0);
-      art = scene.add.sprite(g.x, g.y, atlasKey, idleFrame) // ✅ было p.x/p.y
+      const g = scene.hexToGroundPixel(q, r, getUnitGroundLiftPx(opts.type));
+      art = scene.add.sprite(g.x + getUnitArtOffsetXPx(opts.type), g.y, atlasKey, idleFrame)
         .setDepth(UNIT_ART_DEPTH_LIVE)
         .setOrigin(0.5, 1);
 
-      // ✅ если вдруг всё равно missing (например race condition) — откатываемся на круг
+
       if (art.texture?.key === '__MISSING' || art.frame?.name == null) {
         art.destroy();
         art = null;
         sprite.setVisible(true);
       } else {
         const frameW = art.frame?.realWidth ?? art.frame?.width ?? 256;
-        const targetPx = UNIT_ART_TARGET_PX_BY_TYPE[opts.type] ?? SWORDSMAN_ART_PX;
+        const targetPx = getUnitArtTargetPx(opts.type);
         art.setScale(targetPx / frameW);
+        applyToonOutlineFx(art);
 
         if (scene.anims.exists(atlasCfg.idleAnim)) art.play(atlasCfg.idleAnim);
         else if (scene.anims.exists(atlasCfg.walkAnim)) art.play(atlasCfg.walkAnim);
@@ -195,19 +264,19 @@ export function createUnitSystem(scene) {
     const rank = opts.rank ?? 1;
     const rankKey = `rank${Math.max(1, Math.min(3, rank))}`;
 
-    // ⭐ иконка ранга (позицию выставит updateHpBar)
+
     const rankIcon = scene.add.image(p.x, p.y, rankKey)
       .setDepth(1070)
       .setOrigin(0.5, 1)
-      .setScale(RANK_ICON_SCALE); //Скейл иконки звёздочки
-      rankIcon.setVisible(false); // ✅ на bench по умолчанию скрыто
+      .setScale(RANK_ICON_SCALE);
+      rankIcon.setVisible(false);
 
     const unit = {
       id: opts.id ?? crypto.randomUUID?.() ?? String(Date.now()),
 
       q, r,
       team: opts.team ?? 'neutral',
-      type: opts.type ?? null, // ✅ ВОТ ЭТОГО НЕ ХВАТАЛО
+      type: opts.type ?? null,
 
       hp,
       maxHp,
@@ -240,7 +309,7 @@ export function createUnitSystem(scene) {
     const sprite = scene.add.circle(x, y, radius, opts.color ?? 0x66ccff)
       .setDepth(1000);
 
-    // ✅ невидимый drag-handle размером с гекс (лежит поверх всего)
+
     const w = scene.hexSize * 2;
     const h = scene.hexSize * 2;
 
@@ -258,10 +327,10 @@ export function createUnitSystem(scene) {
     const idleFrame = atlasIdleFrame(atlasCfg);
 
     if (atlasCfg && scene.textures.exists(atlasKey)) {
-      const lift = GROUND_LIFT_BY_TYPE[opts.type] ?? 0;
-      art = scene.add.sprite(x, y + scene.hexSize - lift, atlasKey, idleFrame) // ✅ вниз к "земле" этого гекса
+      const lift = getUnitGroundLiftPx(opts.type);
+      art = scene.add.sprite(x + getUnitArtOffsetXPx(opts.type), y + scene.hexSize - lift, atlasKey, idleFrame)
         .setDepth(UNIT_ART_DEPTH_LIVE)
-        .setOrigin(0.5, 1); // ✅ якорь по низу
+        .setOrigin(0.5, 1);
 
       if (art.texture?.key === '__MISSING' || art.frame?.name == null) {
         art.destroy();
@@ -269,8 +338,9 @@ export function createUnitSystem(scene) {
         sprite.setVisible(true);
       } else {
         const frameW = art.frame?.realWidth ?? art.frame?.width ?? 256;
-        const targetPx = UNIT_ART_TARGET_PX_BY_TYPE[opts.type] ?? SWORDSMAN_ART_PX;
+        const targetPx = getUnitArtTargetPx(opts.type);
         art.setScale(targetPx / frameW);
+        applyToonOutlineFx(art);
 
         if (scene.anims.exists(atlasCfg.idleAnim)) art.play(atlasCfg.idleAnim);
         else if (scene.anims.exists(atlasCfg.walkAnim)) art.play(atlasCfg.walkAnim);
@@ -301,7 +371,7 @@ export function createUnitSystem(scene) {
       .setDepth(1070)
       .setOrigin(0.5, 1)
       .setScale(RANK_ICON_SCALE);
-    rankIcon.setVisible(false); // ✅ на bench по умолчанию скрыто
+    rankIcon.setVisible(false);
 
     const unit = {
       id: opts.id ?? crypto.randomUUID?.() ?? String(Date.now()),
@@ -309,7 +379,7 @@ export function createUnitSystem(scene) {
       q: opts.q ?? 0,
       r: opts.r ?? 0,
       team: opts.team ?? 'neutral',
-      type: opts.type ?? null, // ✅ ВОТ ЭТОГО ТОЖЕ НЕ ХВАТАЛО
+      type: opts.type ?? null,
 
       hp,
       maxHp,
@@ -330,7 +400,7 @@ export function createUnitSystem(scene) {
 
     state.units.push(unit);
 
-    // occupied НЕ трогаем
+
     updateHpBar(scene, unit);
     updateArtDepth(unit);
     updateRankStroke(unit);
@@ -341,7 +411,7 @@ export function createUnitSystem(scene) {
     const u = findUnit(id);
     if (!u) return;
 
-    // удаляем occupied только если этот юнит реально занимал клетку
+
     const k = cellKey(u.q, u.r);
     if (state.occupied.has(k)) state.occupied.delete(k);
 
@@ -361,11 +431,12 @@ export function createUnitSystem(scene) {
     if (!u) return;
 
     const p = scene.hexToPixel(q, r);
-    const lift = GROUND_LIFT_BY_TYPE[u.type] ?? 0;
+    const lift = getUnitGroundLiftPx(u.type);
     const g = scene.hexToGroundPixel(q, r, lift);
+    const artX = g.x + getUnitArtOffsetXPx(u.type);
 
-    // Если координаты совпадают, но визуально объект "уехал" (например, из-за гонки
-    // локального дропа и серверного state), всё равно нужно дотянуть его в правильную точку.
+
+
     const sameCell = (u.q === q && u.r === r);
     const isAtTarget =
       Math.abs((u.sprite?.x ?? p.x) - p.x) < 0.5 &&
@@ -374,7 +445,7 @@ export function createUnitSystem(scene) {
       Math.abs((u.dragHandle?.y ?? p.y) - p.y) < 0.5 &&
       Math.abs((u.label?.x ?? p.x) - p.x) < 0.5 &&
       Math.abs((u.label?.y ?? p.y) - p.y) < 0.5 &&
-      Math.abs((u.art?.x ?? g.x) - g.x) < 0.5 &&
+      Math.abs((u.art?.x ?? artX) - artX) < 0.5 &&
       Math.abs((u.art?.y ?? g.y) - g.y) < 0.5;
 
     if (sameCell && isAtTarget) {
@@ -382,36 +453,36 @@ export function createUnitSystem(scene) {
       return;
     }
 
-    // обновляем occupied сразу (логика authoritative)
+
     state.occupied.delete(cellKey(u.q, u.r));
     state.occupied.add(cellKey(q, r));
 
-    // запоминаем новые q/r (логика)
+
     u.q = q;
     u.r = r;
 
-    // если tween не нужен — телепорт
+
     const tweenMs = Number(opts.tweenMs ?? 0);
     if (!tweenMs || tweenMs <= 0) {
       u.sprite.setPosition(p.x, p.y);
       u.dragHandle?.setPosition(p.x, p.y);
-      if (u.art) u.art.setPosition(g.x, g.y);   // ✅ art на земле
+      if (u.art) u.art.setPosition(artX, g.y);
       u.label.setPosition(p.x, p.y);
       updateArtDepth(u);
       updateHpBar(scene, u);
       return;
     }
 
-    // убиваем прошлый tween движения, если был
+
     if (u._moveTween) {
       try { u._moveTween.stop(); } catch {}
       u._moveTween = null;
     }
 
-    // ✅ твиним центр для sprite/dragHandle/label
+
     const centerTargets = [u.sprite, u.dragHandle, u.label].filter(Boolean);
 
-    // ✅ арту твиним отдельно к g
+
     u._moveTween = scene.tweens.add({
       targets: centerTargets,
       x: p.x,
@@ -425,7 +496,7 @@ export function createUnitSystem(scene) {
     if (u.art) {
       scene.tweens.add({
         targets: u.art,
-        x: g.x,
+        x: artX,
         y: g.y,
         duration: tweenMs,
         ease: 'Linear',
@@ -442,11 +513,11 @@ export function createUnitSystem(scene) {
     if (typeof maxHp === 'number') u.maxHp = maxHp;
     u.hp = Math.max(0, Math.min(hp, u.maxHp));
 
-    // красный (мгновенный) сразу прыгает на текущее hp
+
     u.hpInstant = u.hp;
 
-    // жёлтый (догоняющий) НЕ прыгает вниз при уроне
-    // но при хиле можно сразу поднять
+
+
     if (u.hpLag < u.hpInstant) u.hpLag = u.hpInstant;
 
     updateHpBar(scene, u);
@@ -466,8 +537,8 @@ export function createUnitSystem(scene) {
       if (u.label) u.label.setVisible(false);
       if (u.dragHandle?.input) u.dragHandle.input.enabled = false;
     } else {
-      // Для "живого" юнита не форсим hp/rank visibility:
-      // их видимость управляется renderFromState + updateHpBar (phase/zone).
+
+
       if (u.label) u.label.setVisible(!u.art);
       if (u.dragHandle?.input) u.dragHandle.input.enabled = true;
     }
@@ -503,12 +574,13 @@ export function createUnitSystem(scene) {
     unit.r = newR;
 
     const p = scene.hexToPixel(newQ, newR);
-    const lift = GROUND_LIFT_BY_TYPE[unit.type] ?? 0;
+    const lift = getUnitGroundLiftPx(unit.type);
     const g = scene.hexToGroundPixel(newQ, newR, lift);
+    const artX = g.x + getUnitArtOffsetXPx(unit.type);
 
     unit.sprite.setPosition(p.x, p.y);
     unit.dragHandle?.setPosition(p.x, p.y);
-    if (unit.art) unit.art.setPosition(g.x, g.y);
+    if (unit.art) unit.art.setPosition(artX, g.y);
     unit.label.setPosition(p.x, p.y);
 
     updateArtDepth(unit);
@@ -524,12 +596,13 @@ export function createUnitSystem(scene) {
   function relayoutUnits() {
     for (const u of state.units) {
       const p = scene.hexToPixel(u.q, u.r);
-      const lift = GROUND_LIFT_BY_TYPE[u.type] ?? 0;
+      const lift = getUnitGroundLiftPx(u.type);
       const g = scene.hexToGroundPixel(u.q, u.r, lift);
+      const artX = g.x + getUnitArtOffsetXPx(u.type);
 
       u.sprite.setPosition(p.x, p.y);
       u.dragHandle?.setPosition(p.x, p.y);
-      if (u.art) u.art.setPosition(g.x, g.y);
+      if (u.art) u.art.setPosition(artX, g.y);
       u.label.setPosition(p.x, p.y);
       updateArtDepth(u);
       updateHpBar(scene, u);
@@ -538,10 +611,10 @@ export function createUnitSystem(scene) {
   }
 
   function update(dt) {
-    const lagSpeed = 80; // hp/сек
+    const lagSpeed = 80;
 
     for (const u of state.units) {
-      // жёлтый догоняет вниз к красному
+
       if (u.hpLag > u.hpInstant) {
         u.hpLag = Math.max(u.hpInstant, u.hpLag - lagSpeed * dt);
         updateHpBar(scene, u);
@@ -565,3 +638,4 @@ export function createUnitSystem(scene) {
     update,
   };
 }
+
