@@ -49,7 +49,6 @@ state.loseStreak = state.loseStreak ?? 0; // подряд пораж
 let prepSnapshot = null; // Array of units
 
 // ---- battle timers (GLOBAL, not per connection) ----
-let battleTimer = null;
 let finishTimeout = null;
 
 // ---- solo lobby / pairings (MVP) ----
@@ -378,10 +377,6 @@ function grantRoundXpToAllBots(deltaXp = 1) {
 }
 
 function stopBattleTimers() {
-  if (battleTimer) {
-    clearInterval(battleTimer);
-    battleTimer = null;
-  }
   if (finishTimeout) {
     clearTimeout(finishTimeout);
     finishTimeout = null;
@@ -751,55 +746,12 @@ const NEIGHBORS = [
   { dq: 0, dr: 1 },
 ];
 
-function findClosestOpponent(attacker) {
-  if (!attacker || attacker.dead) return null;
-  const opponentTeam = attacker.team === 'player' ? 'enemy' : 'player';
-
-  let best = null;
-  let bestDist = Infinity;
-
-  for (const u of state.units) {
-    if (u.zone !== 'board') continue;
-    if (u.dead) continue;
-    if (u.team !== opponentTeam) continue;
-
-    const d = hexDistance(attacker.q, attacker.r, u.q, u.r);
-    if (d < bestDist) {
-      bestDist = d;
-      best = u;
-    }
-  }
-
-  return best;
-}
-
 function findUnitById(id) {
   return state.units.find(u => u.id === id) ?? null;
 }
 
 function getUnitInBenchSlot(slot) {
   return state.units.find(u => u.zone === 'bench' && u.benchSlot === slot) ?? null;
-}
-
-function pickBestStepToward(attacker, target) {
-  let best = null;
-  let bestDist = Infinity;
-
-  for (const n of NEIGHBORS) {
-    const nq = attacker.q + n.dq;
-    const nr = attacker.r + n.dr;
-
-    if (!isInsideBoard(nq, nr)) continue;
-    if (getUnitAt(state, nq, nr)) continue;
-
-    const d = hexDistance(nq, nr, target.q, target.r);
-    if (d < bestDist) {
-      bestDist = d;
-      best = { q: nq, r: nr };
-    }
-  }
-
-  return best;
 }
 
 function broadcast(obj) {
@@ -816,23 +768,6 @@ function spawnPlayerUnitFor(clientId) {
   return null;
 }
 
-
-function computeResult() {
-  const hasPlayer = state.units.some(u => u.team === 'player' && u.zone === 'board' && !u.dead);
-  const hasEnemy = state.units.some(u => u.team === 'enemy' && u.zone === 'board' && !u.dead);
-
-  // смерть короля = конец
-  const pKing = state.kings?.player;
-  const eKing = state.kings?.enemy;
-
-  if (pKing && pKing.hp <= 0) return 'defeat';
-  if (eKing && eKing.visible && eKing.hp <= 0) return 'victory';
-
-  if (hasPlayer && !hasEnemy) return 'victory';
-  if (!hasPlayer && hasEnemy) return 'defeat';
-  if (!hasPlayer && !hasEnemy) return 'draw';
-  return null;
-}
 
 function cloneStateForBattleReplay(sourceState) {
   return {
@@ -987,10 +922,6 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
     result = computeResultIn(simState);
     if (result) break;
 
-    if (!didSomething) {
-      events.push({ t: tickTimeMs, type: 'idleTick' });
-    }
-
     elapsedMs += tickMs;
   }
 
@@ -1005,6 +936,23 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
     result,
     events,
   };
+}
+
+function sanitizeUnitForBattleStart(unit) {
+  if (!unit) return;
+  unit.moveCdMs = 0;
+  unit.attackSeq = 0;
+}
+
+function clonePlayerUnitForPrep(unit) {
+  const clone = { ...unit };
+  clone.moveCdMs = 0;
+  clone.attackSeq = 0;
+  clone.dead = false;
+  if (Number(clone.hp ?? 0) <= 0) {
+    clone.hp = Number(clone.maxHp ?? clone.hp ?? 1);
+  }
+  return clone;
 }
 
 function resetToPrep() {
@@ -1031,10 +979,10 @@ function resetToPrep() {
   const snapshotIds = new Set(snapshotUnits.map(u => u.id));
   const extraBenchBoughtDuringResult = (state.units ?? [])
     .filter(u => u.team === 'player' && u.zone === 'bench' && !snapshotIds.has(u.id))
-    .map(u => ({ ...u }));
+    .map((u) => clonePlayerUnitForPrep(u));
 
   state.units = [
-    ...snapshotUnits.map(u => ({ ...u })),
+    ...snapshotUnits.map((u) => clonePlayerUnitForPrep(u)),
     ...extraBenchBoughtDuringResult,
   ];
 
@@ -1080,7 +1028,7 @@ function startBattle() {
   // (в том числе перед instant defeat, если на доске пусто)
   prepSnapshot = state.units
     .filter(u => u.team === 'player')
-    .map(u => ({ ...u }));
+    .map((u) => clonePlayerUnitForPrep(u));
 
   // 2) Если на доске нет игроков — мгновенное поражение
   const hasPlayersOnBoard = state.units.some(u => u.team === 'player' && u.zone === 'board');
@@ -1092,16 +1040,44 @@ function startBattle() {
   // дальше обычный старт боя...
   state.phase = 'battle';
   state.result = null;
+  state.battleReplay = null;
 
-  // --- battle countdown (для UI + ничья по таймауту) ---
-  // сбрасываем и запускаем 40 секунд
-  state.battleSecondsLeft = BATTLE_DURATION_SECONDS;
+  // спавним армию бота только на старт боя
+  spawnBotArmy();
+
+  for (const u of (state.units ?? [])) {
+    if (u?.zone !== 'board') continue;
+    sanitizeUnitForBattleStart(u);
+  }
+
+  // enemy king появляется только в бою
+  if (state.kings?.enemy) {
+    state.kings.enemy.visible = true;
+    state.kings.enemy.name = getCurrentOpponentBotName();
+  }
+
+  // Replay-only authoritative battle simulation.
+  state.battleReplay = simulateBattleReplayFromState(state, {
+    tickMs: 450,
+    maxBattleMs: BATTLE_DURATION_SECONDS * 1000,
+  });
+
+  const replayResult = state.battleReplay?.result ?? 'draw';
+  const rawDurationMs = Number(state.battleReplay?.durationMs ?? 0);
+  const battleDurationMs = Number.isFinite(rawDurationMs)
+    ? Math.max(0, Math.min(BATTLE_DURATION_SECONDS * 1000, rawDurationMs))
+    : (BATTLE_DURATION_SECONDS * 1000);
+
+  state.battleSecondsLeft = Math.max(0, Math.ceil(battleDurationMs / 1000));
   broadcast(makeStateMessage(state));
 
-  if (battleCountdownTimer) {
-    clearInterval(battleCountdownTimer);
-    battleCountdownTimer = null;
+  if (battleDurationMs <= 0) {
+    finishBattle(replayResult);
+    return;
   }
+
+  const startedAt = Date.now();
+  let lastShownSeconds = Number(state.battleSecondsLeft ?? 0);
 
   battleCountdownTimer = setInterval(() => {
     if (state.phase !== 'battle') {
@@ -1110,107 +1086,19 @@ function startBattle() {
       return;
     }
 
-    state.battleSecondsLeft = Math.max(0, Number(state.battleSecondsLeft ?? 0) - 1);
-    broadcast(makeStateMessage(state));
-
-    if (state.battleSecondsLeft <= 0) {
-      // бой не закончился, а время вышло → ничья
-      clearInterval(battleCountdownTimer);
-      battleCountdownTimer = null;
-
-      // важно: остановить текущие battle-таймеры/петли (если у тебя там интервалы тика)
-      stopBattleTimers();
-
-      finishBattle('draw');
-    }
-  }, 1000);
-
-  // спавним армию бота только на старт боя
-  spawnBotArmy();
-
-  // enemy king появляется только в бою
-  if (state.kings?.enemy) {
-    state.kings.enemy.visible = true;
-    state.kings.enemy.name = getCurrentOpponentBotName();
-  }
-
-  // Foundation for replay mode: precompute a complete battle log on a cloned state.
-  // Current realtime server ticks remain active for compatibility until client replay playback is wired.
-  state.battleReplay = simulateBattleReplayFromState(state, {
-    tickMs: 450,
-    maxBattleMs: BATTLE_DURATION_SECONDS * 1000,
-  });
-
-  broadcast(makeStateMessage(state));
-
-  const tickMs = 450;
-
-  battleTimer = setInterval(() => {
-    if (state.phase !== 'battle') return;
-
-    const resNow = computeResult();
-    if (resNow) {
-      finishBattle(resNow);
-      return;
-    }
-
-    let didSomething = false;
-
-    // ходят все юниты на доске (player + enemy)
-    const actors = state.units
-      .filter(u => u.zone === 'board' && !u.dead && (u.team === 'player' || u.team === 'enemy'))
-      .slice()
-      .sort((a, b) => a.id - b.id);
-
-    for (const a of actors) {
-      const me = findUnitById(a.id);
-      if (!me) continue;
-
-      // ✅ NEW: кулдаун движения/действия
-      me.moveCdMs = Math.max(0, (me.moveCdMs ?? 0) - tickMs);
-      if (me.moveCdMs > 0) continue;
-
-      const target = findClosestOpponent(me);
-      if (!target) continue;
-
-      const dist = hexDistance(me.q, me.r, target.q, target.r);
-
-      if (dist <= 1) {
-        const res = attack(state, me.id, target.id);
-        if (res.success) {
-          didSomething = true;
-          me.attackSeq = Number(me.attackSeq ?? 0) + 1;
-
-          // ✅ атака тоже "занимает время", но теперь по attackSpeed (100 = 1 атака/сек)
-          const atkSpd = Math.max(1, Number(me.attackSpeed ?? 100));
-          const atkCdMs = Math.max(120, Math.round(100000 / atkSpd));
-          me.moveCdMs = atkCdMs;
-        }
-        continue;
-      }
-
-      const step = pickBestStepToward(me, target);
-      if (!step) continue;
-
-      const moved = moveUnit(state, me.id, step.q, step.r);
-      if (moved) {
-        didSomething = true;
-
-        // ✅ NEW: длительность шага зависит от скорости
-        const spd = Number(me.moveSpeed ?? 2.0);
-        const stepMs = Math.max(120, Math.round(1000 / spd));
-        me.moveCdMs = stepMs;
-      }
-    }
-
-    if (didSomething) {
+    const elapsed = Date.now() - startedAt;
+    const remainingMs = Math.max(0, battleDurationMs - elapsed);
+    const nextSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
+    if (nextSeconds !== lastShownSeconds) {
+      lastShownSeconds = nextSeconds;
+      state.battleSecondsLeft = nextSeconds;
       broadcast(makeStateMessage(state));
     }
+  }, 250);
 
-    const resAfter = computeResult();
-    if (resAfter) finishBattle(resAfter);
-
-  }, tickMs);
+  finishTimeout = setTimeout(() => {
+    finishBattle(replayResult);
+  }, battleDurationMs);
 }
 
 function handleIntent(clientId, msg, ws) {
@@ -1244,7 +1132,6 @@ function handleIntent(clientId, msg, ws) {
       Number(state.prepSecondsLeft ?? 0) === 0 &&
       Number(state.battleSecondsLeft ?? 0) === 0 &&
       !prepTimer &&
-      !battleTimer &&
       !finishTimeout;
 
     if (!isPreStart) {
