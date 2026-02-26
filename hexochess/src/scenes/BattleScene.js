@@ -37,7 +37,8 @@ const EXTRA_PORTRAIT_ASSETS = [
 
 const SHOP_OFFER_COUNT = 5;
 const SHOP_CARD_ART_LIFT_Y = 75; // увеличивай/уменьшай, чтобы поднять/опустить арт в сером блоке карточки
-const AUTO_ENTER_TEST_SCENE_ON_BOOT = true; // временно: быстрый вход сразу в test scene
+const AUTO_ENTER_TEST_SCENE_ON_BOOT = false; // обычный старт: live battle scene
+const USE_SERVER_BATTLE_REPLAY = true; // постепенный переход: клиент проигрывает precomputed battleReplay от сервера
 const UI_TEXT = {
   START_GAME: '\u041d\u0410\u0427\u0410\u0422\u042c \u0418\u0413\u0420\u0423',
   TEST_SCENE: '\u0422\u0435\u0441\u0442\u043e\u0432\u0430\u044f \u0441\u0446\u0435\u043d\u0430',
@@ -190,6 +191,11 @@ export default class BattleScene extends Phaser.Scene {
   create() {
     this.cameras.main.setBackgroundColor('#1e1e1e');
     this.battleState = createBattleState();   // core state (пока пустой, ждём сервер)
+    this.serverReplayPlayback = {
+      active: false,
+      token: 0,
+      timers: [],
+    };
     this.coreUnitsById = new Map();
     this.kingXpCost = KING_XP_COST;
     this.kingMaxLevel = KING_MAX_LEVEL;
@@ -567,6 +573,7 @@ export default class BattleScene extends Phaser.Scene {
       this.syncKingsUI();
       this.syncShopUI();
       this.refreshAllDraggable();
+      this.maybeStartServerBattleReplayPlayback?.(this.battleState, { force: true });
     };
 
     this.ws.onState = (state) => {
@@ -578,21 +585,45 @@ export default class BattleScene extends Phaser.Scene {
       const prevState = this.battleState;
       const prevPhase = this.battleState?.phase ?? null;
       const prevResult = this.battleState?.result ?? null;
-      this.battleState = state;
 
-      const phaseChanged = (state?.phase ?? null) !== prevPhase;
-      const resultChanged = (state?.result ?? null) !== prevResult;
+      let nextState = state;
+      const replayIsRunning =
+        USE_SERVER_BATTLE_REPLAY &&
+        !this.testSceneActive &&
+        !!this.serverReplayPlayback?.active;
+
+      // During replay playback we keep local unit timeline authoritative for visuals.
+      // Server snapshots still update phase/result/kings/shop/debug state.
+      if (replayIsRunning && state?.phase === 'battle') {
+        const localUnits = (this.battleState?.units ?? []).map((u) => ({ ...u }));
+        const localBoardUnits = localUnits.filter((u) => u?.zone === 'board');
+        const serverNonBoardUnits = (state?.units ?? [])
+          .filter((u) => u?.zone !== 'board')
+          .map((u) => ({ ...u }));
+
+        // During replay: board units are driven by local replay timeline,
+        // while bench/non-board units remain server-authoritative (shop buys, bench management).
+        nextState = {
+          ...state,
+          units: [...localBoardUnits, ...serverNonBoardUnits],
+        };
+      }
+
+      this.battleState = nextState;
+
+      const phaseChanged = (nextState?.phase ?? null) !== prevPhase;
+      const resultChanged = (nextState?.result ?? null) !== prevResult;
       const phaseUiChanged =
         phaseChanged ||
         resultChanged ||
-        Boolean(prevState?.gameStarted) !== Boolean(state?.gameStarted) ||
-        Number(prevState?.round ?? 0) !== Number(state?.round ?? 0) ||
-        Number(prevState?.prepSecondsLeft ?? 0) !== Number(state?.prepSecondsLeft ?? 0) ||
-        Number(prevState?.battleSecondsLeft ?? 0) !== Number(state?.battleSecondsLeft ?? 0);
-      const unitsChanged = !areUnitsEqual(prevState?.units, state?.units);
+        Boolean(prevState?.gameStarted) !== Boolean(nextState?.gameStarted) ||
+        Number(prevState?.round ?? 0) !== Number(nextState?.round ?? 0) ||
+        Number(prevState?.prepSecondsLeft ?? 0) !== Number(nextState?.prepSecondsLeft ?? 0) ||
+        Number(prevState?.battleSecondsLeft ?? 0) !== Number(nextState?.battleSecondsLeft ?? 0);
+      const unitsChanged = !areUnitsEqual(prevState?.units, nextState?.units);
       const pendingAttackAnimIds = new Set();
       const prevUnitsById = new Map((prevState?.units ?? []).map((u) => [u.id, u]));
-      for (const u of (state?.units ?? [])) {
+      for (const u of (nextState?.units ?? [])) {
         const prev = prevUnitsById.get(u.id);
         if (!prev) continue;
         const prevAttackSeq = Number(prev.attackSeq ?? 0);
@@ -600,8 +631,8 @@ export default class BattleScene extends Phaser.Scene {
         if (nextAttackSeq > prevAttackSeq) pendingAttackAnimIds.add(u.id);
       }
       this.pendingAttackAnimIds = pendingAttackAnimIds;
-      const kingsChanged = !areKingsEqual(prevState?.kings, state?.kings);
-      const shopChanged = !areShopOffersEqual(prevState?.shop, state?.shop);
+      const kingsChanged = !areKingsEqual(prevState?.kings, nextState?.kings);
+      const shopChanged = !areShopOffersEqual(prevState?.shop, nextState?.shop);
 
       // На смене только result (без смены фазы) не анимируем UI магазина,
       // чтобы кнопки не "доезжали" как при ручном закрытии.
@@ -611,10 +642,10 @@ export default class BattleScene extends Phaser.Scene {
       }
 
       if (phaseChanged) {
-        if (state?.phase === 'battle' && !state?.result) this.shopCollapsed = true;
-        if (state?.phase === 'prep' && !state?.result) this.shopCollapsed = false;
+        if (nextState?.phase === 'battle' && !nextState?.result) this.shopCollapsed = true;
+        if (nextState?.phase === 'prep' && !nextState?.result) this.shopCollapsed = false;
         this.gridStaticDirty = true;
-        if (state?.phase !== 'prep' || state?.result) {
+        if (nextState?.phase !== 'prep' || nextState?.result) {
           this.draggingUnitId = null;
           this.dragBoardHover = null;
           this.dragBenchHoverSlot = null;
@@ -647,6 +678,11 @@ export default class BattleScene extends Phaser.Scene {
       if (needShopUi) this.syncShopUI();
       if (needRefreshDraggable) this.refreshAllDraggable();
       this.syncDebugUI?.();
+
+      this.maybeStartServerBattleReplayPlayback?.(state);
+      if (nextState?.phase !== 'battle') {
+        this.stopServerBattleReplayPlayback?.();
+      }
     };
 
     this.ws.onError = (err) => {
@@ -663,10 +699,12 @@ export default class BattleScene extends Phaser.Scene {
     this.ws.connect();
 
     this.events.once('shutdown', () => {
+      this.stopServerBattleReplayPlayback?.();
       this.ws?.close();
     });
 
     this.events.once('destroy', () => {
+      this.stopServerBattleReplayPlayback?.();
       this.ws?.close();
     });
     this.bindDragHandlers();
@@ -1226,6 +1264,129 @@ export default class BattleScene extends Phaser.Scene {
       const hitCx = Math.round((left + right) / 2);
       this.coinHit.setPosition(hitCx, isAtCoinMax ? 4 : 0);
       this.coinHit.setSize(hitW, hitH);
+    }
+  }
+
+  stopServerBattleReplayPlayback() {
+    if (!this.serverReplayPlayback) return;
+    this.serverReplayPlayback.active = false;
+    this.serverReplayPlayback.token = Number(this.serverReplayPlayback.token ?? 0) + 1;
+    for (const t of (this.serverReplayPlayback.timers ?? [])) {
+      try { t?.remove?.(false); } catch {}
+    }
+    this.serverReplayPlayback.timers = [];
+  }
+
+  startServerBattleReplayPlayback(replay, battleStartState) {
+    if (!USE_SERVER_BATTLE_REPLAY || !replay || this.testSceneActive) return;
+    if (!Array.isArray(replay.events)) return;
+
+    this.stopServerBattleReplayPlayback();
+    const token = Number(this.serverReplayPlayback?.token ?? 0) + 1;
+    this.serverReplayPlayback = { active: true, token, timers: [] };
+
+    // Start from the server-provided battle snapshot and animate locally by replay events.
+    this.battleState = {
+      ...this.battleState,
+      ...battleStartState,
+      units: (battleStartState?.units ?? []).map((u) => ({ ...u })),
+    };
+    this.pendingAttackAnimIds = new Set();
+    this.renderFromState();
+    this.drawGrid();
+    this.syncKingsUI();
+    this.refreshAllDraggable();
+
+    const grouped = new Map();
+    for (const ev of (replay.events ?? [])) {
+      const t = Math.max(0, Number(ev?.t ?? 0));
+      if (!grouped.has(t)) grouped.set(t, []);
+      grouped.get(t).push(ev);
+    }
+
+    const applyAtTime = (eventsAtT) => {
+      if (!this.serverReplayPlayback?.active || this.serverReplayPlayback.token !== token) return;
+      if (!Array.isArray(eventsAtT) || eventsAtT.length === 0) return;
+
+      const pendingAttack = new Set();
+      for (const ev of eventsAtT) {
+        this.applyServerBattleReplayEvent?.(ev, pendingAttack);
+      }
+
+      this.pendingAttackAnimIds = pendingAttack;
+      this.renderFromState();
+      this.drawGrid();
+      this.syncKingsUI();
+    };
+
+    for (const [t, eventsAtT] of grouped.entries()) {
+      const timer = this.time.delayedCall(t, () => applyAtTime(eventsAtT));
+      this.serverReplayPlayback.timers.push(timer);
+    }
+
+    // Do not auto-disable playback at replay end:
+    // keep replay board state authoritative until server leaves battle phase.
+  }
+
+  maybeStartServerBattleReplayPlayback(rawServerState, { force = false } = {}) {
+    if (!USE_SERVER_BATTLE_REPLAY || this.testSceneActive) return;
+    const s = rawServerState ?? this.battleState;
+    if (!s || s.phase !== 'battle' || s.result) return;
+    const replay = s.battleReplay ?? null;
+    if (!replay?.events) return;
+
+    const replayKey = JSON.stringify({
+      phase: s.phase,
+      round: Number(s.round ?? 0),
+      result: s.result ?? null,
+      events: Array.isArray(replay.events) ? replay.events.length : 0,
+      durationMs: Number(replay.durationMs ?? 0),
+    });
+
+    if (!force && this.serverReplayPlayback?.active && this.serverReplayPlayback?.replayKey === replayKey) {
+      return;
+    }
+    if (!force && this.serverReplayPlayback?.lastReplayKey === replayKey && this.serverReplayPlayback?.active) {
+      return;
+    }
+
+    this.startServerBattleReplayPlayback(replay, s);
+    if (this.serverReplayPlayback) {
+      this.serverReplayPlayback.replayKey = replayKey;
+      this.serverReplayPlayback.lastReplayKey = replayKey;
+    }
+  }
+
+  applyServerBattleReplayEvent(ev, pendingAttackAnimIds = null) {
+    if (!ev || !this.battleState) return;
+    const units = this.battleState.units ?? [];
+    const byId = new Map(units.map((u) => [u.id, u]));
+
+    if (ev.type === 'move') {
+      const u = byId.get(ev.unitId);
+      if (!u || u.dead) return;
+      u.q = Number(ev.q ?? u.q);
+      u.r = Number(ev.r ?? u.r);
+      u.zone = 'board';
+      return;
+    }
+
+    if (ev.type === 'attack') {
+      const attacker = byId.get(ev.attackerId);
+      const target = byId.get(ev.targetId);
+      if (attacker) {
+        attacker.attackSeq = Number(ev.attackSeq ?? (Number(attacker.attackSeq ?? 0) + 1));
+        if (pendingAttackAnimIds) pendingAttackAnimIds.add(attacker.id);
+      }
+      if (target) {
+        if (Number.isFinite(Number(ev.targetMaxHp))) target.maxHp = Number(ev.targetMaxHp);
+        if (Number.isFinite(Number(ev.targetHp))) target.hp = Number(ev.targetHp);
+        if (ev.killed) {
+          target.hp = 0;
+          target.dead = true;
+        }
+      }
+      return;
     }
   }
 

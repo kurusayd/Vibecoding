@@ -410,6 +410,7 @@ function resetGameToStart() {
   state.phase = 'prep';
   state.result = null;
   state.gameStarted = false;
+  state.battleReplay = null;
   state.units = [];
 
   state.round = 1;
@@ -833,6 +834,179 @@ function computeResult() {
   return null;
 }
 
+function cloneStateForBattleReplay(sourceState) {
+  return {
+    phase: sourceState.phase,
+    result: sourceState.result,
+    units: (sourceState.units ?? []).map((u) => ({ ...u })),
+    kings: {
+      player: { ...(sourceState.kings?.player ?? {}) },
+      enemy: { ...(sourceState.kings?.enemy ?? {}) },
+    },
+  };
+}
+
+function findUnitByIdIn(simState, id) {
+  return simState.units.find((u) => u.id === id) ?? null;
+}
+
+function getUnitAtIn(simState, q, r) {
+  return simState.units.find((u) => u.zone === 'board' && !u.dead && u.q === q && u.r === r) ?? null;
+}
+
+function findClosestOpponentIn(simState, attacker) {
+  if (!attacker || attacker.dead) return null;
+  const opponentTeam = attacker.team === 'player' ? 'enemy' : 'player';
+
+  let best = null;
+  let bestDist = Infinity;
+  for (const u of simState.units) {
+    if (u.zone !== 'board') continue;
+    if (u.dead) continue;
+    if (u.team !== opponentTeam) continue;
+    const d = hexDistance(attacker.q, attacker.r, u.q, u.r);
+    if (d < bestDist) {
+      bestDist = d;
+      best = u;
+    }
+  }
+  return best;
+}
+
+function pickBestStepTowardIn(simState, attacker, target) {
+  let best = null;
+  let bestDist = Infinity;
+
+  for (const n of NEIGHBORS) {
+    const nq = attacker.q + n.dq;
+    const nr = attacker.r + n.dr;
+    if (!isInsideBoard(nq, nr)) continue;
+    if (getUnitAtIn(simState, nq, nr)) continue;
+    const d = hexDistance(nq, nr, target.q, target.r);
+    if (d < bestDist) {
+      bestDist = d;
+      best = { q: nq, r: nr };
+    }
+  }
+  return best;
+}
+
+function computeResultIn(simState) {
+  const hasPlayer = simState.units.some(u => u.team === 'player' && u.zone === 'board' && !u.dead);
+  const hasEnemy = simState.units.some(u => u.team === 'enemy' && u.zone === 'board' && !u.dead);
+
+  const pKing = simState.kings?.player;
+  const eKing = simState.kings?.enemy;
+  if (pKing && pKing.hp <= 0) return 'defeat';
+  if (eKing && eKing.visible && eKing.hp <= 0) return 'victory';
+
+  if (hasPlayer && !hasEnemy) return 'victory';
+  if (!hasPlayer && hasEnemy) return 'defeat';
+  if (!hasPlayer && !hasEnemy) return 'draw';
+  return null;
+}
+
+function simulateBattleReplayFromState(sourceState, opts = {}) {
+  const tickMs = Number(opts.tickMs ?? 450);
+  const maxBattleMs = Number(opts.maxBattleMs ?? (BATTLE_DURATION_SECONDS * 1000));
+  const simState = cloneStateForBattleReplay(sourceState);
+  const events = [];
+
+  let elapsedMs = 0;
+  let result = computeResultIn(simState);
+
+  while (!result && elapsedMs < maxBattleMs) {
+    const tickTimeMs = elapsedMs;
+    let didSomething = false;
+
+    const actors = simState.units
+      .filter(u => u.zone === 'board' && !u.dead && (u.team === 'player' || u.team === 'enemy'))
+      .slice()
+      .sort((a, b) => a.id - b.id);
+
+    for (const a of actors) {
+      const me = findUnitByIdIn(simState, a.id);
+      if (!me || me.dead || me.zone !== 'board') continue;
+
+      me.moveCdMs = Math.max(0, (me.moveCdMs ?? 0) - tickMs);
+      if (me.moveCdMs > 0) continue;
+
+      const target = findClosestOpponentIn(simState, me);
+      if (!target) continue;
+
+      const dist = hexDistance(me.q, me.r, target.q, target.r);
+      if (dist <= 1) {
+        const targetBefore = { hp: Number(target.hp ?? 0), maxHp: Number(target.maxHp ?? target.hp ?? 0) };
+        const res = attack(simState, me.id, target.id);
+        if (res.success) {
+          didSomething = true;
+          me.attackSeq = Number(me.attackSeq ?? 0) + 1;
+          const targetAfter = findUnitByIdIn(simState, target.id);
+          events.push({
+            t: tickTimeMs,
+            type: 'attack',
+            attackerId: me.id,
+            targetId: target.id,
+            attackerTeam: me.team,
+            attackSeq: Number(me.attackSeq ?? 0),
+            damage: Math.max(0, targetBefore.hp - Number(targetAfter?.hp ?? 0)),
+            targetHp: Number(targetAfter?.hp ?? 0),
+            targetMaxHp: Number(targetAfter?.maxHp ?? targetBefore.maxHp),
+            killed: Boolean(res.killed),
+          });
+
+          const atkSpd = Math.max(1, Number(me.attackSpeed ?? 100));
+          me.moveCdMs = Math.max(120, Math.round(100000 / atkSpd));
+        }
+        continue;
+      }
+
+      const step = pickBestStepTowardIn(simState, me, target);
+      if (!step) continue;
+
+      const from = { q: me.q, r: me.r };
+      const moved = moveUnit(simState, me.id, step.q, step.r);
+      if (moved) {
+        didSomething = true;
+        events.push({
+          t: tickTimeMs,
+          type: 'move',
+          unitId: me.id,
+          team: me.team,
+          fromQ: from.q,
+          fromR: from.r,
+          q: step.q,
+          r: step.r,
+        });
+
+        const spd = Number(me.moveSpeed ?? 2.0);
+        me.moveCdMs = Math.max(120, Math.round(1000 / spd));
+      }
+    }
+
+    result = computeResultIn(simState);
+    if (result) break;
+
+    if (!didSomething) {
+      events.push({ t: tickTimeMs, type: 'idleTick' });
+    }
+
+    elapsedMs += tickMs;
+  }
+
+  if (!result) result = 'draw';
+
+  return {
+    version: 1,
+    mode: 'server-sim',
+    tickMs,
+    maxBattleMs,
+    durationMs: Math.min(elapsedMs, maxBattleMs),
+    result,
+    events,
+  };
+}
+
 function resetToPrep() {
   // Auto Chess rule: +1 XP each round (win/lose doesn’t matter)
   applyKingXp(state.kings.player, 1);
@@ -847,6 +1021,7 @@ function resetToPrep() {
   grantRoundGoldToAllBots(state.result);
   state.phase = 'prep';
   state.result = null;
+  state.battleReplay = null;
 
   // enemy king скрыт в prep
   if (state.kings?.enemy) state.kings.enemy.visible = false;
@@ -958,6 +1133,14 @@ function startBattle() {
     state.kings.enemy.visible = true;
     state.kings.enemy.name = getCurrentOpponentBotName();
   }
+
+  // Foundation for replay mode: precompute a complete battle log on a cloned state.
+  // Current realtime server ticks remain active for compatibility until client replay playback is wired.
+  state.battleReplay = simulateBattleReplayFromState(state, {
+    tickMs: 450,
+    maxBattleMs: BATTLE_DURATION_SECONDS * 1000,
+  });
+
   broadcast(makeStateMessage(state));
 
   const tickMs = 450;

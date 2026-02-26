@@ -7,6 +7,7 @@ export function createBattleState() {
     phase: 'prep',     // 'prep' | 'battle'
     result: null,      // null | 'victory' | 'defeat' | 'draw'
     gameStarted: false,
+    battleReplay: null, // precomputed server battle log (future client replay playback)
     units: [],
 
     // короли: UI + условия окончания (позже сюда ляжет урон/награды)
