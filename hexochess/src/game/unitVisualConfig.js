@@ -57,7 +57,7 @@ export const UNIT_VISUAL_CONFIG_BY_TYPE = {
     groundLiftPx: 100,
     artTargetPx: 170,
     artOffsetXPx: 0,
-    hpUiLiftPx: 0,
+    hpUiLiftPx: 35,
   },
   SkeletonArcher: {
     groundLiftPx: 100,
