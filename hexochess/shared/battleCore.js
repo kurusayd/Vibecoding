@@ -1,9 +1,12 @@
+import { KING_MAX_LEVEL, KING_XP_COST, kingXpToNext } from './kingXpConfig.js';
+
 // ===== Чистое боевое ядро (без Phaser) =====
 
 export function createBattleState() {
   return {
     phase: 'prep',     // 'prep' | 'battle'
     result: null,      // null | 'victory' | 'defeat' | 'draw'
+    gameStarted: false,
     units: [],
 
     // короли: UI + условия окончания (позже сюда ляжет урон/награды)
@@ -91,39 +94,7 @@ export function attack(state, attackerId, targetId) {
   return { success: true, killed: false };
 }
 
-// ===== King leveling (Auto Chess-like) =====
-// cost = XP needed to go from level L to L+1
-// DAC sources cover up to level 10, and community sources mention 11:48, 12:56.
-// We extend to 20 by continuing +8 per level (easy to tweak later).
-export const KING_MAX_LEVEL = 20;
-
-export const KING_XP_COST = [
-  0,  // dummy for index 0
-  1,  // 1->2
-  1,  // 2->3
-  2,  // 3->4
-  4,  // 4->5
-  8,  // 5->6
-  16, // 6->7
-  24, // 7->8
-  32, // 8->9
-  40, // 9->10
-  48, // 10->11
-  56, // 11->12
-  64, // 12->13
-  72, // 13->14
-  80, // 14->15
-  88, // 15->16
-  96, // 16->17
-  104,// 17->18
-  112,// 18->19
-  120,// 19->20
-];
-
-export function kingXpToNext(level) {
-  if (level >= KING_MAX_LEVEL) return 0;
-  return KING_XP_COST[level] ?? 0;
-}
+export { KING_MAX_LEVEL, KING_XP_COST, kingXpToNext };
 
 export function applyKingXp(king, deltaXp) {
   if (!king) return;

@@ -9,4 +9,3 @@ lazy-load debug/test UI модули (по кнопке Debug / test scene)
 
 2. Разбить god files (index.js, BattleScene.js)
 Суть: декомпозиция по ответственности для поддержки и безопасных изменений.
-Что делать:

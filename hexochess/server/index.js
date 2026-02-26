@@ -23,6 +23,7 @@ import {
 } from '../shared/messages.js';
 import { UNIT_CATALOG } from '../shared/unitCatalog.js';
 import { baseIncomeForRound, interestIncome, streakBonus, COINS_CAP } from '../shared/economy.js';
+import { getBotProfileByIndex, getBotProfileById } from './botProfiles.js';
 
 // ---- game state (authoritative) ----
 const state = createBattleState();
@@ -50,6 +51,193 @@ let prepSnapshot = null; // Array of units
 let battleTimer = null;
 let finishTimeout = null;
 
+// ---- solo lobby / pairings (MVP) ----
+const LOBBY_SIZE = 8;
+const SOLO_PLAYER_ID = 'player-1';
+const SOLO_PLAYER_NAME = 'Player';
+const BOT_COUNT = LOBBY_SIZE - 1;
+
+const roomState = {
+  participants: [],
+  pairings: [],
+  hiddenBattles: [],
+  playerOpponentId: null,
+};
+
+function isAllPlayerOpponentsBots() {
+  const others = (roomState.participants ?? []).filter((p) => p?.id !== SOLO_PLAYER_ID && p?.alive !== false);
+  if (!others.length) return false;
+  return others.every((p) => p?.kind === 'bot');
+}
+
+function makeSoloLobbyParticipants() {
+  const list = [{ id: SOLO_PLAYER_ID, kind: 'human', name: SOLO_PLAYER_NAME, alive: true }];
+  for (let i = 1; i <= BOT_COUNT; i++) {
+    const profile = getBotProfileByIndex(i);
+    const coinIncomeMultiplier = Number(profile?.difficulty?.coinIncomeMultiplier ?? 1);
+    list.push({
+      id: profile?.id ?? `bot-${i}`,
+      kind: 'bot',
+      name: profile?.name ?? `bot ${i}`,
+      alive: true,
+      kingVisualKey: profile?.kingVisualKey ?? 'king',
+      coins: 100,
+      hp: 100,
+      maxHp: 100,
+      level: 1,
+      xp: 0,
+      winStreak: 0,
+      loseStreak: 0,
+      difficulty: {
+        coinIncomeMultiplier: Number.isFinite(coinIncomeMultiplier) ? Math.max(0, coinIncomeMultiplier) : 1,
+      },
+    });
+  }
+  return list;
+}
+
+function ensureSoloLobbyInitialized() {
+  if (roomState.participants.length === LOBBY_SIZE) return;
+  roomState.participants = makeSoloLobbyParticipants();
+  roomState.pairings = [];
+  roomState.hiddenBattles = [];
+  roomState.playerOpponentId = null;
+}
+
+function resetSoloLobbyState() {
+  roomState.participants = makeSoloLobbyParticipants();
+  roomState.pairings = [];
+  roomState.hiddenBattles = [];
+  roomState.playerOpponentId = null;
+}
+
+function roundRobinPairings(participants, round) {
+  const active = (participants ?? []).filter(p => p?.alive !== false);
+  if (active.length < 2) return [];
+  if (active.length % 2 !== 0) return [];
+
+  const rounds = Math.max(1, active.length - 1);
+  const steps = ((Math.max(1, Number(round ?? 1)) - 1) % rounds + rounds) % rounds;
+
+  let arr = active.slice();
+  for (let i = 0; i < steps; i++) {
+    arr = [arr[0], arr[arr.length - 1], ...arr.slice(1, -1)];
+  }
+
+  const pairings = [];
+  for (let i = 0; i < arr.length / 2; i++) {
+    pairings.push([arr[i], arr[arr.length - 1 - i]]);
+  }
+  return pairings;
+}
+
+function makeBotDebugSnapshot() {
+  return (roomState.participants ?? [])
+    .filter((p) => p?.kind === 'bot')
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      alive: p.alive !== false,
+      coins: Number(p.coins ?? 0),
+      hp: Number(p.hp ?? 100),
+      maxHp: Number(p.maxHp ?? 100),
+      level: Number(p.level ?? 1),
+      xp: Number(p.xp ?? 0),
+      winStreak: Number(p.winStreak ?? 0),
+      loseStreak: Number(p.loseStreak ?? 0),
+      kingVisualKey: p.kingVisualKey ?? 'king',
+      coinIncomeMultiplier: Number(p?.difficulty?.coinIncomeMultiplier ?? 1),
+      isCurrentOpponent: p.id === roomState.playerOpponentId,
+    }))
+    .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+}
+
+function syncMatchmakingSnapshot() {
+  state.matchmaking = {
+    round: Number(state.round ?? 1),
+    phase: state.phase ?? 'prep',
+    allOpponentsBots: isAllPlayerOpponentsBots(),
+    playerOpponentId: roomState.playerOpponentId,
+    pairings: roomState.pairings.map(p => ({ ...p })),
+    hiddenBattles: roomState.hiddenBattles.map(h => ({ ...h })),
+    bots: makeBotDebugSnapshot(),
+  };
+}
+
+function syncRoundPairingsForCurrentRound() {
+  ensureSoloLobbyInitialized();
+
+  const pairings = roundRobinPairings(roomState.participants, state.round ?? 1);
+  roomState.pairings = pairings.map(([a, b]) => ({ aId: a.id, bId: b.id }));
+
+  const playerPair = pairings.find(([a, b]) => a.id === SOLO_PLAYER_ID || b.id === SOLO_PLAYER_ID) ?? null;
+  roomState.playerOpponentId = playerPair
+    ? (playerPair[0].id === SOLO_PLAYER_ID ? playerPair[1].id : playerPair[0].id)
+    : null;
+
+  roomState.hiddenBattles = pairings
+    .filter(([a, b]) => a.id !== SOLO_PLAYER_ID && b.id !== SOLO_PLAYER_ID)
+    .map(([a, b]) => ({
+      aId: a.id,
+      bId: b.id,
+      phase: 'prep',
+      result: null, // 'a' | 'b' | 'draw'
+    }));
+
+  const enemyProfile = getCurrentOpponentBotProfile();
+  if (state.kings?.enemy) {
+    state.kings.enemy.name = enemyProfile?.name ?? 'Enemy King';
+    state.kings.enemy.visualKey = enemyProfile?.kingVisualKey ?? 'king';
+    state.kings.enemy.coins = Number(enemyProfile?.coins ?? 0);
+    state.kings.enemy.level = Number(enemyProfile?.level ?? 1);
+    state.kings.enemy.xp = Number(enemyProfile?.xp ?? 0);
+    state.kings.enemy.coinIncomeMultiplier = Number(enemyProfile?.difficulty?.coinIncomeMultiplier ?? 1);
+  }
+
+  // Debug-friendly snapshot for client/UI.
+  syncMatchmakingSnapshot();
+}
+
+function getParticipantById(id) {
+  return roomState.participants.find(p => p.id === id) ?? null;
+}
+
+function getCurrentOpponentBotProfile() {
+  const fromParticipant = getParticipantById(roomState.playerOpponentId);
+  if (fromParticipant?.id) {
+    return {
+      id: fromParticipant.id,
+      name: fromParticipant.name,
+      kingVisualKey: fromParticipant.kingVisualKey,
+      coins: Number(fromParticipant.coins ?? 0),
+      level: Number(fromParticipant.level ?? 1),
+      xp: Number(fromParticipant.xp ?? 0),
+      difficulty: {
+        coinIncomeMultiplier: Number(fromParticipant?.difficulty?.coinIncomeMultiplier ?? 1),
+      },
+    };
+  }
+  return getBotProfileById(roomState.playerOpponentId);
+}
+
+function getCurrentOpponentBotName() {
+  return getCurrentOpponentBotProfile()?.name ?? 'Enemy King';
+}
+
+function markHiddenBattlesPhase(phase) {
+  roomState.hiddenBattles = roomState.hiddenBattles.map(h => ({ ...h, phase }));
+  syncMatchmakingSnapshot();
+}
+
+function resolveHiddenBattlesNoConsequences() {
+  roomState.hiddenBattles = roomState.hiddenBattles.map((h) => {
+    const roll = Math.random();
+    const result = roll < 0.45 ? 'a' : roll < 0.9 ? 'b' : 'draw';
+    return { ...h, phase: 'result', result };
+  });
+  syncMatchmakingSnapshot();
+}
+
 function clampCoinsKing(king) {
   king.coins = Math.max(0, Math.min(COINS_CAP, Number(king.coins ?? 0)));
 }
@@ -58,6 +246,10 @@ function clampPlayerCoins() {
   if (!state?.kings?.player) return;
   const c = Number(state.kings.player.coins ?? 0);
   state.kings.player.coins = Math.max(0, Math.min(COINS_CAP, c));
+}
+
+function clampCoinsValue(coins) {
+  return Math.max(0, Math.min(COINS_CAP, Number(coins ?? 0)));
 }
 
 function grantRoundGold(result) {
@@ -98,6 +290,92 @@ function grantRoundGold(result) {
   clampPlayerCoins();
 }
 
+function grantRoundGoldToBotParticipant(bot, result) {
+  if (!bot || bot.kind !== 'bot') return;
+
+  bot.coins = clampCoinsValue(bot.coins);
+  bot.winStreak = Number(bot.winStreak ?? 0);
+  bot.loseStreak = Number(bot.loseStreak ?? 0);
+
+  const round = Number(state.round ?? 1);
+  const base = baseIncomeForRound(round);
+  const didWin = (result === 'victory');
+  const didLose = (result === 'defeat');
+  const winBonus = didWin ? 1 : 0;
+
+  if (didWin) {
+    bot.winStreak += 1;
+    bot.loseStreak = 0;
+  } else if (didLose) {
+    bot.loseStreak += 1;
+    bot.winStreak = 0;
+  } else {
+    bot.winStreak = 0;
+    bot.loseStreak = 0;
+  }
+
+  const streak = didWin
+    ? streakBonus(bot.winStreak)
+    : didLose
+      ? streakBonus(bot.loseStreak)
+      : 0;
+
+  const interest = interestIncome(bot.coins);
+  const baseIncome = base + winBonus + streak + interest;
+  const multRaw = Number(bot?.difficulty?.coinIncomeMultiplier ?? 1);
+  const incomeMultiplier = Number.isFinite(multRaw) ? Math.max(0, multRaw) : 1;
+  const finalIncome = Math.ceil(baseIncome * incomeMultiplier);
+
+  bot.coins = clampCoinsValue(bot.coins + finalIncome);
+}
+
+function grantRoundGoldToAllBots(playerResult) {
+  if (!Array.isArray(roomState.participants) || roomState.participants.length === 0) return;
+
+  const botResults = new Map(); // botId -> 'victory' | 'defeat' | 'draw'
+
+  const playerOpponentId = roomState.playerOpponentId;
+  if (playerOpponentId) {
+    let botResult = 'draw';
+    if (playerResult === 'victory') botResult = 'defeat';
+    else if (playerResult === 'defeat') botResult = 'victory';
+    botResults.set(playerOpponentId, botResult);
+  }
+
+  for (const hb of (roomState.hiddenBattles ?? [])) {
+    const aId = hb?.aId;
+    const bId = hb?.bId;
+    if (!aId || !bId) continue;
+
+    if (hb.result === 'a') {
+      botResults.set(aId, 'victory');
+      botResults.set(bId, 'defeat');
+    } else if (hb.result === 'b') {
+      botResults.set(aId, 'defeat');
+      botResults.set(bId, 'victory');
+    } else {
+      botResults.set(aId, 'draw');
+      botResults.set(bId, 'draw');
+    }
+  }
+
+  for (const p of roomState.participants) {
+    if (!p || p.kind !== 'bot') continue;
+    const result = botResults.get(p.id) ?? 'draw';
+    grantRoundGoldToBotParticipant(p, result);
+  }
+}
+
+function grantRoundXpToAllBots(deltaXp = 1) {
+  const xpDelta = Number(deltaXp ?? 0);
+  if (!Number.isFinite(xpDelta) || xpDelta === 0) return;
+
+  for (const p of (roomState.participants ?? [])) {
+    if (!p || p.kind !== 'bot') continue;
+    applyKingXp(p, xpDelta);
+  }
+}
+
 function stopBattleTimers() {
   if (battleTimer) {
     clearInterval(battleTimer);
@@ -130,6 +408,7 @@ function resetGameToStart() {
 
   state.phase = 'prep';
   state.result = null;
+  state.gameStarted = false;
   state.units = [];
 
   state.round = 1;
@@ -140,10 +419,17 @@ function resetGameToStart() {
 
   state.kings = {
     player: { hp: 100, maxHp: 100, coins: 100, level: 1, xp: 0 },
-    enemy:  { hp: 100, maxHp: 100, coins: 0, visible: false, level: 1, xp: 0 },
+    enemy:  {
+      hp: 100, maxHp: 100, coins: 0, visible: false, level: 1, xp: 0,
+      name: 'bot 1',
+      visualKey: 'bot_bishop',
+      coinIncomeMultiplier: 1,
+    },
   };
 
   state.shop = { offers: [] };
+  resetSoloLobbyState();
+  syncRoundPairingsForCurrentRound();
 
   for (const owned of clientToUnits.values()) {
     owned.clear();
@@ -161,6 +447,12 @@ function startPrepCountdown() {
 
   // если уже battle — не стартуем
   if (state.phase !== 'prep') return;
+
+  if (isAllPlayerOpponentsBots()) {
+    state.prepSecondsLeft = 0;
+    broadcast(makeStateMessage(state));
+    return;
+  }
 
   const duration = prepDurationForRound(Number(state.round ?? 1));
   state.prepSecondsLeft = duration;
@@ -386,6 +678,15 @@ function findFirstFreeBoardCell() {
 }
 
 // ---- BOT ARMY (MVP) ----
+function colRowToAxial(col, r) {
+  return { q: col - Math.floor(r / 2), r };
+}
+
+function rankMultiplier(rank) {
+  const safeRank = Math.max(1, Math.min(3, Number(rank ?? 1)));
+  return 2 ** (safeRank - 1);
+}
+
 function clearEnemyUnits() {
   state.units = state.units.filter(u => u.team !== 'enemy');
 }
@@ -394,13 +695,13 @@ function spawnBotArmy() {
   clearEnemyUnits();
 
   // фикс-армия бота (пока хардкод)
-  const botUnits = [
-    { q: 6, r: 5, type: 'Swordsman' },
-    { q: 7, r: 5, type: 'Swordsman' },
-    { q: 6, r: 6, type: 'Crossbowman' },
-    { q: 7, r: 6, type: 'Crossbowman' },
-    { q: 8, r: 6, type: 'Knight'      },
-  ];
+  const enemyProfile = getCurrentOpponentBotProfile();
+  const fallbackProfile = getBotProfileByIndex(1);
+  const preset = enemyProfile?.armyPreset ?? fallbackProfile?.armyPreset ?? [];
+  const botUnits = preset.map((u) => {
+    const { q, r } = colRowToAxial(u.col, u.row);
+    return { q, r, type: u.type, rank: Math.max(1, Number(u.rank ?? 1)) };
+  });
 
   for (const b of botUnits) {
     // safety: если клетка занята или вне поля — просто пропускаем
@@ -408,17 +709,21 @@ function spawnBotArmy() {
     if (getUnitAt(state, b.q, b.r)) continue;
 
     const base = UNIT_CATALOG.find(x => x.type === b.type) ?? UNIT_CATALOG[0];
+    const rank = Math.max(1, Math.min(3, Number(b.rank ?? 1)));
+    const mult = rankMultiplier(rank);
+    const hp = Math.max(1, Math.round(Number(base.hp ?? 1) * mult));
+    const atk = Math.max(1, Math.round(Number(base.atk ?? 1) * mult));
     addUnit(state, {
       id: nextUnitId++,
       q: b.q,
       r: b.r,
-      hp: base.hp,
-      maxHp: base.hp,
-      atk: base.atk,
+      hp,
+      maxHp: hp,
+      atk,
       team: 'enemy',
       type: base.type,
       powerType: base.powerType,
-      rank: 1,
+      rank,
       zone: 'board',
       benchSlot: null,
       moveSpeed: base.moveSpeed,
@@ -530,6 +835,7 @@ function computeResult() {
 function resetToPrep() {
   // Auto Chess rule: +1 XP each round (win/lose doesn’t matter)
   applyKingXp(state.kings.player, 1);
+  grantRoundXpToAllBots(1);
 
   // следующий раунд начинается в prep
   state.round = Number(state.round ?? 1) + 1;
@@ -537,6 +843,7 @@ function resetToPrep() {
   // GOLD: начисляем золото за прошедший бой
   // state.result в этот момент ещё содержит 'victory/defeat/draw'
   grantRoundGold(state.result);
+  grantRoundGoldToAllBots(state.result);
   state.phase = 'prep';
   state.result = null;
 
@@ -564,6 +871,7 @@ function resetToPrep() {
 
   // каждый prep — новый магазин
   generateShopOffers();
+  syncRoundPairingsForCurrentRound();
 
   broadcast(makeStateMessage(state));
   startPrepCountdown();
@@ -571,6 +879,7 @@ function resetToPrep() {
 
 function finishBattle(result) {
   stopBattleTimers();
+  resolveHiddenBattlesNoConsequences();
 
   // показываем результат, остаёмся в battle-view до resetToPrep()
   state.phase = 'battle';
@@ -587,6 +896,9 @@ function finishBattle(result) {
 function startBattle() {
   stopPrepTimer();
   if (state.phase === 'battle') return;
+  ensureSoloLobbyInitialized();
+  syncRoundPairingsForCurrentRound();
+  markHiddenBattlesPhase('battle');
 
   // 1) Всегда сохраняем актуальную расстановку игрока перед любым исходом старта боя
   // (в том числе перед instant defeat, если на доске пусто)
@@ -641,7 +953,10 @@ function startBattle() {
   spawnBotArmy();
 
   // enemy king появляется только в бою
-  if (state.kings?.enemy) state.kings.enemy.visible = true;
+  if (state.kings?.enemy) {
+    state.kings.enemy.visible = true;
+    state.kings.enemy.name = getCurrentOpponentBotName();
+  }
   broadcast(makeStateMessage(state));
 
   const tickMs = 450;
@@ -721,7 +1036,7 @@ function handleIntent(clientId, msg, ws) {
   if (!clientToUnits.get(clientId)) clientToUnits.set(clientId, owned);
 
   // разрешаем "системные" intents даже если у клиента пока нет юнитов
-  const ALLOW_WITHOUT_UNITS = new Set(['shopBuy', 'shopRefresh', 'startGame', 'startBattle', 'buyXp', 'resetGame']);
+  const ALLOW_WITHOUT_UNITS = new Set(['shopBuy', 'shopRefresh', 'startGame', 'startBattle', 'buyXp', 'resetGame', 'debugAddGold100']);
   if (!ALLOW_WITHOUT_UNITS.has(msg.action) && owned.size === 0) {
     ws.send(JSON.stringify(makeErrorMessage('NO_UNIT', 'No unit assigned to this client')));
     return;
@@ -758,10 +1073,13 @@ function handleIntent(clientId, msg, ws) {
     state.winStreak = 0;
     state.loseStreak = 0;
     state.result = null;
+    state.gameStarted = true;
     state.prepSecondsLeft = 0;
 
     // магазин на старт
     generateShopOffers();
+    ensureSoloLobbyInitialized();
+    syncRoundPairingsForCurrentRound();
 
     broadcast(makeStateMessage(state));
     startPrepCountdown();
@@ -964,6 +1282,15 @@ function handleIntent(clientId, msg, ws) {
     state.kings.player.coins -= COST;
     applyKingXp(state.kings.player, GAIN);
 
+    clampPlayerCoins();
+    broadcast(makeStateMessage(state));
+    return;
+  }
+
+  if (msg.action === 'debugAddGold100') {
+    state.kings = state.kings ?? {};
+    state.kings.player = state.kings.player ?? { hp: 100, maxHp: 100, coins: 0, level: 1, xp: 0 };
+    state.kings.player.coins = Number(state.kings.player.coins ?? 0) + 100;
     clampPlayerCoins();
     broadcast(makeStateMessage(state));
     return;

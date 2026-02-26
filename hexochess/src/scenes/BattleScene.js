@@ -37,6 +37,23 @@ const EXTRA_PORTRAIT_ASSETS = [
 
 const SHOP_OFFER_COUNT = 5;
 const SHOP_CARD_ART_LIFT_Y = 75; // увеличивай/уменьшай, чтобы поднять/опустить арт в сером блоке карточки
+const UI_TEXT = {
+  START_GAME: '\u041d\u0410\u0427\u0410\u0422\u042c \u0418\u0413\u0420\u0423',
+  TEST_SCENE: '\u0422\u0435\u0441\u0442\u043e\u0432\u0430\u044f \u0441\u0446\u0435\u043d\u0430',
+  ROUND: '\u0420\u0430\u0443\u043d\u0434',
+  PREP: '\u041f\u043e\u0434\u0433\u043e\u0442\u043e\u0432\u043a\u0430',
+  BATTLE: '\u0421\u0440\u0430\u0436\u0435\u043d\u0438\u0435',
+  VICTORY: '\u041f\u041e\u0411\u0415\u0414\u0410',
+  DEFEAT: '\u041f\u041e\u0420\u0410\u0416\u0415\u041d\u0418\u0415',
+  DRAW: '\u041d\u0418\u0427\u042c\u042f',
+  COIN_INCOME: '\u0414\u043e\u0445\u043e\u0434 \u0437\u0430 \u0440\u0430\u0443\u043d\u0434',
+  WIN_BONUS: '\u0411\u043e\u043d\u0443\u0441 \u0437\u0430 \u043f\u043e\u0431\u0435\u0434\u0443',
+  WIN_STREAK_BONUS: '\u0411\u043e\u043d\u0443\u0441 \u0437\u0430 \u0441\u0435\u0440\u0438\u044e \u043f\u043e\u0431\u0435\u0434',
+  LOSE_STREAK_BONUS: '\u0411\u043e\u043d\u0443\u0441 \u0437\u0430 \u0441\u0435\u0440\u0438\u044e \u043f\u043e\u0440\u0430\u0436\u0435\u043d\u0438\u0439',
+  EXPECTED_ROUND_INCOME: '\u041e\u0436\u0438\u0434\u0430\u0435\u043c\u044b\u0439 \u0434\u043e\u0445\u043e\u0434 \u0440\u0430\u0443\u043d\u0434\u0430',
+  FROM_NEXT_WIN: '(\u0441\u043e \u0441\u043b\u0435\u0434\u0443\u044e\u0449\u0435\u0439 \u043f\u043e\u0431\u0435\u0434\u043e\u0439)',
+  FROM_NEXT_LOSS: '(\u0441\u043e \u0441\u043b\u0435\u0434\u0443\u044e\u0449\u0435\u0433\u043e \u043f\u043e\u0440\u0430\u0436\u0435\u043d\u0438\u044f)',
+};
 
 function getUnitShortLabel(type) {
   const t = String(type ?? '').toLowerCase();
@@ -483,7 +500,7 @@ export default class BattleScene extends Phaser.Scene {
     this.ws = new WSClient(wsUrl);
 
     // --- START GAME BUTTON (debug) ---
-    this.startGameBtn = this.add.text(this.scale.width / 2, this.scale.height / 2, 'НАЧАТЬ ИГРУ', {
+    this.startGameBtn = this.add.text(this.scale.width / 2, this.scale.height / 2, UI_TEXT.START_GAME, {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
       fontSize: '36px',
       color: '#ffffff',
@@ -534,6 +551,7 @@ export default class BattleScene extends Phaser.Scene {
       const phaseUiChanged =
         phaseChanged ||
         resultChanged ||
+        Boolean(prevState?.gameStarted) !== Boolean(state?.gameStarted) ||
         Number(prevState?.round ?? 0) !== Number(state?.round ?? 0) ||
         Number(prevState?.prepSecondsLeft ?? 0) !== Number(state?.prepSecondsLeft ?? 0) ||
         Number(prevState?.battleSecondsLeft ?? 0) !== Number(state?.battleSecondsLeft ?? 0);
@@ -594,6 +612,7 @@ export default class BattleScene extends Phaser.Scene {
       if (needKingsUi) this.syncKingsUI();
       if (needShopUi) this.syncShopUI();
       if (needRefreshDraggable) this.refreshAllDraggable();
+      this.syncDebugUI?.();
     };
 
     this.ws.onError = (err) => {
@@ -627,9 +646,9 @@ export default class BattleScene extends Phaser.Scene {
       this.drawGrid();
 
       if (this.roundText) this.roundText.setPosition(this.scale.width / 2, 10);
-      if (this.prepTimerText) this.prepTimerText.setPosition(this.scale.width / 2, 60);
+      if (this.prepTimerText) this.prepTimerText.setPosition(this.scale.width / 2, 56);
 
-      if (this.resultText) this.resultText.setPosition(this.scale.width / 2, 60);
+      if (this.resultText) this.resultText.setPosition(this.scale.width / 2, 56);
       if (this.resultText) this.resultText.setWordWrapWidth(Math.min(520, this.scale.width - 40));
 
       positionFullscreenButton(this);
@@ -662,7 +681,7 @@ export default class BattleScene extends Phaser.Scene {
       .setStroke('#888888', 3)  // ? серая обводка
       .setShadow(0, 0, '#000000', 2, true, true); // лёгкая мягкая тень
 
-    this.prepTimerText = this.add.text(this.scale.width / 2, 60, '', {
+    this.prepTimerText = this.add.text(this.scale.width / 2, 56, '', {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
       fontSize: '20px',
       color: '#ffffff',      // без fontStyle
@@ -672,7 +691,7 @@ export default class BattleScene extends Phaser.Scene {
       .setStroke('#777777', 2)
       .setShadow(0, 0, '#000000', 2, true, true);
 
-    this.resultText = this.add.text(this.scale.width / 2, 60, '', { // на месте таймера
+    this.resultText = this.add.text(this.scale.width / 2, 56, '', { // на месте таймера (под "Раунд")
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
       fontSize: '28px', // чуть меньше, чтобы не перекрывало UI
       color: '#ffffff',
@@ -887,6 +906,13 @@ export default class BattleScene extends Phaser.Scene {
     const result = this.battleState?.result ?? null;
 
     const e = kings?.enemy ?? { hp: 100, maxHp: 100, coins: 0, visible: false };
+    const enemyVisualKey = String(e.visualKey ?? 'king');
+    if (this.kingRight && this.textures?.exists?.(enemyVisualKey) && this.kingRight.texture?.key !== enemyVisualKey) {
+      this.kingRight.setTexture(enemyVisualKey);
+      this.kingRight.setDisplaySize(this.kingWidth, this.kingHeight);
+    }
+    const enemyDisplayName = String(e.name ?? ENEMY_KING_DISPLAY_NAME);
+    this.kingRightNameText?.setText(enemyDisplayName);
 
     // считаем "всё ещё battle", пока показывается результат
     const isBattleView = (phase === 'battle') || (result != null);
@@ -911,7 +937,7 @@ export default class BattleScene extends Phaser.Scene {
       return;
     }
 
-    this.roundText.setText(this.testSceneActive ? 'Тестовая сцена' : `Раунд ${round}`);
+    this.roundText.setText(this.testSceneActive ? UI_TEXT.TEST_SCENE : `${UI_TEXT.ROUND} ${round}`);
 
     // таймер показываем только в prep и пока нет результата
     const isPrep = (phase === 'prep') && (result == null);
@@ -919,14 +945,18 @@ export default class BattleScene extends Phaser.Scene {
 
     if (isPrep) {
       const t = Number(this.battleState?.prepSecondsLeft ?? 0);
-      const ss = String(Math.max(0, Math.min(59, t))).padStart(2, '0');
-      this.prepTimerText.setVisible(true);
-      this.prepTimerText.setText(`Подготовка: ${ss}с`);
+      if (t > 0) {
+        const ss = String(Math.max(0, Math.min(59, t))).padStart(2, '0');
+        this.prepTimerText.setVisible(true);
+        this.prepTimerText.setText(`${UI_TEXT.PREP}: ${ss}с`);
+      } else {
+        this.prepTimerText.setVisible(false);
+      }
     } else if (isBattle) {
       const t = Number(this.battleState?.battleSecondsLeft ?? 0);
       const ss = String(Math.max(0, Math.min(59, t))).padStart(2, '0');
       this.prepTimerText.setVisible(true);
-      this.prepTimerText.setText(`Сражение: ${ss}с`);
+      this.prepTimerText.setText(`${UI_TEXT.BATTLE}: ${ss}с`);
     } else {
       this.prepTimerText.setVisible(false);
     }
@@ -940,7 +970,7 @@ export default class BattleScene extends Phaser.Scene {
       const prepLeft = Number(this.battleState?.prepSecondsLeft ?? 0);
       const battleLeft = Number(this.battleState?.battleSecondsLeft ?? 0);
 
-      const started =
+      const started = Boolean(this.battleState?.gameStarted) ||
         round !== 1 ||
         phase !== 'prep' ||
         result != null ||
@@ -1780,17 +1810,17 @@ export default class BattleScene extends Phaser.Scene {
       let stroke = '#666666';
 
       if (result === 'victory') {
-        text = 'ПОБЕДА';
+        text = UI_TEXT.VICTORY;
         fill = '#f5c542';      // золотистый
         stroke = '#c89b1e';    // характерная золотая обводка
       }
       else if (result === 'defeat') {
-        text = 'ПОРАЖЕНИЕ';
+        text = UI_TEXT.DEFEAT;
         fill = '#ff6fa8';      // розовый
         stroke = '#7a002f';    // бордовая обводка
       }
       else if (result === 'draw') {
-        text = 'НИЧЬЯ';
+        text = UI_TEXT.DRAW;
         fill = '#dddddd';
         stroke = '#777777';
       }
@@ -1812,6 +1842,7 @@ export default class BattleScene extends Phaser.Scene {
     // debug-кнопка "Бой" доступна только в prep (сама живёт в модалке)
     this.debugCanStartBattle = (phase === 'prep');
     this.syncDebugUI?.();
+    this.positionDebugUI?.();
 
     // drag управляется в renderFromState(): всем player-юнитам в prep
   }
@@ -2026,26 +2057,26 @@ export default class BattleScene extends Phaser.Scene {
     const lineH = 18;
 
     const lines = [];
-    lines.push(`Доход за раунд: +${base + interest}`);
-    lines.push(`Бонус за победу: +${winBonus}`);
+    lines.push(`${UI_TEXT.COIN_INCOME}: +${base + interest}`);
+    lines.push(`${UI_TEXT.WIN_BONUS}: +${winBonus}`);
 
     // показываем win streak, если он начнётся со следующей победой (2 подряд) ИЛИ уже идёт (>=3)
     if (winStreak >= 2) {
       const txt = (winStreak >= 3)
-        ? `Бонус за серию побед: +${streakBonus(winStreak)}`
-        : `Бонус за серию побед: +${streakBonus(3)} (со следующей победой)`;
+        ? `${UI_TEXT.WIN_STREAK_BONUS}: +${streakBonus(winStreak)}`
+        : `${UI_TEXT.WIN_STREAK_BONUS}: +${streakBonus(3)} ${UI_TEXT.FROM_NEXT_WIN}`;
       lines.push(txt);
     }
 
     // показываем lose streak аналогично
     if (loseStreak >= 2) {
       const txt = (loseStreak >= 3)
-        ? `Бонус за серию поражений: +${streakBonus(loseStreak)}`
-        : `Бонус за серию поражений: +${streakBonus(3)} (со следующего поражения)`;
+        ? `${UI_TEXT.LOSE_STREAK_BONUS}: +${streakBonus(loseStreak)}`
+        : `${UI_TEXT.LOSE_STREAK_BONUS}: +${streakBonus(3)} ${UI_TEXT.FROM_NEXT_LOSS}`;
       lines.push(txt);
     }
 
-    lines.push(`Ожидаемый доход раунда: +${expected}`);
+    lines.push(`${UI_TEXT.EXPECTED_ROUND_INCOME}: +${expected}`);
 
     const popupH = padding * 2 + lines.length * lineH + 8;
 

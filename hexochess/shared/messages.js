@@ -59,6 +59,10 @@ export function makeBuyXpIntent() {
   return { type: 'intent', action: 'buyXp' };
 }
 
+export function makeDebugAddGold100Intent() {
+  return { type: 'intent', action: 'debugAddGold100' };
+}
+
 export function makeShopBuyIntent(offerIndex) {
   return { type: 'intent', action: 'shopBuy', offerIndex };
 }
