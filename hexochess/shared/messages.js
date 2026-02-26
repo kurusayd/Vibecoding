@@ -63,6 +63,10 @@ export function makeDebugAddGold100Intent() {
   return { type: 'intent', action: 'debugAddGold100' };
 }
 
+export function makeDebugAddLevelIntent() {
+  return { type: 'intent', action: 'debugAddLevel' };
+}
+
 export function makeShopBuyIntent(offerIndex) {
   return { type: 'intent', action: 'shopBuy', offerIndex };
 }

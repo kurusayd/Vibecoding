@@ -7,6 +7,7 @@ import {
   makeStartGameIntent,
   makeBuyXpIntent,
   makeDebugAddGold100Intent,
+  makeDebugAddLevelIntent,
   makeShopBuyIntent,
   makeShopRefreshIntent,
   makeResetGameIntent,
@@ -101,6 +102,10 @@ export class WSClient {
 
   sendIntentDebugAddGold100() {
     return this.sendIntent(makeDebugAddGold100Intent());
+  }
+
+  sendIntentDebugAddLevel() {
+    return this.sendIntent(makeDebugAddLevelIntent());
   }
 
   sendIntentShopBuy(offerIndex) {

@@ -154,7 +154,7 @@ export default class BattleScene extends Phaser.Scene {
   preload() { //Подгружаем пулл картинок
     this.load.image('battleBg', '/assets/bg.jpg');
     this.load.image('king', '/assets/kings/king_princess.png');
-    this.load.image('coin', '/assets/coin.png');
+    this.load.image('coin', '/assets/icons/Coin.png');
     this.load.image('rank1', '/assets/rank1.png');
     this.load.image('rank2', '/assets/rank2.png');
     this.load.image('rank3', '/assets/rank3.png');
@@ -164,6 +164,12 @@ export default class BattleScene extends Phaser.Scene {
     for (const asset of EXTRA_PORTRAIT_ASSETS) {
       this.load.image(asset.key, asset.path);
     }
+
+    this.load.atlas(
+      'unitPortraitsAtlas',
+      '/assets/units/portraits/portraits.png',
+      '/assets/units/portraits/portraits.json',
+    );
 
     // ? swordman atlas (png+json)
     for (const def of UNIT_ATLAS_DEFS) {
@@ -230,9 +236,10 @@ export default class BattleScene extends Phaser.Scene {
       color: '#ffffff',
     };
 
-    // --- COINS UI (coin icon + progress bar) ---
-    this.coinSize = 28;
+    // --- COINS UI (coin icon + "x N") ---
+    this.coinSize = 40;
     this.coinMax = 100; // ? максимальное кол-во монет
+    this.coinHudTextReserveW = 42; // резерв ширины под число монет (чтобы иконка не ездила при 99/100)
 
     this.coinContainer = this.add.container(0, 0)
       .setScrollFactor(0)
@@ -242,30 +249,41 @@ export default class BattleScene extends Phaser.Scene {
       .setDisplaySize(this.coinSize, this.coinSize)
       .setOrigin(0.5, 0.5);
 
-    this.coinBarBg = this.add.graphics();
-    this.coinBarFill = this.add.graphics();
-
     this.kingLeftCoinText = this.add.text(0, 0, '', {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-      fontSize: '16px',        // ? как у lv. 1
-      color: '#ffffff',
+      fontSize: '18px',
+      fontStyle: 'bold',
+      color: '#ffd85a',
+    })
+      .setOrigin(0, 0.5)
+      .setStroke('#b35a00', 3)
+      .setShadow(0, 0, '#000000', 4, true, true);
+    this.kingLeftCoinText.setPosition((this.coinSize / 2) + 8, 0);
+
+    this.kingLeftCoinMaxText = this.add.text(0, 0, 'Max', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '11px',
+      fontStyle: 'bold',
+      color: '#ffe69a',
     })
       .setOrigin(0.5, 0.5)
-      .setShadow(0, 0, '#000000', 4, true, true);
+      .setStroke('#9a5a00', 2)
+      .setShadow(0, 0, '#000000', 2, true, true)
+      .setVisible(false);
+    this.kingLeftCoinMaxText.setPosition((this.coinSize / 2) + 8, 12);
 
-    // порядок как у XP: bg -> fill -> icon -> text
+    // компактный блок: icon -> text
     this.coinContainer.add([
-      this.coinBarBg,
-      this.coinBarFill,
       this.kingLeftCoinIcon,
       this.kingLeftCoinText,
+      this.kingLeftCoinMaxText,
     ]);
 
     // --- COIN INFO POPUP (hit zone) ---
     this.coinInfoOpen = false;
 
-    // интерактивная зона на весь блок монет (иконка + бар)
-    this.coinHit = this.add.zone(0, 0, 230, 44)
+    // интерактивная зона на весь блок монет (иконка + текст)
+    this.coinHit = this.add.zone(0, 0, 110, 44)
       .setOrigin(0.5, 0.5)
       .setInteractive({ useHandCursor: true });
 
@@ -289,29 +307,38 @@ export default class BattleScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(9998);
 
+    this.kingLevelIconScale = 0.17;
+    this.kingLevelTextOffsetX = 0; // ручная подстройка номера уровня по X внутри короны
+    this.kingLevelTextOffsetY = 3; // ручная подстройка номера уровня по Y внутри короны
+    this.kingLevelTextDoubleDigitOffsetX = -1; // авто-сдвиг по X для уровней > 9 (подкрути тут)
     this.kingLevelIcon = this.add.image(0, 0, 'crownexp')
-      .setDisplaySize(30, 30)
+      .setScale(this.kingLevelIconScale)
       .setOrigin(0.5, 0.5);
     this.kingLevelIcon.y = -3; // чуть поднять саму корону
 
     this.kingLevelBarBg = this.add.graphics();
     this.kingLevelBarFill = this.add.graphics();
 
-    this.kingLevelText = this.add.text(0, 0, 'lv. 1', {
+    this.kingLevelText = this.add.text(0, 0, '1', {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
       fontSize: '16px',
-      color: '#ffffff',
-    }).setOrigin(0.5, 0.5);
+      color: '#f2e8ff',
+      fontStyle: 'bold',
+    })
+      .setOrigin(0.5, 0.5)
+      .setStroke('#43256e', 3)
+      .setShadow(0, 0, '#1d102f', 2, true, true);
 
     this.kingLevelXpText = this.add.text(0, 0, '', {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
       fontSize: '18px',          // было 14px > делаем крупнее
-      color: '#ffffff',
+      color: '#f2e8ff',
+      fontStyle: 'bold',
     })
       .setOrigin(0.5, 0)
       .setVisible(false)
-      .setStroke('#000000', 2)   // было 4 > делаем тонкую аккуратную обводку
-      .setShadow(0, 0, '#000000', 2, true, true); // лёгкая мягкая тень
+      .setStroke('#43256e', 3)
+      .setShadow(0, 0, '#1d102f', 2, true, true);
 
     // интерактивная зона на всю конструкцию
     this.kingLevelHit = this.add.zone(0, 0, 200, 44)
@@ -805,12 +832,20 @@ export default class BattleScene extends Phaser.Scene {
     const crownW = this.kingLevelIcon?.displayWidth ?? 30;
     this.kingLevelContainer.setPosition(baseX + crownW / 2, xpY);
 
-    // 2) монеты — ПОД блоком опыта (теперь это контейнер с баром)
+    // 2) монеты — слева от блока опыта короля
     const iconW = this.kingLeftCoinIcon.displayWidth || this.coinSize;
-    const coinY = xpY + 32;
+    // Держим иконку монет на фиксированном месте относительно XP-блока.
+    // Не используем текущую ширину текста (99/100), иначе иконка "ездит".
+    const coinTextReserveW = Number(this.coinHudTextReserveW ?? 42); // подкрути при желании
+    const coinGap = 8;
+    const coinBlockW = iconW + coinGap + coinTextReserveW;
+    const coinsToXpGap = 14;
+    const xpLeftX = baseX;
+    const coinLeftX = Math.max(view.x + 8, xpLeftX - coinsToXpGap - coinBlockW);
+    const coinY = xpY;
 
-    // левый край иконки = baseX, значит центр иконки = baseX + iconW/2
-    this.coinContainer.setPosition(baseX + iconW / 2, coinY);
+    // coinContainer anchored by icon center
+    this.coinContainer.setPosition(Math.round(coinLeftX + iconW / 2), coinY);
   }
 
   positionKings() {
@@ -876,14 +911,7 @@ export default class BattleScene extends Phaser.Scene {
 
     const rawCoins = Number(p.coins ?? 0);
 
-    // ? показываем реальные монеты (чтобы было видно, что тратятся)
-    this.kingLeftCoinText?.setText(String(rawCoins));
-
-    // ? прогресс-бар: “копилка на 100”
-    // если хочешь именно "от 0 до 100 и сброс", используем остаток
-    const maxCoins = this.coinMax ?? 100;
-    const barCoins = Phaser.Math.Clamp(rawCoins, 0, maxCoins); // ? 100 => полный бар
-    this.drawCoinBar?.(barCoins, maxCoins);
+    this.syncCoinHudCompact?.(rawCoins);
 
     const lvl = Number(p.level ?? 1);
     const xp = Number(p.xp ?? 0);
@@ -891,10 +919,10 @@ export default class BattleScene extends Phaser.Scene {
     // сколько нужно до следующего уровня (берём с shared через импорт)
     const need = (lvl >= this.kingMaxLevel) ? 0 : (this.kingXpCost?.[lvl] ?? 0); // см. пункт 6 ниже
 
-    if (this.kingLevelText) this.kingLevelText.setText(`lv. ${lvl}`);
+    if (this.kingLevelText) this.kingLevelText.setText(`${lvl}`);
 
     if (this.kingLevelXpText) {
-      this.kingLevelXpText.setText(`Exp: ${xp} / ${need || 0}`);
+      this.kingLevelXpText.setText(need > 0 ? `Exp: ${xp} / ${need}` : 'Max');
       this.kingLevelXpText.setVisible(this.kingLevelExpanded);
     }
 
@@ -978,6 +1006,11 @@ export default class BattleScene extends Phaser.Scene {
 
       this.startGameBtn.setVisible(!started);
     }
+
+    // Кнопка "БОЙ" позиционируется относительно фактической ширины roundText.
+    // После смены текста (например, "Раунд 1" -> "Раунд 2") перепривязываем debug UI сразу,
+    // чтобы не ждать resize/fullscreen события.
+    this.positionDebugUI?.();
   }
 
   drawKingHpBars() {
@@ -1077,24 +1110,25 @@ export default class BattleScene extends Phaser.Scene {
     this.kingLevelBarFill.fillStyle(0x8a2be2, 0.95);
     this.kingLevelBarFill.fillRoundedRect(x + 1, y + 1, (w - 2) * ratio, h - 2, 5);
 
-    // позиция текста lv поверх бара (центр бара)
+    // центр бара (нужен для exp-текста и hitbox)
     const cx = x + w / 2;
     const cy = y + h / 2;
-    this.kingLevelText.setPosition(cx, cy);
+    const doubleDigitOffsetX = Number(level > 9 ? (this.kingLevelTextDoubleDigitOffsetX ?? 0) : 0);
+    const crownTextX = Number(this.kingLevelIcon?.x ?? 0) + Number(this.kingLevelTextOffsetX ?? 0) + doubleDigitOffsetX;
+    const crownTextY = Number(this.kingLevelIcon?.y ?? 0) + Number(this.kingLevelTextOffsetY ?? 0);
+    this.kingLevelText.setPosition(crownTextX, crownTextY);
 
-    // Exp рисуем СПРАВА от конца бара, с отступом
-    const expGap = 10;
-    this.kingLevelXpText.setOrigin(0, 0.5);
-    this.kingLevelXpText.setPosition(x + w + expGap, cy);
+    // Exp рисуем ПОВЕРХ полоски (в центре), когда блок раскрыт
+    this.kingLevelXpText.setOrigin(0.5, 0.5);
+    this.kingLevelXpText.setPosition(cx, cy);
 
-    const hitH = this.kingLevelExpanded ? 44 : 44; // Exp теперь в одну линию, высота не растёт
-    const extraRight = this.kingLevelExpanded ? (this.kingLevelXpText.width + 16) : 0;
+    const hitH = 44;
 
-    // ширина: иконка (половина слева) + бар + Exp справа + запас
-    const hitW = (iconW / 2) + w + 16 + extraRight;
+    // ширина: иконка (половина слева) + бар + запас
+    const hitW = (iconW / 2) + w + 16;
 
-    // центр зоны сдвигаем вправо, если Exp видим (потому что он справа)
-    const hitCx = cx + (extraRight / 2);
+    // Exp теперь поверх бара, поэтому центр hit-зоны не смещаем
+    const hitCx = cx;
     const hitCy = 0;
 
     this.kingLevelHit.setPosition(hitCx, hitCy);
@@ -1145,6 +1179,35 @@ export default class BattleScene extends Phaser.Scene {
       const hitW = (iconW / 2) + w + 16; // иконка + бар + запас
       const cx = x + w / 2;
       this.coinHit.setPosition(cx, 0);
+      this.coinHit.setSize(hitW, hitH);
+    }
+  }
+
+  syncCoinHudCompact(coins) {
+    if (!this.kingLeftCoinIcon || !this.kingLeftCoinText) return;
+
+    const rawCoins = Math.max(0, Number(coins ?? 0));
+    this.kingLeftCoinText.setText(`${rawCoins}`);
+
+    const iconW = this.kingLeftCoinIcon?.displayWidth ?? this.coinSize ?? 28;
+    const textGap = 8;
+    const textX = (iconW / 2) + textGap;
+    const isAtCoinMax = rawCoins >= Number(this.coinMax ?? 100);
+    const textW = Number(this.kingLeftCoinText.width ?? 0);
+    this.kingLeftCoinText.setPosition(textX, 0);
+    if (this.kingLeftCoinMaxText) {
+      this.kingLeftCoinMaxText.setVisible(isAtCoinMax);
+      this.kingLeftCoinMaxText.setPosition(textX + (textW / 2), 14);
+    }
+
+    if (this.coinHit) {
+      const left = -(iconW / 2);
+      const right = textX + textW;
+      const padX = 8;
+      const hitW = Math.max(64, Math.ceil((right - left) + padX * 2));
+      const hitH = isAtCoinMax ? 52 : 44;
+      const hitCx = Math.round((left + right) / 2);
+      this.coinHit.setPosition(hitCx, isAtCoinMax ? 4 : 0);
       this.coinHit.setSize(hitW, hitH);
     }
   }

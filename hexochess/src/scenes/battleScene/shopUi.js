@@ -1,4 +1,32 @@
 export function installBattleSceneShopUi(BattleScene) {
+  const SHOP_PORTRAIT_ATLAS_KEY = 'unitPortraitsAtlas';
+  const SHOP_PORTRAIT_FRAME_PREFIX = 'ALL PORTRAITS/PREPEARE for Atlas/';
+  // Portraits are square (256x256), but shop art panel is rectangular.
+  // Cover mode fills the whole gray panel (with crop if needed). Tune one multiplier here.
+  const SHOP_PORTRAIT_SCALE = 1.05;
+  const SHOP_PORTRAIT_TYPE_ALIASES = {
+    Swordsman: 'swordman',
+  };
+  const unitTypeToPortraitName = (type) => {
+    const raw = String(type ?? '').trim();
+    if (!raw) return '';
+    if (SHOP_PORTRAIT_TYPE_ALIASES[raw]) return SHOP_PORTRAIT_TYPE_ALIASES[raw];
+    return raw
+      .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+      .replace(/[\s-]+/g, '_')
+      .toLowerCase();
+  };
+  const portraitFrameForUnitType = (type) => {
+    const name = unitTypeToPortraitName(type);
+    if (!name) return '';
+    return `${SHOP_PORTRAIT_FRAME_PREFIX}${name}.png`;
+  };
+
+  const BUTTON_SHADOW_COLOR = 0x000000;
+  const BUTTON_SHADOW_ALPHA = 0.35;
+  const BUTTON_SHADOW_OFFSET_X = 2;
+  const BUTTON_SHADOW_OFFSET_Y = 3;
+
   Object.assign(BattleScene.prototype, {
     initShopUI() {
       this.shopCards = [];
@@ -23,7 +51,7 @@ export function installBattleSceneShopUi(BattleScene) {
         .setScrollFactor(0)
         .setSize(38, 38);
       this.shopToggleBtnBody = this.add.container(19, 19);
-      this.shopToggleBtnShadow = this.add.rectangle(2, 3, 40, 40, 0x171717, 0.38)
+      this.shopToggleBtnShadow = this.add.rectangle(BUTTON_SHADOW_OFFSET_X, BUTTON_SHADOW_OFFSET_Y, 40, 40, BUTTON_SHADOW_COLOR, BUTTON_SHADOW_ALPHA)
         .setOrigin(0.5, 0.5);
       this.shopToggleBtnBg = this.add.rectangle(0, 0, 37, 37, 0x7a474f, 1)
         .setOrigin(0.5, 0.5)
@@ -59,7 +87,7 @@ export function installBattleSceneShopUi(BattleScene) {
 
       this.shopRefreshBtnBody = this.add.container(30, 0);
 
-      this.shopRefreshBtnShadow = this.add.rectangle(2, 3, 62, 66, 0x171717, 0.38)
+      this.shopRefreshBtnShadow = this.add.rectangle(BUTTON_SHADOW_OFFSET_X, BUTTON_SHADOW_OFFSET_Y, 62, 66, BUTTON_SHADOW_COLOR, BUTTON_SHADOW_ALPHA)
         .setOrigin(0.5, 0.5);
 
       this.shopRefreshBtnBg = this.add.rectangle(0.5, 0.5, 59, 63, 0xd8c8aa, 0.93)
@@ -125,7 +153,7 @@ export function installBattleSceneShopUi(BattleScene) {
         .setScrollFactor(0)
         .setSize(128, 38);
       this.shopOpenBtnBody = this.add.container(64, 19);
-      this.shopOpenBtnShadow = this.add.rectangle(2, 3, 130, 40, 0x171717, 0.38)
+      this.shopOpenBtnShadow = this.add.rectangle(BUTTON_SHADOW_OFFSET_X, BUTTON_SHADOW_OFFSET_Y, 130, 40, BUTTON_SHADOW_COLOR, BUTTON_SHADOW_ALPHA)
         .setOrigin(0.5, 0.5);
       this.shopOpenBtnBg = this.add.rectangle(0, 0, 127, 37, 0x6b4b2f, 1)
         .setOrigin(0.5, 0.5)
@@ -247,6 +275,8 @@ export function installBattleSceneShopUi(BattleScene) {
       card.border = border;
       card.artPanel = artPanel;
       card.previewSprite = previewSprite;
+      card.previewUnitY = previewSprite.y;
+      card.previewPortraitY = artPanel.y;
       card.previewFallback = previewFallback;
       card.nameText = nameText;
       card.typeText = typeText;
@@ -629,7 +659,8 @@ export function installBattleSceneShopUi(BattleScene) {
         this.shopOpenBtnBg?.setFillStyle(isActive ? 0x7a5635 : 0x6b4b2f, 1);
         this.shopOpenBtnBg?.setStrokeStyle(4, isActive ? 0xc89e68 : 0xb38a5e, 1);
         this.shopOpenBtnLabel?.setColor(isActive ? '#ffe4ad' : '#f3ead6');
-        this.shopOpenBtnShadow?.setFillStyle(0x171717, 1);
+        this.shopOpenBtnShadow?.setFillStyle(BUTTON_SHADOW_COLOR, 1);
+        this.shopOpenBtnShadow?.setAlpha(BUTTON_SHADOW_ALPHA);
         this.shopOpenBtn.setAlpha(isActive ? 1 : 0.94);
       }
 
@@ -641,8 +672,8 @@ export function installBattleSceneShopUi(BattleScene) {
       if (this.shopRefreshBtn) {
         this.shopRefreshBtnBg?.setFillStyle(canRefreshShop ? 0xd8c8aa : 0x9d9588, canRefreshShop ? 0.93 : 0.62);
         this.shopRefreshBtnBg?.setStrokeStyle(4, canRefreshShop ? 0x8f6d39 : 0x6f695f, 1);
-        this.shopRefreshBtnShadow?.setFillStyle(0x171717, 1);
-        this.shopRefreshBtnShadow?.setAlpha(canRefreshShop ? 0.38 : 0.18);
+        this.shopRefreshBtnShadow?.setFillStyle(BUTTON_SHADOW_COLOR, 1);
+        this.shopRefreshBtnShadow?.setAlpha(canRefreshShop ? BUTTON_SHADOW_ALPHA : 0.18);
         this.shopRefreshBtnCost?.setColor(canRefreshShop ? '#7c5b00' : '#5b5b5b');
         this.shopRefreshBtnCost?.setAlpha(canRefreshShop ? 1 : 0.82);
         this.shopRefreshBtnIcon?.setAlpha(canRefreshShop ? 1 : 0.60);
@@ -654,6 +685,9 @@ export function installBattleSceneShopUi(BattleScene) {
       const offers = this.battleState?.shop?.offers ?? [];
       const atlasByType = this.shopUnitAtlasDefByType ?? {};
       const getIdleFrame = this.shopAtlasIdleFrame ?? ((def) => `${String(def?.framePrefix ?? 'psd_animation')}/idle.png`);
+      const portraitsTexture = this.textures?.exists?.(SHOP_PORTRAIT_ATLAS_KEY)
+        ? this.textures.get(SHOP_PORTRAIT_ATLAS_KEY)
+        : null;
 
       for (let i = 0; i < (this.shopCards?.length ?? 0); i++) {
         const card = this.shopCards[i];
@@ -680,10 +714,30 @@ export function installBattleSceneShopUi(BattleScene) {
         card.costCoin?.setVisible(true);
         card.costText.setText(`${Number(o.cost ?? 0)}`);
 
+        const portraitFrame = portraitFrameForUnitType(o.type);
+        const hasPortrait = !!(portraitsTexture && portraitFrame && portraitsTexture.has?.(portraitFrame));
         const atlasDef = atlasByType[o.type] ?? null;
-        if (atlasDef && this.textures.exists(atlasDef.atlasKey)) {
+        if (hasPortrait) {
           card.previewSprite.setVisible(true);
           card.previewFallback.setVisible(false);
+          card.previewSprite.anims?.stop?.();
+          card.previewSprite.setOrigin(0.5, 0.5);
+          card.previewSprite.setPosition(0, Number(card.previewPortraitY ?? card.artPanel?.y ?? 0));
+          card.previewSprite.setTexture(SHOP_PORTRAIT_ATLAS_KEY, portraitFrame);
+
+          const frame = card.previewSprite.frame;
+          const fw = frame?.realWidth ?? frame?.width ?? 256;
+          const fh = frame?.realHeight ?? frame?.height ?? 256;
+          const panelW = card.artPanel?.width ?? (card.width - 14);
+          const panelH = card.artPanel?.height ?? 86;
+          const coverScale = Math.max(panelW / fw, panelH / fh);
+          const scale = Math.max(0.12, coverScale * SHOP_PORTRAIT_SCALE);
+          card.previewSprite.setScale(scale);
+        } else if (atlasDef && this.textures.exists(atlasDef.atlasKey)) {
+          card.previewSprite.setVisible(true);
+          card.previewFallback.setVisible(false);
+          card.previewSprite.setOrigin(0.5, 1);
+          card.previewSprite.setPosition(0, Number(card.previewUnitY ?? 0));
           card.previewSprite.setTexture(atlasDef.atlasKey, getIdleFrame(atlasDef));
 
           const frame = card.previewSprite.frame;

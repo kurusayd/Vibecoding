@@ -14,6 +14,7 @@ import {
   attack,
   hexDistance,
   applyKingXp,
+  kingXpToNext,
 } from '../shared/battleCore.js';
 
 import {
@@ -1036,7 +1037,7 @@ function handleIntent(clientId, msg, ws) {
   if (!clientToUnits.get(clientId)) clientToUnits.set(clientId, owned);
 
   // разрешаем "системные" intents даже если у клиента пока нет юнитов
-  const ALLOW_WITHOUT_UNITS = new Set(['shopBuy', 'shopRefresh', 'startGame', 'startBattle', 'buyXp', 'resetGame', 'debugAddGold100']);
+  const ALLOW_WITHOUT_UNITS = new Set(['shopBuy', 'shopRefresh', 'startGame', 'startBattle', 'buyXp', 'resetGame', 'debugAddGold100', 'debugAddLevel']);
   if (!ALLOW_WITHOUT_UNITS.has(msg.action) && owned.size === 0) {
     ws.send(JSON.stringify(makeErrorMessage('NO_UNIT', 'No unit assigned to this client')));
     return;
@@ -1292,6 +1293,21 @@ function handleIntent(clientId, msg, ws) {
     state.kings.player = state.kings.player ?? { hp: 100, maxHp: 100, coins: 0, level: 1, xp: 0 };
     state.kings.player.coins = Number(state.kings.player.coins ?? 0) + 100;
     clampPlayerCoins();
+    broadcast(makeStateMessage(state));
+    return;
+  }
+
+  if (msg.action === 'debugAddLevel') {
+    state.kings = state.kings ?? {};
+    state.kings.player = state.kings.player ?? { hp: 100, maxHp: 100, coins: 0, level: 1, xp: 0 };
+    const p = state.kings.player;
+    const lvl = Math.max(1, Number(p.level ?? 1));
+    const curXp = Math.max(0, Number(p.xp ?? 0));
+    const need = Number(kingXpToNext(lvl) ?? 0);
+    if (need > 0) {
+      const delta = Math.max(0, need - curXp);
+      if (delta > 0) applyKingXp(p, delta);
+    }
     broadcast(makeStateMessage(state));
     return;
   }
