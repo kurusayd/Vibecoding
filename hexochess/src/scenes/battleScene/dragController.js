@@ -78,7 +78,7 @@ export function installBattleSceneDrag(BattleScene) {
         vu.dragHandle?.setPosition(dragX, dragY);
         vu.label?.setPosition(dragX, dragY);
         const lift = getUnitGroundLiftPx(core.type);
-        vu.art?.setPosition(dragX + getUnitArtOffsetXPx(core.type), dragY + this.hexSize - lift);
+        vu.art?.setPosition(dragX + getUnitArtOffsetXPx(core.type, core.team), dragY + this.hexSize - lift);
         if (vu.hpBar) vu.hpBar.setVisible(false);
         if (vu.rankIcon) vu.rankIcon.setVisible(false);
         if (!this.testSceneActive) {
@@ -153,7 +153,7 @@ export function installBattleSceneDrag(BattleScene) {
               vu.sprite?.setPosition(p.x, p.y);
               vu.dragHandle?.setPosition(p.x, p.y);
               vu.label?.setPosition(p.x, p.y);
-              vu.art?.setPosition(p.x + getUnitArtOffsetXPx(core.type), p.y + this.hexSize - lift);
+              vu.art?.setPosition(p.x + getUnitArtOffsetXPx(core.type, core.team), p.y + this.hexSize - lift);
               if (vu.hpBar) vu.hpBar.setVisible(false);
               if (vu.rankIcon) vu.rankIcon.setVisible(!core.dead);
               updateHpBar(this, vu);
@@ -199,7 +199,7 @@ export function installBattleSceneDrag(BattleScene) {
               vu.sprite?.setPosition(p.x, p.y);
               vu.dragHandle?.setPosition(p.x, p.y);
               vu.label?.setPosition(p.x, p.y);
-              vu.art?.setPosition(g.x + getUnitArtOffsetXPx(core.type), g.y);
+              vu.art?.setPosition(g.x + getUnitArtOffsetXPx(core.type, core.team), g.y);
               if (vu.hpBar) vu.hpBar.setVisible(false);
               if (vu.rankIcon) vu.rankIcon.setVisible(!core.dead);
               updateHpBar(this, vu);

@@ -12,10 +12,6 @@ const RANK_ICON_SCALE = 0.25;
 const UNIT_ART_DEPTH_LIVE = 1040;
 const UNIT_ART_DEPTH_DEAD = 990;
 const UNIT_ART_DEPTH_Y_FACTOR = 0.01;
-const UNIT_ART_TOON_OUTLINE_COLOR = 0x1a1208;
-const UNIT_ART_TOON_OUTLINE_DISTANCE = 3;
-const UNIT_ART_TOON_OUTLINE_OUTER = 1.05;
-const UNIT_ART_TOON_OUTLINE_INNER = 0;
 
 function makeHexHitArea(scene, w, h) {
   const s = scene.hexSize;
@@ -62,39 +58,6 @@ function updateArtDepth(unit) {
   const y = Number(unit.art.y ?? unit.sprite?.y ?? 0);
   const base = unit.dead ? UNIT_ART_DEPTH_DEAD : UNIT_ART_DEPTH_LIVE;
   unit.art.setDepth(base + y * UNIT_ART_DEPTH_Y_FACTOR);
-}
-
-function applyToonOutlineFx(art) {
-  if (!art) return;
-
-  try {
-
-
-    if (art.postFX?.addGlow) {
-      art.postFX.addGlow(
-        UNIT_ART_TOON_OUTLINE_COLOR,
-        UNIT_ART_TOON_OUTLINE_OUTER,
-        UNIT_ART_TOON_OUTLINE_INNER,
-        false,
-        0.08,
-        UNIT_ART_TOON_OUTLINE_DISTANCE
-      );
-      return;
-    }
-
-    if (art.preFX?.addGlow) {
-      art.preFX.addGlow(
-        UNIT_ART_TOON_OUTLINE_COLOR,
-        UNIT_ART_TOON_OUTLINE_OUTER,
-        UNIT_ART_TOON_OUTLINE_INNER,
-        false,
-        0.08,
-        UNIT_ART_TOON_OUTLINE_DISTANCE
-      );
-    }
-  } catch {
-
-  }
 }
 
 export function createUnitSystem(scene) {
@@ -151,7 +114,7 @@ export function createUnitSystem(scene) {
 
     if (atlasCfg && scene.textures.exists(atlasKey)) {
       const g = scene.hexToGroundPixel(q, r, getUnitGroundLiftPx(opts.type));
-      art = scene.add.sprite(g.x + getUnitArtOffsetXPx(opts.type), g.y, atlasKey, idleFrame)
+      art = scene.add.sprite(g.x + getUnitArtOffsetXPx(opts.type, opts.team), g.y, atlasKey, idleFrame)
         .setDepth(UNIT_ART_DEPTH_LIVE)
         .setOrigin(0.5, 1);
 
@@ -164,8 +127,6 @@ export function createUnitSystem(scene) {
         const frameW = art.frame?.realWidth ?? art.frame?.width ?? 256;
         const targetPx = getUnitArtTargetPx(opts.type);
         art.setScale(targetPx / frameW);
-        applyToonOutlineFx(art);
-
         if (scene.anims.exists(atlasCfg.idleAnim)) art.play(atlasCfg.idleAnim);
         else if (scene.anims.exists(atlasCfg.walkAnim)) art.play(atlasCfg.walkAnim);
         if (opts.team === 'enemy') art.setFlipX(true);
@@ -255,7 +216,7 @@ export function createUnitSystem(scene) {
 
     if (atlasCfg && scene.textures.exists(atlasKey)) {
       const lift = getUnitGroundLiftPx(opts.type);
-      art = scene.add.sprite(x + getUnitArtOffsetXPx(opts.type), y + scene.hexSize - lift, atlasKey, idleFrame)
+      art = scene.add.sprite(x + getUnitArtOffsetXPx(opts.type, opts.team), y + scene.hexSize - lift, atlasKey, idleFrame)
         .setDepth(UNIT_ART_DEPTH_LIVE)
         .setOrigin(0.5, 1);
 
@@ -267,8 +228,6 @@ export function createUnitSystem(scene) {
         const frameW = art.frame?.realWidth ?? art.frame?.width ?? 256;
         const targetPx = getUnitArtTargetPx(opts.type);
         art.setScale(targetPx / frameW);
-        applyToonOutlineFx(art);
-
         if (scene.anims.exists(atlasCfg.idleAnim)) art.play(atlasCfg.idleAnim);
         else if (scene.anims.exists(atlasCfg.walkAnim)) art.play(atlasCfg.walkAnim);
 
@@ -362,7 +321,7 @@ export function createUnitSystem(scene) {
     const p = scene.hexToPixel(q, r);
     const lift = getUnitGroundLiftPx(u.type);
     const g = scene.hexToGroundPixel(q, r, lift);
-    const artX = g.x + getUnitArtOffsetXPx(u.type);
+    const artX = g.x + getUnitArtOffsetXPx(u.type, u.team);
 
 
 
@@ -505,7 +464,7 @@ export function createUnitSystem(scene) {
     const p = scene.hexToPixel(newQ, newR);
     const lift = getUnitGroundLiftPx(unit.type);
     const g = scene.hexToGroundPixel(newQ, newR, lift);
-    const artX = g.x + getUnitArtOffsetXPx(unit.type);
+    const artX = g.x + getUnitArtOffsetXPx(unit.type, unit.team);
 
     unit.sprite.setPosition(p.x, p.y);
     unit.dragHandle?.setPosition(p.x, p.y);
@@ -527,7 +486,7 @@ export function createUnitSystem(scene) {
       const p = scene.hexToPixel(u.q, u.r);
       const lift = getUnitGroundLiftPx(u.type);
       const g = scene.hexToGroundPixel(u.q, u.r, lift);
-      const artX = g.x + getUnitArtOffsetXPx(u.type);
+      const artX = g.x + getUnitArtOffsetXPx(u.type, u.team);
 
       u.sprite.setPosition(p.x, p.y);
       u.dragHandle?.setPosition(p.x, p.y);
@@ -543,7 +502,6 @@ export function createUnitSystem(scene) {
     const lagSpeed = 80;
 
     for (const u of state.units) {
-
       if (u.hpLag > u.hpInstant) {
         u.hpLag = Math.max(u.hpInstant, u.hpLag - lagSpeed * dt);
         updateHpBar(scene, u);

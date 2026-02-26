@@ -59,7 +59,7 @@ export const UNIT_ATLAS_DEFS = [
     walkAnim: 'skeleton_walk',
     attackAnim: 'skeleton_attack',
     deadAnim: 'skeleton_dead',
-    framePrefix: 'psd_animation2',
+    framePrefix: 'psd_anim4',
   },
   {
     type: 'BonesGolem',
@@ -138,4 +138,3 @@ export const UNIT_ANIMS_BY_TYPE = Object.fromEntries(
     },
   ])
 );
-

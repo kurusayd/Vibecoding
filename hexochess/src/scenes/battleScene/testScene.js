@@ -50,20 +50,24 @@ export function installBattleSceneTestScene(BattleScene) {
       return TEST_SCENE_UNITS.find((u) => u.type === type) ?? TEST_SCENE_UNITS[0];
     },
 
-    addTestSceneUnit(state, { id, team, q, r, type }) {
+    addTestSceneUnit(state, { id, team, q, r, type, rank = 1 }) {
       const base = this.getTestUnitTemplate(type);
       if (!base) return null;
+      const safeRank = Math.max(1, Math.min(3, Number(rank ?? 1)));
+      const mult = Math.pow(2, safeRank - 1);
+      const hp = Math.max(1, Math.round(Number(base.hp ?? 1) * mult));
+      const atk = Math.max(1, Math.round(Number(base.atk ?? 1) * mult));
       coreAddUnit(state, {
         id,
         q,
         r,
-        hp: base.hp,
-        maxHp: base.hp,
-        atk: base.atk,
+        hp,
+        maxHp: hp,
+        atk,
         team,
         type: base.type,
         powerType: base.powerType,
-        rank: 1,
+        rank: safeRank,
         zone: 'board',
         benchSlot: null,
         moveSpeed: base.moveSpeed,
@@ -211,7 +215,10 @@ export function installBattleSceneTestScene(BattleScene) {
             this.startTestSceneBattleFromPrep?.();
             return;
           }
-          this.spawnTestScenePlayerUnit?.(this.testSceneSelectedUnitType, { autoStart: true });
+          this.spawnTestScenePlayerUnit?.(this.testSceneSelectedUnitType, {
+            autoStart: true,
+            rank: this.testSceneSelectedUnitRank ?? 1,
+          });
         });
       }
     },
@@ -233,6 +240,7 @@ export function installBattleSceneTestScene(BattleScene) {
       }
 
       this.testSceneBattleStartSnapshot = this.captureTestSceneBattleStartSnapshot?.() ?? null;
+      this.hideTestSceneSpawnRankMenu?.();
 
       this.draggingUnitId = null;
       this.dragHover = null;
@@ -307,9 +315,10 @@ export function installBattleSceneTestScene(BattleScene) {
       }
     },
 
-    spawnTestScenePlayerUnit(type, { autoStart = false } = {}) {
+    spawnTestScenePlayerUnit(type, { autoStart = false, rank = 1 } = {}) {
       if (!this.testSceneActive) return;
       this.testSceneSelectedUnitType = type;
+      this.testSceneSelectedUnitRank = Math.max(1, Math.min(3, Number(rank ?? 1)));
       this.testSceneBattleStartSnapshot = null;
       this.stopTestSceneRestartTimer?.();
       this.stopTestSceneBattleLoop?.();
@@ -348,6 +357,7 @@ export function installBattleSceneTestScene(BattleScene) {
         q: playerPos.q,
         r: playerPos.r,
         type,
+        rank: this.testSceneSelectedUnitRank,
       });
 
       for (const u of (state.units ?? [])) {
@@ -375,7 +385,9 @@ export function installBattleSceneTestScene(BattleScene) {
       this.ws?.sendIntentResetGame?.();
       this.testSceneUnitsMenuOpen = false;
       this.testSceneUnitsMenuRace = null;
+      this.hideTestSceneSpawnRankMenu?.();
       this.testSceneSelectedUnitType = null;
+      this.testSceneSelectedUnitRank = 1;
       this.testSceneBattleStartSnapshot = null;
       this.stopTestSceneBattleLoop?.();
       this.stopTestSceneRestartTimer?.();
@@ -413,7 +425,9 @@ export function installBattleSceneTestScene(BattleScene) {
       this.testSceneActive = false;
       this.testSceneUnitsMenuOpen = false;
       this.testSceneUnitsMenuRace = null;
+      this.hideTestSceneSpawnRankMenu?.();
       this.testSceneSelectedUnitType = null;
+      this.testSceneSelectedUnitRank = 1;
       this.testSceneBattleStartSnapshot = null;
       this.pendingAttackAnimIds?.clear?.();
 
@@ -427,6 +441,11 @@ export function installBattleSceneTestScene(BattleScene) {
         vu._attackAnimPlaying = false;
         vu._attackAnimForceReplay = false;
       }
+
+      // Re-sync live mode with a clean server state after leaving test scene.
+      // WebSocket preserves message order, so a subsequent "startGame" click
+      // will be processed after this reset and won't fail the server guard.
+      this.ws?.sendIntentResetGame?.();
 
       this.refreshFromLocalBattleState?.();
       this.syncDebugUI?.();

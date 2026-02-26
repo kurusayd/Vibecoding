@@ -1233,6 +1233,7 @@ export default class BattleScene extends Phaser.Scene {
     if (!coreUnitLike && !fallbackVu) return null;
 
     const type = coreUnitLike?.type ?? fallbackVu?.type ?? null;
+    const team = coreUnitLike?.team ?? fallbackVu?.team ?? null;
     const lift = getUnitGroundLiftPx(type);
 
     if ((coreUnitLike?.zone === 'bench') || (!coreUnitLike && fallbackVu)) {
@@ -1242,20 +1243,20 @@ export default class BattleScene extends Phaser.Scene {
 
       if (slot != null) {
         const p = this.benchSlotToScreen(slot);
-        return { x: p.x, y: p.y, artX: p.x + getUnitArtOffsetXPx(type), artY: p.y + this.hexSize - lift };
+        return { x: p.x, y: p.y, artX: p.x + getUnitArtOffsetXPx(type, team), artY: p.y + this.hexSize - lift };
       }
     }
 
     if (coreUnitLike && coreUnitLike.zone === 'board') {
       const p = this.hexToPixel(coreUnitLike.q, coreUnitLike.r);
       const g = this.hexToGroundPixel(coreUnitLike.q, coreUnitLike.r, lift);
-      return { x: p.x, y: p.y, artX: g.x + getUnitArtOffsetXPx(type), artY: g.y };
+      return { x: p.x, y: p.y, artX: g.x + getUnitArtOffsetXPx(type, team), artY: g.y };
     }
 
     if (fallbackVu?.sprite) {
       const x = fallbackVu.sprite.x;
       const y = fallbackVu.sprite.y;
-      return { x, y, artX: x + getUnitArtOffsetXPx(type), artY: y + this.hexSize - lift };
+      return { x, y, artX: x + getUnitArtOffsetXPx(type, team), artY: y + this.hexSize - lift };
     }
 
     return null;
@@ -1677,7 +1678,6 @@ export default class BattleScene extends Phaser.Scene {
 
         created.dragHandle.setDataEnabled();
         created.dragHandle.data.set('unitId', created.id);
-
         // если сервер сказал "bench" — сразу переставим на скамейку
         if (u.zone === 'bench') {
           const slot = Number.isInteger(u.benchSlot) ? u.benchSlot : 0;
@@ -1695,7 +1695,7 @@ export default class BattleScene extends Phaser.Scene {
           created.label?.setPosition(p.x, p.y);
           created.dragHandle?.setPosition(p.x, p.y);
           const lift = getUnitGroundLiftPx(u.type);
-          created.art?.setPosition(p.x + getUnitArtOffsetXPx(u.type), p.y + this.hexSize - lift);
+          created.art?.setPosition(p.x + getUnitArtOffsetXPx(u.type, u.team), p.y + this.hexSize - lift);
 
           // на скамейке hpBar не показываем
           if (created.hpBar) created.hpBar.setVisible(false);
@@ -1744,7 +1744,7 @@ export default class BattleScene extends Phaser.Scene {
         if (vu?.sprite) vu.sprite.setPosition(p.x, p.y);
         if (vu?.dragHandle) vu.dragHandle.setPosition(p.x, p.y);
         const lift = getUnitGroundLiftPx(u.type);
-        if (vu?.art) vu.art.setPosition(p.x + getUnitArtOffsetXPx(u.type), p.y + this.hexSize - lift);
+        if (vu?.art) vu.art.setPosition(p.x + getUnitArtOffsetXPx(u.type, u.team), p.y + this.hexSize - lift);
         if (vu?.label) vu.label.setPosition(p.x, p.y);
 
         if (vu?.hpBar) vu.hpBar.setVisible(false);

@@ -8,7 +8,8 @@ const DEFAULT_HP_UI_LIFT_PX = 0;
 // - groundLiftPx: raises/lowers the character art relative to the hex ground anchor.
 //   Increase this to move the unit art higher on screen (use this for "raise the golem a bit").
 // - artTargetPx: target rendered art width in pixels (affects scale).
-// - artOffsetXPx: horizontal art offset relative to the hex center (positive = move right).
+// - artOffsetXPx: horizontal art offset relative to the hex center for the player-facing sprite.
+//   For mirrored enemy visuals the sign is auto-inverted by getUnitArtOffsetXPx(...).
 // - hpUiLiftPx: extra vertical lift for HP bar + rank icon (positive = move UI higher).
 export const UNIT_VISUAL_CONFIG_BY_TYPE = {
   Swordsman: {
@@ -32,9 +33,9 @@ export const UNIT_VISUAL_CONFIG_BY_TYPE = {
   },
   Skeleton: {
     groundLiftPx: 90,
-    artTargetPx: 150,
-    artOffsetXPx: 0,
-    hpUiLiftPx: 10,
+    artTargetPx: 130,
+    artOffsetXPx: 5,
+    hpUiLiftPx: 30,
   },
   BonesGolem: {
     // Tune BonesGolem here:
@@ -91,8 +92,19 @@ export function getUnitArtTargetPx(type) {
   return getUnitVisualConfig(type)?.artTargetPx ?? DEFAULT_ART_TARGET_PX;
 }
 
-export function getUnitArtOffsetXPx(type) {
-  return getUnitVisualConfig(type)?.artOffsetXPx ?? DEFAULT_ART_OFFSET_X_PX;
+export function getUnitArtOffsetXPx(type, opts = {}) {
+  const base = getUnitVisualConfig(type)?.artOffsetXPx ?? DEFAULT_ART_OFFSET_X_PX;
+
+  if (typeof opts === 'boolean') {
+    return opts ? -base : base;
+  }
+
+  const team = typeof opts === 'string'
+    ? opts
+    : (opts?.team ?? null);
+  const mirrored = Boolean(opts?.mirrored) || team === 'enemy';
+
+  return mirrored ? -base : base;
 }
 
 export function getUnitHpUiLiftPx(type) {

@@ -8,6 +8,9 @@ const TEST_SCENE_RACES = [
 export function installBattleSceneTestSceneUi(BattleScene) {
   Object.assign(BattleScene.prototype, {
     initTestSceneUi() {
+      this.testSceneSpawnRankMenuOpen = false;
+      this.testScenePendingSpawnUnitType = null;
+
       this.testSceneUnitsBtn = this.add.text(0, 0, 'UNITS', {
         fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
         fontSize: '16px',
@@ -166,11 +169,7 @@ export function installBattleSceneTestSceneUi(BattleScene) {
         btn.on('pointerdown', (pointer) => {
           pointer?.event?.stopPropagation?.();
           if (!this.testSceneActive) return;
-          this.spawnTestScenePlayerUnit?.(def.type);
-          this.testSceneUnitsMenuRace = null;
-          this.testSceneUnitsMenuOpen = false;
-          this.refreshTestSceneUnitsMenuContent?.();
-          this.syncDebugUI?.();
+          this.openTestSceneSpawnRankMenu?.(def.type);
         });
         btn._testSceneRace = def.race ?? null;
         this.testSceneUnitButtons.push(btn);
@@ -178,6 +177,74 @@ export function installBattleSceneTestSceneUi(BattleScene) {
       });
 
       this.refreshTestSceneUnitsMenuContent?.();
+
+      this.testSceneSpawnRankMenu = this.add.container(0, 0)
+        .setDepth(10027)
+        .setScrollFactor(0)
+        .setVisible(false);
+      this.testSceneSpawnRankMenuBg = this.add.rectangle(0, 0, 150, 64, 0x111111, 0.95)
+        .setOrigin(0, 0)
+        .setStrokeStyle(2, 0x777777, 0.95);
+      this.testSceneSpawnRankMenuHit = this.add.zone(0, 0, 150, 64)
+        .setOrigin(0, 0)
+        .setInteractive();
+      this.testSceneSpawnRankMenuHit.on('pointerdown', (pointer) => pointer?.event?.stopPropagation?.());
+      this.testSceneSpawnRankMenuTitle = this.add.text(75, 8, 'RANK', {
+        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+        fontSize: '12px',
+        fontStyle: 'bold',
+        color: '#ffffff',
+      }).setOrigin(0.5, 0);
+      this.testSceneSpawnRankMenu.add([
+        this.testSceneSpawnRankMenuHit,
+        this.testSceneSpawnRankMenuBg,
+        this.testSceneSpawnRankMenuTitle,
+      ]);
+
+      this.testSceneSpawnRankButtons = [];
+      ['R1', 'R2', 'R3'].forEach((label, idx) => {
+        const btn = this.add.text(15 + idx * 44, 32, label, {
+          fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+          fontSize: '14px',
+          color: '#ffffff',
+          backgroundColor: 'rgba(0,0,0,0.55)',
+          padding: { left: 8, right: 8, top: 5, bottom: 5 },
+        })
+          .setOrigin(0, 0)
+          .setDepth(10028)
+          .setInteractive({ useHandCursor: true });
+        btn._spawnRankValue = idx + 1;
+        btn.on('pointerdown', (pointer) => {
+          pointer?.event?.stopPropagation?.();
+          if (!this.testSceneActive) return;
+          const type = this.testScenePendingSpawnUnitType;
+          if (!type) return;
+          this.spawnTestScenePlayerUnit?.(type, { rank: btn._spawnRankValue });
+          this.hideTestSceneSpawnRankMenu?.({ closeUnitsMenu: true });
+          this.syncDebugUI?.();
+        });
+        this.testSceneSpawnRankButtons.push(btn);
+        this.testSceneSpawnRankMenu.add(btn);
+      });
+    },
+
+    openTestSceneSpawnRankMenu(unitType) {
+      if (!this.testSceneActive) return;
+      this.testScenePendingSpawnUnitType = unitType ?? null;
+      this.testSceneSpawnRankMenuOpen = !!unitType;
+      this.positionTestSceneUi?.();
+      this.syncTestSceneUi?.(this.debugCanStartBattle ?? false);
+    },
+
+    hideTestSceneSpawnRankMenu({ closeUnitsMenu = false } = {}) {
+      this.testSceneSpawnRankMenuOpen = false;
+      this.testScenePendingSpawnUnitType = null;
+      if (closeUnitsMenu) {
+        this.testSceneUnitsMenuRace = null;
+        this.testSceneUnitsMenuOpen = false;
+        this.refreshTestSceneUnitsMenuContent?.();
+      }
+      this.syncTestSceneUi?.(this.debugCanStartBattle ?? false);
     },
 
     refreshTestSceneUnitsMenuContent() {
@@ -256,6 +323,16 @@ export function installBattleSceneTestSceneUi(BattleScene) {
         const x = Math.max(8, (this.testSceneUnitsBtn.x - (this.testSceneUnitsBtn.width ?? this.testSceneUnitsBtn.displayWidth ?? 0)));
         this.testSceneUnitsMenu.setPosition(Math.max(8, x - (menuW - (this.testSceneUnitsBtn.width ?? 80))), 48);
       }
+      if (this.testSceneSpawnRankMenu && this.testSceneUnitsMenu) {
+        const menuX = this.testSceneUnitsMenu.x ?? 8;
+        const menuY = this.testSceneUnitsMenu.y ?? 48;
+        const menuW = this.testSceneUnitsMenuBg?.width ?? 220;
+        const rankW = this.testSceneSpawnRankMenuBg?.width ?? 150;
+        this.testSceneSpawnRankMenu.setPosition(
+          Math.max(8, Math.round(menuX + (menuW - rankW) / 2)),
+          Math.round(menuY + 10),
+        );
+      }
     },
 
     syncTestSceneUi(canBattle = false) {
@@ -264,7 +341,7 @@ export function installBattleSceneTestSceneUi(BattleScene) {
       if (this.testSceneStopBtn) this.testSceneStopBtn.setVisible(!!this.testSceneActive);
       if (this.testSceneExitBtn) this.testSceneExitBtn.setVisible(!!this.testSceneActive);
       if (this.testSceneUnitsMenu) this.testSceneUnitsMenu.setVisible(!!this.testSceneActive && !!this.testSceneUnitsMenuOpen);
-
+      if (this.testSceneSpawnRankMenu) this.testSceneSpawnRankMenu.setVisible(!!this.testSceneActive && !!this.testSceneSpawnRankMenuOpen);
       if (this.testSceneBattleBtn) {
         if (this.testSceneBattleBtn.input) this.testSceneBattleBtn.input.enabled = !!canBattle;
         this.testSceneBattleBtn.setAlpha(canBattle ? 1 : 0.4);
@@ -275,6 +352,12 @@ export function installBattleSceneTestSceneUi(BattleScene) {
         if (this.testSceneStopBtn.input) this.testSceneStopBtn.input.enabled = canStop;
         this.testSceneStopBtn.setAlpha(canStop ? 1 : 0.4);
       }
+      if (this.testSceneSpawnRankButtons?.length) {
+        for (const btn of this.testSceneSpawnRankButtons) {
+          btn?.setVisible?.(!!this.testSceneActive && !!this.testSceneSpawnRankMenuOpen);
+        }
+      }
+
     },
   });
 }

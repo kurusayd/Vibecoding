@@ -1,6 +1,6 @@
 {
   "frames": {
-    "psd_animation2/attack_0001.png": {
+    "psd_anim4/attack0001.png": {
       "frame": {
         "x": 3,
         "y": 3,
@@ -24,7 +24,7 @@
         "y": 0.5
       }
     },
-    "psd_animation2/attack_0002.png": {
+    "psd_anim4/attack0002.png": {
       "frame": {
         "x": 3,
         "y": 265,
@@ -48,7 +48,7 @@
         "y": 0.5
       }
     },
-    "psd_animation2/dead.png": {
+    "psd_anim4/dead.png": {
       "frame": {
         "x": 3,
         "y": 527,
@@ -72,7 +72,7 @@
         "y": 0.5
       }
     },
-    "psd_animation2/idle.png": {
+    "psd_anim4/idle.png": {
       "frame": {
         "x": 3,
         "y": 789,
@@ -96,7 +96,7 @@
         "y": 0.5
       }
     },
-    "psd_animation2/walk_0001.png": {
+    "psd_anim4/walk0001.png": {
       "frame": {
         "x": 3,
         "y": 1051,
@@ -120,7 +120,7 @@
         "y": 0.5
       }
     },
-    "psd_animation2/walk_0002.png": {
+    "psd_anim4/walk0002.png": {
       "frame": {
         "x": 3,
         "y": 1313,
