@@ -790,10 +790,9 @@ export default class BattleScene extends Phaser.Scene {
 
     const view = this.scale.getViewPort();
 
-    // базовая линия по Y — как у кнопки "Бой"
-    const btnTop = this.debugBtn
-      ? (this.debugBtn.y - (this.debugBtn.height ?? this.debugBtn.displayHeight ?? 0) * (this.debugBtn.originY ?? 0.5))
-      : (view.y + 14);
+    // HUD left-side anchors to a fixed top line, not to debug buttons.
+    // Otherwise swapping/moving Debug/Rating buttons shifts XP/coins unexpectedly.
+    const btnTop = view.y + 14;
 
     // базовый X — левый край поля
     const p0 = this.hexToPixel(0, 0);

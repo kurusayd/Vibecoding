@@ -18,21 +18,39 @@ export function installBattleSceneShopUi(BattleScene) {
         this.shopCards.push(this.createShopCard(i));
       }
 
-      this.shopToggleBtn = this.add.text(0, 0, 'X', {
-        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-        fontSize: '16px',
-        color: '#ffffff',
-        backgroundColor: 'rgba(0,0,0,0.65)',
-        padding: { left: 8, right: 8, top: 5, bottom: 5 },
-      })
-        .setOrigin(0.5, 0.5)
+      this.shopToggleBtn = this.add.container(0, 0)
         .setDepth(10000)
         .setScrollFactor(0)
+        .setSize(38, 38);
+      this.shopToggleBtnBody = this.add.container(19, 19);
+      this.shopToggleBtnShadow = this.add.rectangle(2, 3, 40, 40, 0x171717, 0.38)
+        .setOrigin(0.5, 0.5);
+      this.shopToggleBtnBg = this.add.rectangle(0, 0, 37, 37, 0x7a474f, 1)
+        .setOrigin(0.5, 0.5)
+        .setStrokeStyle(4, 0xb7868f, 1);
+      this.shopToggleBtnLabel = this.add.text(0, 0, 'X', {
+        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+        fontSize: '18px',
+        fontStyle: 'bold',
+        color: '#f6e9ec',
+      }).setOrigin(0.5, 0.5);
+      this.shopToggleBtnHit = this.add.zone(19, 19, 38, 38)
+        .setOrigin(0.5, 0.5)
         .setInteractive({ useHandCursor: true });
+      this.shopToggleBtnBody.add([
+        this.shopToggleBtnShadow,
+        this.shopToggleBtnBg,
+        this.shopToggleBtnLabel,
+      ]);
+      this.shopToggleBtn.add([
+        this.shopToggleBtnBody,
+        this.shopToggleBtnHit,
+      ]);
 
-      this.shopToggleBtn.on('pointerdown', () => {
+      this.shopToggleBtnHit.on('pointerdown', () => {
         this.shopCollapsed = true;
         this.syncShopUI();
+        this.playPressFeedback?.(this.shopToggleBtnBody ?? this.shopToggleBtn, { scaleTo: 0.96, duration: 70 });
       });
 
       this.shopRefreshBtn = this.add.container(0, 0)
@@ -41,11 +59,14 @@ export function installBattleSceneShopUi(BattleScene) {
 
       this.shopRefreshBtnBody = this.add.container(30, 0);
 
-      this.shopRefreshBtnBg = this.add.rectangle(0, 0, 60, 64, 0x463700, 0.78)
-        .setOrigin(0.5, 0.5)
-        .setStrokeStyle(1, 0x8f7a33, 0.75);
+      this.shopRefreshBtnShadow = this.add.rectangle(2, 3, 62, 66, 0x171717, 0.38)
+        .setOrigin(0.5, 0.5);
 
-      this.shopRefreshBtnIcon = this.add.image(0, -12, 'updateMarketIcon')
+      this.shopRefreshBtnBg = this.add.rectangle(0.5, 0.5, 59, 63, 0xd8c8aa, 0.93)
+        .setOrigin(0.5, 0.5)
+        .setStrokeStyle(4, 0x8f6d39, 1);
+
+      this.shopRefreshBtnIcon = this.add.image(0, -9, 'updateMarketIcon')
         .setOrigin(0.5, 0.5)
         .setDisplaySize(36, 36);
 
@@ -61,6 +82,7 @@ export function installBattleSceneShopUi(BattleScene) {
       }).setOrigin(0, 0.5);
 
       this.shopRefreshBtnBody.add([
+        this.shopRefreshBtnShadow,
         this.shopRefreshBtnBg,
         this.shopRefreshBtnIcon,
         this.shopRefreshBtnCoin,
@@ -98,22 +120,39 @@ export function installBattleSceneShopUi(BattleScene) {
         });
       });
 
-      this.shopOpenBtn = this.add.text(0, 0, 'МАГАЗИН', {
-        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-        fontSize: '16px',
-        color: '#ffffff',
-        backgroundColor: 'rgba(0,0,0,0.72)',
-        padding: { left: 12, right: 12, top: 7, bottom: 7 },
-      })
-        .setOrigin(0.5, 0.5)
+      this.shopOpenBtn = this.add.container(0, 0)
         .setDepth(10000)
         .setScrollFactor(0)
+        .setSize(128, 38);
+      this.shopOpenBtnBody = this.add.container(64, 19);
+      this.shopOpenBtnShadow = this.add.rectangle(2, 3, 130, 40, 0x171717, 0.38)
+        .setOrigin(0.5, 0.5);
+      this.shopOpenBtnBg = this.add.rectangle(0, 0, 127, 37, 0x6b4b2f, 1)
+        .setOrigin(0.5, 0.5)
+        .setStrokeStyle(4, 0xb38a5e, 1);
+      this.shopOpenBtnLabel = this.add.text(0, 0, '\u041c\u0410\u0413\u0410\u0417\u0418\u041d', {
+        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+        fontSize: '16px',
+        fontStyle: 'bold',
+        color: '#f3ead6',
+      }).setOrigin(0.5, 0.5);
+      this.shopOpenBtnHit = this.add.zone(64, 19, 128, 38)
+        .setOrigin(0.5, 0.5)
         .setInteractive({ useHandCursor: true });
+      this.shopOpenBtnBody.add([
+        this.shopOpenBtnShadow,
+        this.shopOpenBtnBg,
+        this.shopOpenBtnLabel,
+      ]);
+      this.shopOpenBtn.add([
+        this.shopOpenBtnBody,
+        this.shopOpenBtnHit,
+      ]);
 
-      this.shopOpenBtn.on('pointerdown', () => {
+      this.shopOpenBtnHit.on('pointerdown', () => {
         this.shopCollapsed = !this.shopCollapsed;
         this.syncShopUI();
-        this.playPressFeedback?.(this.shopOpenBtn, { scaleTo: 0.96, duration: 70 });
+        this.playPressFeedback?.(this.shopOpenBtnBody ?? this.shopOpenBtn, { scaleTo: 0.96, duration: 70 });
       });
 
       this.positionShop();
@@ -305,7 +344,7 @@ export function installBattleSceneShopUi(BattleScene) {
         const rightEdge = this.scale.width / 2 + totalW / 2;
         const btnX = rightEdge + 18;
         const btnY = y - layout.height / 2 + 16;
-        this.shopToggleBtn.setPosition(btnX, btnY);
+        this.shopToggleBtn.setPosition(btnX - 10, btnY - 15);
 
         if (this.shopRefreshBtn) {
           const xHalfW = (this.shopToggleBtn.width ?? this.shopToggleBtn.displayWidth ?? 0) / 2;
@@ -313,7 +352,7 @@ export function installBattleSceneShopUi(BattleScene) {
           const tileBottomY = y + layout.height / 2;
           const refreshY = tileBottomY - refreshHalfH;
           const leftEdgeX = btnX - xHalfW;
-          this.shopRefreshBtn.setPosition(leftEdgeX, refreshY);
+          this.shopRefreshBtn.setPosition(leftEdgeX + 8, refreshY);
         }
       }
 
@@ -322,8 +361,8 @@ export function installBattleSceneShopUi(BattleScene) {
         const btnW = this.shopOpenBtn.width ?? this.shopOpenBtn.displayWidth ?? 0;
         const btnH = this.shopOpenBtn.height ?? this.shopOpenBtn.displayHeight ?? 0;
         this.shopOpenBtn.setPosition(
-          view.x + view.width - 12 - btnW / 2,
-          view.y + view.height - 12 - btnH / 2,
+          view.x + view.width - 80 - btnW / 2,
+          view.y + view.height - 30 - btnH / 2,
         );
       }
     },
@@ -336,6 +375,7 @@ export function installBattleSceneShopUi(BattleScene) {
       if (this.shopRefreshBtn) this.tweens.killTweensOf(this.shopRefreshBtn);
       if (this.shopRefreshBtnBody) this.tweens.killTweensOf(this.shopRefreshBtnBody);
       if (this.shopOpenBtn) this.tweens.killTweensOf(this.shopOpenBtn);
+      if (this.shopOpenBtnBody) this.tweens.killTweensOf(this.shopOpenBtnBody);
     },
 
     setShopCardsVisual(open, { immediate = false } = {}) {
@@ -536,9 +576,12 @@ export function installBattleSceneShopUi(BattleScene) {
     applyShopUiMode(mode, { animate = true } = {}) {
       const immediate = !animate;
 
-      if (this.shopToggleBtn) {
-        this.shopToggleBtn.setText('X');
-        this.shopToggleBtn.setStyle({ backgroundColor: 'rgba(0,0,0,0.65)' });
+      if (this.shopToggleBtnBg) {
+        this.shopToggleBtnBg.setFillStyle(0x7a474f, 1);
+        this.shopToggleBtnBg.setStrokeStyle(4, 0xb7868f, 1);
+      }
+      if (this.shopToggleBtnLabel) {
+        this.shopToggleBtnLabel.setColor('#f6e9ec');
       }
 
       if (mode === 'open') {
@@ -583,10 +626,10 @@ export function installBattleSceneShopUi(BattleScene) {
 
       if (this.shopOpenBtn) {
         const isActive = (mode === 'open');
-        this.shopOpenBtn.setStyle({
-          backgroundColor: isActive ? 'rgba(110,95,20,0.82)' : 'rgba(0,0,0,0.72)',
-          color: isActive ? '#ffe08a' : '#ffffff',
-        });
+        this.shopOpenBtnBg?.setFillStyle(isActive ? 0x7a5635 : 0x6b4b2f, 1);
+        this.shopOpenBtnBg?.setStrokeStyle(4, isActive ? 0xc89e68 : 0xb38a5e, 1);
+        this.shopOpenBtnLabel?.setColor(isActive ? '#ffe4ad' : '#f3ead6');
+        this.shopOpenBtnShadow?.setFillStyle(0x171717, 1);
         this.shopOpenBtn.setAlpha(isActive ? 1 : 0.94);
       }
 
@@ -596,11 +639,14 @@ export function installBattleSceneShopUi(BattleScene) {
       const coins = Number(this.battleState?.kings?.player?.coins ?? 0);
       const canRefreshShop = (mode === 'open') && coins >= refreshCost && !this.shopRefreshBusy;
       if (this.shopRefreshBtn) {
-        this.shopRefreshBtnBg?.setFillStyle(canRefreshShop ? 0x463700 : 0x4b4b4b, canRefreshShop ? 0.78 : 0.75);
-        this.shopRefreshBtnBg?.setStrokeStyle(1, canRefreshShop ? 0x8f7a33 : 0x787878, 0.75);
+        this.shopRefreshBtnBg?.setFillStyle(canRefreshShop ? 0xd8c8aa : 0x9d9588, canRefreshShop ? 0.93 : 0.62);
+        this.shopRefreshBtnBg?.setStrokeStyle(4, canRefreshShop ? 0x8f6d39 : 0x6f695f, 1);
+        this.shopRefreshBtnShadow?.setFillStyle(0x171717, 1);
+        this.shopRefreshBtnShadow?.setAlpha(canRefreshShop ? 0.38 : 0.18);
+        this.shopRefreshBtnCost?.setColor(canRefreshShop ? '#7c5b00' : '#5b5b5b');
         this.shopRefreshBtnCost?.setAlpha(canRefreshShop ? 1 : 0.82);
-        this.shopRefreshBtnIcon?.setAlpha(canRefreshShop ? 1 : 0.72);
-        this.shopRefreshBtnCoin?.setAlpha(canRefreshShop ? 1 : 0.72);
+        this.shopRefreshBtnIcon?.setAlpha(canRefreshShop ? 1 : 0.60);
+        this.shopRefreshBtnCoin?.setAlpha(canRefreshShop ? 1 : 0.65);
         if (this.shopRefreshBtnHit?.input) this.shopRefreshBtnHit.input.enabled = canRefreshShop;
         this.shopRefreshBtn.setAlpha(canRefreshShop ? 1 : 0.78);
       }
@@ -663,4 +709,3 @@ export function installBattleSceneShopUi(BattleScene) {
     },
   });
 }
-
