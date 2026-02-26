@@ -6,7 +6,7 @@
 import { getUnitHpUiLiftPx } from './unitVisualConfig.js';
 
 const HP_BAR_EXTRA_LIFT_PX = 3; // РѕР±С‰РёР№ РїРѕРґСЉС‘Рј HP-Р±Р°СЂР° РґР»СЏ РІСЃРµС… СЋРЅРёС‚РѕРІ (rank icon РЅРµ С‚СЂРѕРіР°РµРј)
-const RANK_ICON_OFFSET_Y_PX = 3; // + вниз, - вверх (только rank icon, HP-бар не двигается)
+const RANK_ICON_OFFSET_Y_PX = 8; // + вниз, - вверх (только rank icon, HP-бар не двигается)
 
 export function updateHpBar(scene, unit) {
   // Tween callbacks can still fire during scene teardown/restart.

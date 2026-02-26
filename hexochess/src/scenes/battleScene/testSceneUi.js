@@ -49,6 +49,24 @@ export function installBattleSceneTestSceneUi(BattleScene) {
         this.startTestSceneBattleFromPrep?.();
       });
 
+      this.testSceneStopBtn = this.add.text(0, 0, 'STOP', {
+        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+        fontSize: '16px',
+        color: '#ffffff',
+        backgroundColor: 'rgba(120,40,40,0.72)',
+        padding: { left: 10, right: 10, top: 6, bottom: 6 },
+      })
+        .setOrigin(1, 0)
+        .setDepth(10020)
+        .setScrollFactor(0)
+        .setInteractive({ useHandCursor: true })
+        .setVisible(false);
+      this.testSceneStopBtn.on('pointerdown', (pointer) => {
+        pointer?.event?.stopPropagation?.();
+        if (!this.testSceneActive) return;
+        this.restoreTestSceneBattleFromSnapshot?.();
+      });
+
       this.testSceneExitBtn = this.add.text(0, 0, 'EXIT', {
         fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
         fontSize: '16px',
@@ -221,10 +239,16 @@ export function installBattleSceneTestSceneUi(BattleScene) {
         const exitLeft = this.testSceneExitBtn.x - (this.testSceneExitBtn.width ?? this.testSceneExitBtn.displayWidth ?? 0);
         this.testSceneUnitsBtn.setPosition(exitLeft - gap, 14);
       }
-      if (this.testSceneBattleBtn && this.testSceneUnitsBtn) {
+      if (this.testSceneStopBtn && this.testSceneUnitsBtn) {
         const gap = 8;
         const unitsLeft = this.testSceneUnitsBtn.x - (this.testSceneUnitsBtn.width ?? this.testSceneUnitsBtn.displayWidth ?? 0);
-        this.testSceneBattleBtn.setPosition(unitsLeft - gap, 14);
+        this.testSceneStopBtn.setPosition(unitsLeft - gap, 14);
+      }
+      if (this.testSceneBattleBtn && (this.testSceneStopBtn || this.testSceneUnitsBtn)) {
+        const gap = 8;
+        const anchor = this.testSceneStopBtn ?? this.testSceneUnitsBtn;
+        const anchorLeft = anchor.x - (anchor.width ?? anchor.displayWidth ?? 0);
+        this.testSceneBattleBtn.setPosition(anchorLeft - gap, 14);
       }
       if (this.testSceneUnitsMenu && this.testSceneUnitsBtn) {
         this.refreshTestSceneUnitsMenuContent?.();
@@ -237,6 +261,7 @@ export function installBattleSceneTestSceneUi(BattleScene) {
     syncTestSceneUi(canBattle = false) {
       if (this.testSceneUnitsBtn) this.testSceneUnitsBtn.setVisible(!!this.testSceneActive);
       if (this.testSceneBattleBtn) this.testSceneBattleBtn.setVisible(!!this.testSceneActive);
+      if (this.testSceneStopBtn) this.testSceneStopBtn.setVisible(!!this.testSceneActive);
       if (this.testSceneExitBtn) this.testSceneExitBtn.setVisible(!!this.testSceneActive);
       if (this.testSceneUnitsMenu) this.testSceneUnitsMenu.setVisible(!!this.testSceneActive && !!this.testSceneUnitsMenuOpen);
 
@@ -244,7 +269,12 @@ export function installBattleSceneTestSceneUi(BattleScene) {
         if (this.testSceneBattleBtn.input) this.testSceneBattleBtn.input.enabled = !!canBattle;
         this.testSceneBattleBtn.setAlpha(canBattle ? 1 : 0.4);
       }
+      if (this.testSceneStopBtn) {
+        const canStop = !!this.testSceneActive && !!(this.testSceneBattleStartSnapshot?.length) &&
+          ((this.battleState?.phase === 'battle') || (this.battleState?.result != null));
+        if (this.testSceneStopBtn.input) this.testSceneStopBtn.input.enabled = canStop;
+        this.testSceneStopBtn.setAlpha(canStop ? 1 : 0.4);
+      }
     },
   });
 }
-

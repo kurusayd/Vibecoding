@@ -37,6 +37,7 @@ const EXTRA_PORTRAIT_ASSETS = [
 
 const SHOP_OFFER_COUNT = 5;
 const SHOP_CARD_ART_LIFT_Y = 75; // увеличивай/уменьшай, чтобы поднять/опустить арт в сером блоке карточки
+const AUTO_ENTER_TEST_SCENE_ON_BOOT = true; // временно: быстрый вход сразу в test scene
 const UI_TEXT = {
   START_GAME: '\u041d\u0410\u0427\u0410\u0422\u042c \u0418\u0413\u0420\u0423',
   TEST_SCENE: '\u0422\u0435\u0441\u0442\u043e\u0432\u0430\u044f \u0441\u0446\u0435\u043d\u0430',
@@ -155,9 +156,9 @@ export default class BattleScene extends Phaser.Scene {
     this.load.image('battleBg', '/assets/bg.jpg');
     this.load.image('king', '/assets/kings/king_princess.png');
     this.load.image('coin', '/assets/icons/Coin.png');
-    this.load.image('rank1', '/assets/rank1.png');
-    this.load.image('rank2', '/assets/rank2.png');
-    this.load.image('rank3', '/assets/rank3.png');
+    this.load.image('rank1', '/assets/icons/rank1.png');
+    this.load.image('rank2', '/assets/icons/rank2.png');
+    this.load.image('rank3', '/assets/icons/rank3.png');
     this.load.image('crownexp', '/assets/crownexp.png');
     this.load.image('updateMarketIcon', '/assets/icons/update_market.png');
 
@@ -544,6 +545,12 @@ export default class BattleScene extends Phaser.Scene {
 
 
     this.ws.onInit = (msg) => {
+      if (this.testSceneActive) {
+        this.testSceneQueuedLiveState = msg?.state ?? null;
+        this.activeUnitId = msg?.you?.unitId ?? null;
+        return;
+      }
+
       // сервер прислал начальный state и сказал, каким юнитом ты управляешь
       this.battleState = msg.state;
       this.activeUnitId = msg?.you?.unitId ?? null; // теперь может быть null (старт пустой)
@@ -738,6 +745,10 @@ export default class BattleScene extends Phaser.Scene {
     this.shopUnitAtlasDefByType = UNIT_ATLAS_DEF_BY_TYPE;
     this.shopAtlasIdleFrame = atlasIdleFrame;
     this.initShopUI();
+
+    if (AUTO_ENTER_TEST_SCENE_ON_BOOT) {
+      this.enterTestScene?.();
+    }
 
     this.renderFromState();  // отрисуем то что есть (пока пусто)
   }
@@ -991,6 +1002,12 @@ export default class BattleScene extends Phaser.Scene {
     // Кнопка "Начать игру" видна только в предстарте:
     // round 1, фаза prep, нет активных таймеров и нет результата.
     if (this.startGameBtn) {
+      if (this.testSceneActive) {
+        this.startGameBtn.setVisible(false);
+        this.positionDebugUI?.();
+        return;
+      }
+
       const phase = this.battleState?.phase ?? 'prep';
       const result = this.battleState?.result ?? null;
       const round = Number(this.battleState?.round ?? 1);

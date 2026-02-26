@@ -7,7 +7,7 @@ export function cellKey(q, r) {
   return `${q},${r}`;
 }
 
-const RANK_ICON_SCALE = 0.10;
+const RANK_ICON_SCALE = 0.25;
 
 const UNIT_ART_DEPTH_LIVE = 1040;
 const UNIT_ART_DEPTH_DEAD = 990;
