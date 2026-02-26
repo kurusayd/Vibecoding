@@ -28,7 +28,9 @@ export function updateHpBar(scene, unit) {
   // РїРѕР·РёС†РёСЏ РѕС‚РЅРѕСЃРёС‚РµР»СЊРЅРѕ СЋРЅРёС‚Р° (РІРЅРёР·Сѓ РіРµРєСЃР°)
   const cx = unit.sprite?.x ?? 0;
   const cy = unit.sprite?.y ?? 0;
-  const coreUnit = (scene.battleState?.units ?? []).find((u) => u.id === unit.id);
+  const coreUnit =
+    scene.coreUnitsById?.get?.(unit.id) ??
+    (scene.battleState?.units ?? []).find((u) => u.id === unit.id);
   const unitType = coreUnit?.type ?? unit.type ?? null;
   const uiLift = Number(getUnitHpUiLiftPx(unitType));
 

@@ -51,6 +51,14 @@ export function makeSetBenchIntent(unitId, slot) {
   return { type: 'intent', action: 'setBench', unitId, slot };
 }
 
+export function makeStartGameIntent() {
+  return { type: 'intent', action: 'startGame' };
+}
+
+export function makeBuyXpIntent() {
+  return { type: 'intent', action: 'buyXp' };
+}
+
 export function makeShopBuyIntent(offerIndex) {
   return { type: 'intent', action: 'shopBuy', offerIndex };
 }

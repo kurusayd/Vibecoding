@@ -2,11 +2,21 @@
 import { hexToPixel, pixelToHex, hexCorners, hexToGroundPixel } from '../game/hex.js';
 import { createUnitSystem } from '../game/units.js';
 import { getUnitArtOffsetXPx, getUnitGroundLiftPx } from '../game/unitVisualConfig.js';
+import {
+  atlasIdleFrame,
+  atlasDeadFrame,
+  atlasWalkFrameRegex,
+  atlasAttackFrameRegex,
+  UNIT_ATLAS_DEFS,
+  UNIT_ATLAS_DEF_BY_TYPE,
+  UNIT_ANIMS_BY_TYPE,
+} from '../game/unitAtlasConfig.js';
 import { WSClient } from '../net/wsClient.js';
 import { createFullscreenButton, positionFullscreenButton } from '../game/ui.js';
 import { updateHpBar } from '../game/hpbar.js';
 
 import { createBattleState, KING_XP_COST, KING_MAX_LEVEL, hexDistance } from '../../shared/battleCore.js';
+import { baseIncomeForRound, interestIncome, streakBonus } from '../../shared/economy.js';
 import { installBattleSceneDrag } from './battleScene/dragController.js';
 import { installBattleSceneShopUi } from './battleScene/shopUi.js';
 import { installBattleSceneTestScene } from './battleScene/testScene.js';
@@ -24,149 +34,6 @@ const EXTRA_PORTRAIT_ASSETS = [
   { key: 'king_king', path: '/assets/kings/king_king.png' },
   { key: 'king_princess', path: '/assets/kings/king_princess.png' },
 ];
-
-function atlasFramePrefix(def) {
-  return String(def?.framePrefix ?? 'psd_animation');
-}
-
-function atlasIdleFrame(def) {
-  return `${atlasFramePrefix(def)}/idle.png`;
-}
-
-function atlasDeadFrame(def) {
-  return `${atlasFramePrefix(def)}/dead.png`;
-}
-
-function atlasWalkFrameRegex(def) {
-  const prefix = atlasFramePrefix(def).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`^${prefix}/walk_?\\d{4}\\.png$`);
-}
-
-function atlasAttackFrameRegex(def) {
-  const prefix = atlasFramePrefix(def).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`^${prefix}/attack_?\\d{4}\\.png$`);
-}
-
-
-const UNIT_ATLAS_DEFS = [
-  {
-    type: 'Swordsman',
-    atlasKey: 'sworman_atlas',
-    atlasPath: '/assets/units/human/swordman/atlas/swordman_atlas',
-    idleAnim: 'swordman_idle',
-    walkAnim: 'swordman_walk',
-    attackAnim: 'swordman_attack',
-    deadAnim: 'swordman_dead',
-    framePrefix: 'psd_animation',
-  },
-  {
-    type: 'Crossbowman',
-    atlasKey: 'crossbowman_atlas',
-    atlasPath: '/assets/units/human/crossbowman/atlas/swordman_atlas',
-    idleAnim: 'crossbowman_idle',
-    walkAnim: 'crossbowman_walk',
-    attackAnim: 'crossbowman_attack',
-    deadAnim: 'crossbowman_dead',
-    framePrefix: 'psd_animation',
-  },
-  {
-    type: 'Knight',
-    atlasKey: 'knight_atlas',
-    atlasPath: '/assets/units/human/knight/atlas/swordman_atlas',
-    idleAnim: 'knight_idle',
-    walkAnim: 'knight_walk',
-    attackAnim: 'knight_attack',
-    deadAnim: 'knight_dead',
-    framePrefix: 'psd_animation',
-  },
-  {
-    type: 'Skeleton',
-    atlasKey: 'skeleton_atlas',
-    atlasPath: '/assets/units/undead/skeleton/skeleton_atlas',
-    idleAnim: 'skeleton_idle',
-    walkAnim: 'skeleton_walk',
-    attackAnim: 'skeleton_attack',
-    deadAnim: 'skeleton_dead',
-    framePrefix: 'psd_animation2',
-  },
-  {
-    type: 'BonesGolem',
-    atlasKey: 'bones_golem_atlas',
-    atlasPath: '/assets/units/undead/bones_golem/bones_golem_atlas',
-    idleAnim: 'bones_golem_idle',
-    walkAnim: 'bones_golem_walk',
-    attackAnim: 'bones_golem_attack',
-    deadAnim: 'bones_golem_dead',
-    framePrefix: 'psd_animation',
-  },
-  {
-    type: 'Ghost',
-    atlasKey: 'ghost_atlas',
-    atlasPath: '/assets/units/undead/ghost/ghost_atlas',
-    idleAnim: 'ghost_idle',
-    walkAnim: 'ghost_walk',
-    attackAnim: 'ghost_attack',
-    deadAnim: 'ghost_dead',
-    framePrefix: 'psd_animation',
-  },
-  {
-    type: 'Lich',
-    atlasKey: 'lich_atlas',
-    atlasPath: '/assets/units/undead/lich/lich_atlas',
-    idleAnim: 'lich_idle',
-    walkAnim: 'lich_walk',
-    attackAnim: 'lich_attack',
-    deadAnim: 'lich_dead',
-    framePrefix: 'psd_animation',
-  },
-  {
-    type: 'SkeletonArcher',
-    atlasKey: 'skeleton_archer_atlas',
-    atlasPath: '/assets/units/undead/skeleton_archer/skeleton_archer_atlas',
-    idleAnim: 'skeleton_archer_idle',
-    walkAnim: 'skeleton_archer_walk',
-    attackAnim: 'skeleton_archer_attack',
-    deadAnim: 'skeleton_archer_dead',
-    framePrefix: 'psd_animation',
-  },
-  {
-    type: 'Vampire',
-    atlasKey: 'vampire_atlas',
-    atlasPath: '/assets/units/undead/vampire/vampire_atlas',
-    idleAnim: 'vampire_idle',
-    walkAnim: 'vampire_walk',
-    attackAnim: 'vampire_attack',
-    deadAnim: 'vampire_dead',
-    framePrefix: 'psd_animation',
-  },
-  {
-    type: 'Zombie',
-    atlasKey: 'zombie_atlas',
-    atlasPath: '/assets/units/undead/zombie/zombie_atlas',
-    idleAnim: 'zombie_idle',
-    walkAnim: 'zombie_walk',
-    attackAnim: 'zombie_attack',
-    deadAnim: 'zombie_dead',
-    framePrefix: 'psd_animation',
-  },
-];
-
-const UNIT_ATLAS_DEF_BY_TYPE = Object.fromEntries(
-  UNIT_ATLAS_DEFS.map((def) => [def.type, def])
-);
-
-const UNIT_ANIMS_BY_TYPE = {
-  Swordsman: { idle: 'swordman_idle', walk: 'swordman_walk', attack: 'swordman_attack', dead: 'swordman_dead' },
-  Crossbowman: { idle: 'crossbowman_idle', walk: 'crossbowman_walk', attack: 'crossbowman_attack', dead: 'crossbowman_dead' },
-  Knight: { idle: 'knight_idle', walk: 'knight_walk', attack: 'knight_attack', dead: 'knight_dead' },
-  Skeleton: { idle: 'skeleton_idle', walk: 'skeleton_walk', attack: 'skeleton_attack', dead: 'skeleton_dead' },
-  BonesGolem: { idle: 'bones_golem_idle', walk: 'bones_golem_walk', attack: 'bones_golem_attack', dead: 'bones_golem_dead' },
-  Ghost: { idle: 'ghost_idle', walk: 'ghost_walk', attack: 'ghost_attack', dead: 'ghost_dead' },
-  Lich: { idle: 'lich_idle', walk: 'lich_walk', attack: 'lich_attack', dead: 'lich_dead' },
-  SkeletonArcher: { idle: 'skeleton_archer_idle', walk: 'skeleton_archer_walk', attack: 'skeleton_archer_attack', dead: 'skeleton_archer_dead' },
-  Vampire: { idle: 'vampire_idle', walk: 'vampire_walk', attack: 'vampire_attack', dead: 'vampire_dead' },
-  Zombie: { idle: 'zombie_idle', walk: 'zombie_walk', attack: 'zombie_attack', dead: 'zombie_dead' },
-};
 
 const SHOP_OFFER_COUNT = 5;
 const SHOP_CARD_ART_LIFT_Y = 75; // увеличивай/уменьшай, чтобы поднять/опустить арт в сером блоке карточки
@@ -299,6 +166,7 @@ export default class BattleScene extends Phaser.Scene {
   create() {
     this.cameras.main.setBackgroundColor('#1e1e1e');
     this.battleState = createBattleState();   // core state (пока пустой, ждём сервер)
+    this.coreUnitsById = new Map();
     this.kingXpCost = KING_XP_COST;
     this.kingMaxLevel = KING_MAX_LEVEL;
 
@@ -1592,6 +1460,8 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   renderFromState() {
+    this.coreUnitsById = new Map((this.battleState?.units ?? []).map((u) => [u.id, u]));
+
     // 1) кого оставляем
     const phase = this.battleState?.phase ?? 'prep';
 
@@ -2111,23 +1981,6 @@ export default class BattleScene extends Phaser.Scene {
     const loseStreak = Number(this.battleState?.loseStreak ?? 0);
 
     const coinsNow = Number(this.battleState?.kings?.player?.coins ?? 0);
-
-    const baseIncomeForRound = (r) => {
-      if (r <= 1) return 1;
-      if (r === 2) return 2;
-      if (r === 3) return 3;
-      if (r === 4) return 4;
-      return 5; // 5+
-    };
-
-    const interestIncome = (coins) => Math.min(5, Math.floor(coins / 10));
-
-    const streakBonus = (streakCount) => {
-      if (streakCount >= 7) return 3;
-      if (streakCount >= 5) return 2;
-      if (streakCount >= 3) return 1;
-      return 0;
-    };
 
     const base = baseIncomeForRound(round);
     const interest = interestIncome(coinsNow);

@@ -37,8 +37,32 @@ export function createFullscreenButton(scene) {
     positionFullscreenButton(scene);
   };
 
+  scene._fsBtnUpdateLabel = updateLabel;
   scene.scale.on('enterfullscreen', updateLabel);
   scene.scale.on('leavefullscreen', updateLabel);
+
+  if (!scene._fsBtnCleanupBound) {
+    scene._fsBtnCleanupBound = true;
+
+    const cleanup = () => {
+      const handler = scene._fsBtnUpdateLabel;
+      if (handler) {
+        scene.scale.off('enterfullscreen', handler);
+        scene.scale.off('leavefullscreen', handler);
+      }
+
+      if (scene.fsBtn?.active) {
+        try { scene.fsBtn.destroy(); } catch {}
+      }
+
+      scene.fsBtn = null;
+      scene._fsBtnUpdateLabel = null;
+      scene._fsBtnCleanupBound = false;
+    };
+
+    scene.events?.once?.('shutdown', cleanup);
+    scene.events?.once?.('destroy', cleanup);
+  }
 
   updateLabel();
 }

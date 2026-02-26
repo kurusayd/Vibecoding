@@ -22,6 +22,7 @@ import {
   makeErrorMessage,
 } from '../shared/messages.js';
 import { UNIT_CATALOG } from '../shared/unitCatalog.js';
+import { baseIncomeForRound, interestIncome, streakBonus, COINS_CAP } from '../shared/economy.js';
 
 // ---- game state (authoritative) ----
 const state = createBattleState();
@@ -49,35 +50,8 @@ let prepSnapshot = null; // Array of units
 let battleTimer = null;
 let finishTimeout = null;
 
-const BASE_INCOME_AFTER_R5 = 5;
-const INTEREST_STEP = 10;
-const INTEREST_CAP = 5;     // classic: максимум +5
-const COINS_CAP = 100;      // твой кап
-
 function clampCoinsKing(king) {
   king.coins = Math.max(0, Math.min(COINS_CAP, Number(king.coins ?? 0)));
-}
-
-// round: 1..N
-function baseIncomeForRound(round) {
-  if (round <= 1) return 1;
-  if (round === 2) return 2;
-  if (round === 3) return 3;
-  if (round === 4) return 4;
-  return BASE_INCOME_AFTER_R5; // 5+
-}
-
-function interestIncome(coins) {
-  // +1 за каждые 10, кап 5
-  return Math.min(INTEREST_CAP, Math.floor(coins / INTEREST_STEP));
-}
-
-function streakBonus(streakCount) {
-  // 0-2:0, 3-4:+1, 5-6:+2, 7+:+3
-  if (streakCount >= 7) return 3;
-  if (streakCount >= 5) return 2;
-  if (streakCount >= 3) return 1;
-  return 0;
 }
 
 function clampPlayerCoins() {
@@ -764,8 +738,18 @@ function handleIntent(clientId, msg, ws) {
 
   if (msg.action === 'startGame') {
     // стартуем только если сейчас prep и таймер не идёт
-    if (state.phase !== 'prep') {
-      ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'startGame allowed only in prep')));
+    const isPreStart =
+      state.phase === 'prep' &&
+      !state.result &&
+      Number(state.round ?? 1) === 1 &&
+      Number(state.prepSecondsLeft ?? 0) === 0 &&
+      Number(state.battleSecondsLeft ?? 0) === 0 &&
+      !prepTimer &&
+      !battleTimer &&
+      !finishTimeout;
+
+    if (!isPreStart) {
+      ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'startGame allowed only before round start')));
       return;
     }
 
@@ -887,6 +871,17 @@ function handleIntent(clientId, msg, ws) {
     if (!isInsideBoard(q, r)) {
       ws.send(JSON.stringify(makeErrorMessage('OUT_OF_BOUNDS', 'Cell is outside board')));
       return;
+    }
+
+    // В prep игрок может ставить юнитов только на свою половину поля (первые 6 колонок).
+    // Это дублирует ограничение клиента, но должно проверяться и на сервере.
+    if (state.phase === 'prep') {
+      const col = q + Math.floor(r / 2);
+      const maxPlayerPrepCols = Math.min(GRID_COLS, 6);
+      if (col < 0 || col >= maxPlayerPrepCols) {
+        ws.send(JSON.stringify(makeErrorMessage('OUT_OF_PREP_ZONE', 'Cell is outside player prep zone')));
+        return;
+      }
     }
 
     const me = findUnitById(requestedUnitId);

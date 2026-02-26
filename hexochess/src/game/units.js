@@ -1,6 +1,7 @@
 ﻿import { updateHpBar } from './hpbar.js';
 import Phaser from 'phaser';
 import { getUnitArtOffsetXPx, getUnitArtTargetPx, getUnitGroundLiftPx } from './unitVisualConfig.js';
+import { atlasIdleFrame, atlasDeadFrame, UNIT_ATLAS_DEF_BY_TYPE } from './unitAtlasConfig.js';
 
 export function cellKey(q, r) {
   return `${q},${r}`;
@@ -15,91 +16,6 @@ const UNIT_ART_TOON_OUTLINE_COLOR = 0x1a1208;
 const UNIT_ART_TOON_OUTLINE_DISTANCE = 3;
 const UNIT_ART_TOON_OUTLINE_OUTER = 1.05;
 const UNIT_ART_TOON_OUTLINE_INNER = 0;
-
-function atlasFramePrefix(cfg) {
-  return String(cfg?.framePrefix ?? 'psd_animation');
-}
-
-function atlasIdleFrame(cfg) {
-  return `${atlasFramePrefix(cfg)}/idle.png`;
-}
-
-function atlasDeadFrame(cfg) {
-  return `${atlasFramePrefix(cfg)}/dead.png`;
-}
-
-const UNIT_ATLAS_BY_TYPE = {
-  Swordsman: {
-    atlasKey: 'sworman_atlas',
-    idleAnim: 'swordman_idle',
-    walkAnim: 'swordman_walk',
-    deadAnim: 'swordman_dead',
-    framePrefix: 'psd_animation',
-  },
-  Crossbowman: {
-    atlasKey: 'crossbowman_atlas',
-    idleAnim: 'crossbowman_idle',
-    walkAnim: 'crossbowman_walk',
-    deadAnim: 'crossbowman_dead',
-    framePrefix: 'psd_animation',
-  },
-  Knight: {
-    atlasKey: 'knight_atlas',
-    idleAnim: 'knight_idle',
-    walkAnim: 'knight_walk',
-    deadAnim: 'knight_dead',
-    framePrefix: 'psd_animation',
-  },
-  Skeleton: {
-    atlasKey: 'skeleton_atlas',
-    idleAnim: 'skeleton_idle',
-    walkAnim: 'skeleton_walk',
-    deadAnim: 'skeleton_dead',
-    framePrefix: 'psd_animation2',
-  },
-  BonesGolem: {
-    atlasKey: 'bones_golem_atlas',
-    idleAnim: 'bones_golem_idle',
-    walkAnim: 'bones_golem_walk',
-    deadAnim: 'bones_golem_dead',
-    framePrefix: 'psd_animation',
-  },
-  Ghost: {
-    atlasKey: 'ghost_atlas',
-    idleAnim: 'ghost_idle',
-    walkAnim: 'ghost_walk',
-    deadAnim: 'ghost_dead',
-    framePrefix: 'psd_animation',
-  },
-  Lich: {
-    atlasKey: 'lich_atlas',
-    idleAnim: 'lich_idle',
-    walkAnim: 'lich_walk',
-    deadAnim: 'lich_dead',
-    framePrefix: 'psd_animation',
-  },
-  SkeletonArcher: {
-    atlasKey: 'skeleton_archer_atlas',
-    idleAnim: 'skeleton_archer_idle',
-    walkAnim: 'skeleton_archer_walk',
-    deadAnim: 'skeleton_archer_dead',
-    framePrefix: 'psd_animation',
-  },
-  Vampire: {
-    atlasKey: 'vampire_atlas',
-    idleAnim: 'vampire_idle',
-    walkAnim: 'vampire_walk',
-    deadAnim: 'vampire_dead',
-    framePrefix: 'psd_animation',
-  },
-  Zombie: {
-    atlasKey: 'zombie_atlas',
-    idleAnim: 'zombie_idle',
-    walkAnim: 'zombie_walk',
-    deadAnim: 'zombie_dead',
-    framePrefix: 'psd_animation',
-  },
-};
 
 function makeHexHitArea(scene, w, h) {
   const s = scene.hexSize;
@@ -184,11 +100,21 @@ function applyToonOutlineFx(art) {
 export function createUnitSystem(scene) {
   const state = {
     units: [],
+    unitsById: new Map(),
     occupied: new Set(),
   };
 
+  function indexUnit(unit) {
+    if (!unit) return;
+    state.unitsById.set(unit.id, unit);
+  }
+
+  function unindexUnit(unitId) {
+    state.unitsById.delete(unitId);
+  }
+
   function findUnit(id) {
-    return state.units.find(u => u.id === id) ?? null;
+    return state.unitsById.get(id) ?? null;
   }
 
   function getUnitAt(q, r) {
@@ -219,7 +145,7 @@ export function createUnitSystem(scene) {
 
     let art = null;
 
-    const atlasCfg = UNIT_ATLAS_BY_TYPE[opts.type] ?? null;
+    const atlasCfg = UNIT_ATLAS_DEF_BY_TYPE[opts.type] ?? null;
     const atlasKey = atlasCfg?.atlasKey;
     const idleFrame = atlasIdleFrame(atlasCfg);
 
@@ -295,6 +221,7 @@ export function createUnitSystem(scene) {
     if (art) label.setVisible(false);
 
     state.units.push(unit);
+    indexUnit(unit);
     state.occupied.add(key);
 
     updateHpBar(scene, unit);
@@ -322,7 +249,7 @@ export function createUnitSystem(scene) {
 
     let art = null;
 
-    const atlasCfg = UNIT_ATLAS_BY_TYPE[opts.type] ?? null;
+    const atlasCfg = UNIT_ATLAS_DEF_BY_TYPE[opts.type] ?? null;
     const atlasKey = atlasCfg?.atlasKey;
     const idleFrame = atlasIdleFrame(atlasCfg);
 
@@ -399,6 +326,7 @@ export function createUnitSystem(scene) {
     if (art) label.setVisible(false);
 
     state.units.push(unit);
+    indexUnit(unit);
 
 
     updateHpBar(scene, unit);
@@ -423,6 +351,7 @@ export function createUnitSystem(scene) {
     u.dragHandle?.destroy();
     u.rankIcon?.destroy(); 
 
+    unindexUnit(id);
     state.units = state.units.filter(x => x.id !== id);
   }
 
@@ -544,7 +473,7 @@ export function createUnitSystem(scene) {
     }
 
     if (u.art) {
-      const atlasCfg = UNIT_ATLAS_BY_TYPE[u.type] ?? null;
+      const atlasCfg = UNIT_ATLAS_DEF_BY_TYPE[u.type] ?? null;
       const deadAnim = atlasCfg?.deadAnim ?? null;
 
       if (nextDead) {

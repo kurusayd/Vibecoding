@@ -2,6 +2,10 @@
 
 import {
   makeStartBattleIntent,
+  makeSetBenchIntent,
+  makeSetStartIntent,
+  makeStartGameIntent,
+  makeBuyXpIntent,
   makeShopBuyIntent,
   makeShopRefreshIntent,
   makeResetGameIntent,
@@ -26,7 +30,13 @@ export class WSClient {
     };
 
     this.ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
+      let msg = null;
+      try {
+        msg = JSON.parse(event.data);
+      } catch (err) {
+        console.warn('WS bad JSON message', err);
+        return;
+      }
 
       if (msg.type === 'init') {
         if (this.onInit) {
@@ -62,43 +72,42 @@ export class WSClient {
     this.ws = null;
   }
 
+  sendIntent(intent) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+    this.ws.send(JSON.stringify(intent));
+    return true;
+  }
+
   sendIntentSetBench(unitId, slot) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    this.ws.send(JSON.stringify({ type: 'intent', action: 'setBench', unitId, slot }));
+    return this.sendIntent(makeSetBenchIntent(unitId, slot));
   }
 
   sendIntentSetStart(unitId, q, r) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    this.ws.send(JSON.stringify({ type: 'intent', action: 'setStart', unitId, q, r }));
+    return this.sendIntent(makeSetStartIntent(unitId, q, r));
   }
 
   sendIntentStartBattle() {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    const msg = makeStartBattleIntent();
-    this.ws.send(JSON.stringify(msg));
+    return this.sendIntent(makeStartBattleIntent());
   }
 
   sendIntentStartGame() {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    this.ws.send(JSON.stringify({ type: 'intent', action: 'startGame' }));
+    return this.sendIntent(makeStartGameIntent());
+  }
+
+  sendIntentBuyXp() {
+    return this.sendIntent(makeBuyXpIntent());
   }
 
   sendIntentShopBuy(offerIndex) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    const msg = makeShopBuyIntent(offerIndex);
-    this.ws.send(JSON.stringify(msg));
+    return this.sendIntent(makeShopBuyIntent(offerIndex));
   }
 
   sendIntentShopRefresh() {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    const msg = makeShopRefreshIntent();
-    this.ws.send(JSON.stringify(msg));
+    return this.sendIntent(makeShopRefreshIntent());
   }
 
   sendIntentResetGame() {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    const msg = makeResetGameIntent();
-    this.ws.send(JSON.stringify(msg));
+    return this.sendIntent(makeResetGameIntent());
   }
 
 
