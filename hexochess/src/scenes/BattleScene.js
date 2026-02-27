@@ -154,7 +154,7 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   preload() { //Подгружаем пулл картинок
-    this.load.image('battleBg', '/assets/bg.jpg');
+    this.load.image('battleBg', '/assets/bg/grass.png');
     this.load.image('king', '/assets/kings/king_princess.png');
     this.load.image('coin', '/assets/icons/Coin.png');
     this.load.image('rank1', '/assets/icons/rank1.png');
