@@ -160,6 +160,7 @@ export default class BattleScene extends Phaser.Scene {
     this.load.image('rank1', '/assets/icons/rank1.png');
     this.load.image('rank2', '/assets/icons/rank2.png');
     this.load.image('rank3', '/assets/icons/rank3.png');
+    this.load.image('particleStar', '/assets/particles/particle_star.png');
     this.load.image('crownexp', '/assets/crownexp.png');
     this.load.image('updateMarketIcon', '/assets/icons/update_market.png');
 
@@ -984,6 +985,31 @@ export default class BattleScene extends Phaser.Scene {
                 return;
               }
 
+              // Lightweight particle trail that follows the flying rank-star.
+              const trailFx = this.add.particles(0, 0, 'particleStar', {
+                follow: star,
+                emitZone: {
+                  type: 'random',
+                  source: new Phaser.Geom.Rectangle(-3, -5, 6, 10),
+                },
+                frequency: 18,
+                quantity: 4,
+                lifespan: { min: 280, max: 460 },
+                speedX: { min: -10, max: 10 },
+                speedY: { min: 8, max: 26 },
+                gravityY: 120,
+                scale: { start: 0.28, end: 0.04 },
+                alpha: { start: 0.8, end: 0 },
+                blendMode: 'ADD',
+              });
+              if (trailFx?.setDepth) trailFx.setDepth(10049);
+              const disposeTrailFx = () => {
+                if (!trailFx) return;
+                trailFx.stop?.();
+                trailFx.killAll?.();
+                this.time.delayedCall(180, () => trailFx.destroy?.());
+              };
+
               const targetX = targetKing.x + Phaser.Math.Between(-20, 20);
               const targetY = targetKing.y + Phaser.Math.Between(-20, 20);
               const startX = star.x;
@@ -997,7 +1023,7 @@ export default class BattleScene extends Phaser.Scene {
               this.tweens.add({
                 targets: flightProxy,
                 t: 1,
-                duration: 620,
+                duration: 744,
                 ease: 'Cubic.In', // softer start, faster finish
                 onUpdate: () => {
                   if (!star?.active) return;
@@ -1013,9 +1039,11 @@ export default class BattleScene extends Phaser.Scene {
                     if (typeof onFirstHit === 'function') onFirstHit();
                   }
                   if (!star?.active) {
+                    disposeTrailFx();
                     finishOne();
                     return;
                   }
+                  disposeTrailFx();
                   const impactScale = Math.max(startScale * 1.25, startScale + 0.02);
                   this.tweens.add({
                     targets: star,
