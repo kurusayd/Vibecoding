@@ -1693,7 +1693,7 @@ export default class BattleScene extends Phaser.Scene {
     }
   }
 
-  findLikelyMergeTargetForMissingVisual(donorVu, visibleUnits) {
+  findLikelyMergeTargetForMissingVisual(donorVu, visibleUnits, visualById = null) {
     if (!donorVu || !visibleUnits?.length) return null;
 
     const phase = this.battleState?.phase ?? 'prep';
@@ -1714,9 +1714,15 @@ export default class BattleScene extends Phaser.Scene {
     for (const u of visibleUnits) {
       if (u.team !== donorTeam) continue;
       if (u.type !== donorType) continue;
-      if (Number(u.rank ?? 1) <= donorRank) continue; // target must be upgraded rank
+      if (Number(u.rank ?? 1) <= donorRank) continue; // target must be higher rank than donor
 
-      const targetVu = this.unitSys.findUnit(u.id);
+      const targetVu = visualById?.get?.(u.id) ?? this.unitSys.findUnit(u.id);
+      // Only allow targets that already existed visually and actually rank-upped this tick.
+      // This prevents donors from flying into unrelated same-type units of higher rank.
+      if (!targetVu) continue;
+      const prevRank = Number(targetVu.rank ?? 1);
+      const nextRank = Number(u.rank ?? prevRank);
+      if (!(nextRank > prevRank)) continue;
       const targetPos = this.getUnitScreenAnchor(u, targetVu);
       if (!targetPos) continue;
 
@@ -1732,6 +1738,7 @@ export default class BattleScene extends Phaser.Scene {
 
   renderFromState() {
     this.coreUnitsById = new Map((this.battleState?.units ?? []).map((u) => [u.id, u]));
+    const currentVisualById = new Map((this.unitSys?.state?.units ?? []).map((vu) => [vu.id, vu]));
 
     // 1) кого оставляем
     const phase = this.battleState?.phase ?? 'prep';
@@ -1753,7 +1760,7 @@ export default class BattleScene extends Phaser.Scene {
       if (!aliveIds.has(vu.id)) {
         if (this.mergeAbsorbAnimatingIds?.has(vu.id)) continue;
 
-        const mergeTarget = this.findLikelyMergeTargetForMissingVisual(vu, visibleUnits);
+        const mergeTarget = this.findLikelyMergeTargetForMissingVisual(vu, visibleUnits, currentVisualById);
         if (mergeTarget) {
           this.playMergeAbsorbAnimation(vu, mergeTarget);
           continue;
@@ -1875,8 +1882,9 @@ export default class BattleScene extends Phaser.Scene {
         byId.set(created.id, created);
         this.unitSys.setUnitDead?.(u.id, !!u.dead);
 
-        // Фидбэк покупки: новый купленный юнит появляется на скамейке с лёгким bounce.
-        if (u.team === 'player' && u.zone === 'bench' && !u.dead) {
+        // Фидбэк появления: новый юнит игрока слегка bounce-ится
+        // и на поле, и на скамейке.
+        if (u.team === 'player' && (u.zone === 'bench' || u.zone === 'board') && !u.dead) {
           this.playUnitFeedbackBounce?.(created, { scaleMul: 1.06, duration: 90 });
         }
 
