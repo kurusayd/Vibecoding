@@ -364,7 +364,7 @@ export default class BattleScene extends Phaser.Scene {
     });
 
     // ? любой тап в любом месте закрывает Exp и поп ап с инфой о золоте (если тап не по этому блоку)
-    this.input.on('pointerdown', (pointer, currentlyOver) => {
+    this._hudOutsideTapHandler = (pointer, currentlyOver) => {
       const over = currentlyOver || [];
 
       const overLevel = this.kingLevelHit && over.includes(this.kingLevelHit);
@@ -383,7 +383,8 @@ export default class BattleScene extends Phaser.Scene {
       if (!overCoins && !overCoinPopup && this.coinInfoOpen) {
         this.hideCoinInfoPopup();
       }
-    });
+    };
+    this.input.on('pointerdown', this._hudOutsideTapHandler);
 
     // собираем в контейнер (порядок важен: bg -> fill -> text -> xpText -> hit)
     this.kingLevelContainer.add([
@@ -699,11 +700,19 @@ export default class BattleScene extends Phaser.Scene {
     this.ws.connect();
 
     this.events.once('shutdown', () => {
+      if (this._hudOutsideTapHandler) {
+        this.input?.off?.('pointerdown', this._hudOutsideTapHandler);
+        this._hudOutsideTapHandler = null;
+      }
       this.stopServerBattleReplayPlayback?.();
       this.ws?.close();
     });
 
     this.events.once('destroy', () => {
+      if (this._hudOutsideTapHandler) {
+        this.input?.off?.('pointerdown', this._hudOutsideTapHandler);
+        this._hudOutsideTapHandler = null;
+      }
       this.stopServerBattleReplayPlayback?.();
       this.ws?.close();
     });

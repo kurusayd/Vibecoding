@@ -24,7 +24,11 @@ import {
 } from '../shared/messages.js';
 import { UNIT_CATALOG } from '../shared/unitCatalog.js';
 import { baseIncomeForRound, interestIncome, streakBonus, COINS_CAP } from '../shared/economy.js';
+import { canManageShopInPhase, canMergeBoardUnitsInPhase, clampCoins } from '../shared/gameRules.js';
 import { getBotProfileByIndex, getBotProfileById } from './botProfiles.js';
+
+const DEFAULT_MATCH_ID = 'default';
+const matchStore = new Map();
 
 // ---- game state (authoritative) ----
 const state = createBattleState();
@@ -63,6 +67,19 @@ const roomState = {
   hiddenBattles: [],
   playerOpponentId: null,
 };
+
+function ensureMatchRuntime(matchId = DEFAULT_MATCH_ID) {
+  if (!matchStore.has(matchId)) {
+    matchStore.set(matchId, {
+      matchId,
+      state,
+      roomState,
+      clients,
+      clientToUnits,
+    });
+  }
+  return matchStore.get(matchId);
+}
 
 function isAllPlayerOpponentsBots() {
   const others = (roomState.participants ?? []).filter((p) => p?.id !== SOLO_PLAYER_ID && p?.alive !== false);
@@ -239,17 +256,16 @@ function resolveHiddenBattlesNoConsequences() {
 }
 
 function clampCoinsKing(king) {
-  king.coins = Math.max(0, Math.min(COINS_CAP, Number(king.coins ?? 0)));
+  king.coins = clampCoins(king.coins, COINS_CAP);
 }
 
 function clampPlayerCoins() {
   if (!state?.kings?.player) return;
-  const c = Number(state.kings.player.coins ?? 0);
-  state.kings.player.coins = Math.max(0, Math.min(COINS_CAP, c));
+  state.kings.player.coins = clampCoins(state.kings.player.coins, COINS_CAP);
 }
 
 function clampCoinsValue(coins) {
-  return Math.max(0, Math.min(COINS_CAP, Number(coins ?? 0)));
+  return clampCoins(coins, COINS_CAP);
 }
 
 function grantRoundGold(result) {
@@ -508,7 +524,7 @@ function applyMergesForClient(clientId, preferredUnitId = null) {
   // В prep можно мерджить все мои юниты (board + bench).
   // Вне prep (идёт бой / экран результата) нельзя "трогать" юнитов на доске,
   // иначе merge конфликтует с возвратом к prepSnapshot после боя.
-  const allowBoardUnitsInMerge = (state.phase === 'prep');
+  const allowBoardUnitsInMerge = canMergeBoardUnitsInPhase(state.phase);
 
   // собираем только моих player-юнитов (ботов не трогаем)
   const myUnits = state.units.filter(u =>
@@ -1383,7 +1399,7 @@ function handleIntent(clientId, msg, ws) {
   }
 
   if (msg.action === 'shopRefresh') {
-    const canRefreshShop = (state.phase === 'prep' || state.phase === 'battle');
+    const canRefreshShop = canManageShopInPhase(state.phase);
     if (!canRefreshShop) {
       ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'shopRefresh allowed only in prep/battle')));
       return;
@@ -1404,7 +1420,7 @@ function handleIntent(clientId, msg, ws) {
   }
 
   if (msg.action === 'shopBuy') {
-    const canBuyFromShop = (state.phase === 'prep' || state.phase === 'battle');
+    const canBuyFromShop = canManageShopInPhase(state.phase);
     if (!canBuyFromShop) {
       ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'shopBuy allowed only in prep/battle')));
       return;
@@ -1496,6 +1512,9 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
 wss.on('connection', (ws) => {
+  ws.matchId = DEFAULT_MATCH_ID;
+  ensureMatchRuntime(ws.matchId);
+
   const clientId = crypto.randomUUID();
   clients.set(clientId, ws);
 
