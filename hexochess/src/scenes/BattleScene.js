@@ -223,10 +223,20 @@ export default class BattleScene extends Phaser.Scene {
 
     // HP bars
     this.kingLeftHpBg = this.add.graphics().setDepth(52);
+    this.kingLeftHpLagFill = this.add.graphics().setDepth(53);
     this.kingLeftHpFill = this.add.graphics().setDepth(53);
 
     this.kingRightHpBg = this.add.graphics().setDepth(52);
+    this.kingRightHpLagFill = this.add.graphics().setDepth(53);
     this.kingRightHpFill = this.add.graphics().setDepth(53);
+
+    // king hp animation state: instant value + delayed lag value (like unit hp bars)
+    this.kingHpAnim = {
+      player: { instant: null, lag: null },
+      enemy: { instant: null, lag: null },
+    };
+    this.kingHpLock = { player: null, enemy: null };
+    this.kingDamageFxToken = 0;
 
     this.kingLeft = this.add.image(0, 0, 'king').setDepth(50);
     this.kingLeft.setDisplaySize(this.kingWidth, this.kingHeight);
@@ -645,6 +655,11 @@ export default class BattleScene extends Phaser.Scene {
       if (phaseChanged) {
         if (nextState?.phase === 'battle' && !nextState?.result) this.shopCollapsed = true;
         if (nextState?.phase === 'prep' && !nextState?.result) this.shopCollapsed = false;
+        if (nextState?.phase !== 'battle') {
+          this.kingDamageFxToken += 1;
+          this.kingHpLock.player = null;
+          this.kingHpLock.enemy = null;
+        }
         this.gridStaticDirty = true;
         if (nextState?.phase !== 'prep' || nextState?.result) {
           this.draggingUnitId = null;
@@ -676,6 +691,7 @@ export default class BattleScene extends Phaser.Scene {
       if (needGrid) this.drawGrid();
       if (needPhaseUi) this.syncPhaseUI();
       if (needKingsUi) this.syncKingsUI();
+      this.maybeStartKingDamageFx?.(prevState, nextState, { resultChanged });
       if (needShopUi) this.syncShopUI();
       if (needRefreshDraggable) this.refreshAllDraggable();
       this.syncDebugUI?.();
@@ -868,6 +884,216 @@ export default class BattleScene extends Phaser.Scene {
         },
       });
     }
+  }
+
+  collectWinnerStarLaunchPoints(state, winnerTeam, count) {
+    const units = (state?.units ?? []).filter((u) =>
+      u?.zone === 'board' &&
+      !u?.dead &&
+      u?.team === winnerTeam
+    );
+    if (!units.length || count <= 0) return [];
+
+    const points = [];
+    for (const u of units) {
+      const rank = Math.max(1, Number(u.rank ?? 1));
+      const vu = this.unitSys?.findUnit?.(u.id);
+      let px = vu?.rankIcon?.x ?? vu?.art?.x ?? vu?.sprite?.x ?? null;
+      let py = vu?.rankIcon?.y ?? vu?.art?.y ?? vu?.sprite?.y ?? null;
+      if (Number.isFinite(py)) py -= 25;
+
+      if (!Number.isFinite(px) || !Number.isFinite(py)) {
+        const g = this.hexToGroundPixel(u?.q ?? 0, u?.r ?? 0, getUnitGroundLiftPx(u?.type));
+        px = g.x + getUnitArtOffsetXPx(u?.type, u?.team);
+        py = g.y;
+      }
+
+      const rankKey = `rank${rank}`;
+      const baseScale = Number(vu?.rankIcon?.scaleX ?? 0.25);
+      for (let i = 0; i < rank; i++) {
+        points.push({ x: px, y: py, rankKey, baseScale });
+      }
+    }
+
+    if (!points.length) return [];
+    while (points.length < count) {
+      const p = points[Math.floor(Math.random() * points.length)];
+      points.push({ ...p });
+    }
+    return points.slice(0, count);
+  }
+
+  playKingDamageStarsFx({ loserSide, winnerTeam, damage, state, onFirstHit, onComplete }) {
+    const done = () => {
+      if (typeof onComplete === 'function') onComplete();
+    };
+    const targetKing = loserSide === 'player' ? this.kingLeft : this.kingRight;
+    if (!targetKing || damage <= 0) {
+      done();
+      return;
+    }
+
+    const starts = this.collectWinnerStarLaunchPoints(state, winnerTeam, damage);
+    if (!starts.length) {
+      this.time.delayedCall(250, done);
+      return;
+    }
+
+    let alive = starts.length;
+    let firstHitFired = false;
+    const finishOne = () => {
+      alive -= 1;
+      if (alive <= 0) done();
+    };
+
+    starts.forEach((p, idx) => {
+      const baseScale = Number(p?.baseScale ?? 0.25);
+      const startScale = Math.max(0.08, baseScale * 1.2);
+      const bounceScale = Math.max(startScale, baseScale * 1.5);
+      const sequenceDelay = idx * 53;
+      const star = this.add.image(p.x, p.y, p?.rankKey ?? 'rank1')
+        .setScale(startScale)
+        .setDepth(10050)
+        .setAlpha(0.98)
+        .setVisible(false);
+
+      this.tweens.add({
+        targets: star,
+        scaleX: bounceScale,
+        scaleY: bounceScale,
+        delay: sequenceDelay,
+        duration: 128,
+        ease: 'Quad.Out',
+        yoyo: true,
+        onStart: () => {
+          if (star?.active) star.setVisible(true);
+        },
+        onComplete: () => {
+          if (!star?.active) {
+            finishOne();
+            return;
+          }
+
+          this.tweens.add({
+            targets: star,
+            alpha: 0.9,
+            duration: 1,
+            onComplete: () => {
+              if (!star?.active) {
+                finishOne();
+                return;
+              }
+
+              const targetX = targetKing.x + Phaser.Math.Between(-20, 20);
+              const targetY = targetKing.y + Phaser.Math.Between(-20, 20);
+              const startX = star.x;
+              const startY = star.y;
+
+              const midX = (startX + targetX) / 2 + Phaser.Math.Between(-16, 16);
+              const arcBase = Math.max(35, Math.min(95, Math.abs(targetX - startX) * 0.18));
+              const midY = Math.min(startY, targetY) - arcBase;
+
+              const flightProxy = { t: 0 };
+              this.tweens.add({
+                targets: flightProxy,
+                t: 1,
+                duration: 620,
+                ease: 'Cubic.In', // softer start, faster finish
+                onUpdate: () => {
+                  if (!star?.active) return;
+                  const t = Phaser.Math.Clamp(Number(flightProxy.t ?? 0), 0, 1);
+                  const inv = 1 - t;
+                  const x = (inv * inv * startX) + (2 * inv * t * midX) + (t * t * targetX);
+                  const y = (inv * inv * startY) + (2 * inv * t * midY) + (t * t * targetY);
+                  star.setPosition(x, y);
+                },
+                onComplete: () => {
+                  if (!firstHitFired) {
+                    firstHitFired = true;
+                    if (typeof onFirstHit === 'function') onFirstHit();
+                  }
+                  if (!star?.active) {
+                    finishOne();
+                    return;
+                  }
+                  const impactScale = Math.max(startScale * 1.25, startScale + 0.02);
+                  this.tweens.add({
+                    targets: star,
+                    scaleX: impactScale,
+                    scaleY: impactScale,
+                    duration: 70,
+                    ease: 'Quad.Out',
+                    yoyo: true,
+                    onComplete: () => {
+                      if (star?.active) star.destroy();
+                      finishOne();
+                    },
+                  });
+                },
+              });
+            },
+          });
+        },
+      });
+    });
+  }
+
+  maybeStartKingDamageFx(prevState, nextState, { resultChanged }) {
+    if (!resultChanged) return;
+    if ((nextState?.phase ?? null) !== 'battle') return;
+    if (!nextState?.result) return;
+
+    const prevPlayerHp = Number(prevState?.kings?.player?.hp ?? 0);
+    const nextPlayerHp = Number(nextState?.kings?.player?.hp ?? 0);
+    const prevEnemyHp = Number(prevState?.kings?.enemy?.hp ?? 0);
+    const nextEnemyHp = Number(nextState?.kings?.enemy?.hp ?? 0);
+
+    const playerDamage = Math.max(0, prevPlayerHp - nextPlayerHp);
+    const enemyDamage = Math.max(0, prevEnemyHp - nextEnemyHp);
+    if (playerDamage <= 0 && enemyDamage <= 0) return;
+
+    const token = ++this.kingDamageFxToken;
+
+    if (enemyDamage > 0) {
+      this.kingHpLock.enemy = prevEnemyHp;
+      this.drawKingHpBars();
+      this.playKingDamageStarsFx({
+        loserSide: 'enemy',
+        winnerTeam: 'player',
+        damage: enemyDamage,
+        state: nextState,
+        onFirstHit: () => {
+          if (token !== this.kingDamageFxToken) return;
+          this.kingHpLock.enemy = null;
+          this.drawKingHpBars();
+        },
+        onComplete: () => {
+          if (token !== this.kingDamageFxToken) return;
+          this.kingHpLock.enemy = null;
+          this.drawKingHpBars();
+        },
+      });
+      return;
+    }
+
+    this.kingHpLock.player = prevPlayerHp;
+    this.drawKingHpBars();
+    this.playKingDamageStarsFx({
+      loserSide: 'player',
+      winnerTeam: 'enemy',
+      damage: playerDamage,
+      state: nextState,
+      onFirstHit: () => {
+        if (token !== this.kingDamageFxToken) return;
+        this.kingHpLock.player = null;
+        this.drawKingHpBars();
+      },
+      onComplete: () => {
+        if (token !== this.kingDamageFxToken) return;
+        this.kingHpLock.player = null;
+        this.drawKingHpBars();
+      },
+    });
   }
 
   positionCoinsHUD() {
@@ -1085,23 +1311,46 @@ export default class BattleScene extends Phaser.Scene {
     const barHeight = 14;
     const kingHpBarDownPx = 10; // опускает HP-бар (и имя над ним) у обоих королей
 
-    const drawBar = (kingSprite, hpBg, hpFill, kingData) => {
+    const drawBar = (side, kingSprite, hpBg, hpLagFill, hpFill, kingData) => {
       if (!kingSprite || !kingData) return;
+      const maxHp = Math.max(1, Number(kingData.maxHp ?? 1));
+      const lockRaw = this.kingHpLock?.[side];
+      const lockHp = lockRaw == null ? NaN : Number(lockRaw);
+      const targetHpRaw = Number.isFinite(lockHp) ? lockHp : Number(kingData.hp ?? maxHp);
+      const targetHp = Phaser.Math.Clamp(targetHpRaw, 0, maxHp);
+      const anim = this.kingHpAnim?.[side];
+      if (anim) {
+        if (anim.instant == null || anim.lag == null) {
+          anim.instant = targetHp;
+          anim.lag = targetHp;
+        } else if (targetHp > anim.instant) {
+          // heal/sync: snap both only on real hp gain
+          anim.instant = targetHp;
+          anim.lag = targetHp;
+        } else {
+          // damage: drop instant immediately, lag catches up in update()
+          anim.instant = targetHp;
+          if (anim.lag < anim.instant) anim.lag = anim.instant;
+        }
+      }
 
       const x = kingSprite.x - barWidth / 2;
       const y = kingSprite.y - this.kingHeight / 2 - 26 + kingHpBarDownPx;
 
       hpBg.clear();
+      hpLagFill.clear();
       hpFill.clear();
 
       hpBg.fillStyle(0x222222, 1);
       hpBg.fillRect(x, y, barWidth, barHeight);
 
-      const ratio = Phaser.Math.Clamp(
-        kingData.hp / kingData.maxHp,
-        0,
-        1
-      );
+      const hpInstant = anim ? anim.instant : targetHp;
+      const hpLag = anim ? anim.lag : targetHp;
+      const lagRatio = Phaser.Math.Clamp(hpLag / maxHp, 0, 1);
+      const ratio = Phaser.Math.Clamp(hpInstant / maxHp, 0, 1);
+
+      hpLagFill.fillStyle(0xffcc33, 0.85);
+      hpLagFill.fillRect(x, y, barWidth * lagRatio, barHeight);
 
       hpFill.fillStyle(0x00ff00, 1);
       hpFill.fillRect(x, y, barWidth * ratio, barHeight);
@@ -1110,7 +1359,7 @@ export default class BattleScene extends Phaser.Scene {
       const hpText = (kingSprite === this.kingLeft) ? this.kingLeftHpText : this.kingRightHpText;
       if (hpText) {
         hpText.setPosition(kingSprite.x, y + barHeight / 2);
-        hpText.setText(`${kingData.hp}/${kingData.maxHp}`);
+        hpText.setText(`${Math.round(targetHp)}/${kingData.maxHp}`);
         hpText.setVisible(true);
       }
 
@@ -1123,7 +1372,7 @@ export default class BattleScene extends Phaser.Scene {
 
     };
 
-    drawBar(this.kingLeft, this.kingLeftHpBg, this.kingLeftHpFill, kings.player);
+    drawBar('player', this.kingLeft, this.kingLeftHpBg, this.kingLeftHpLagFill, this.kingLeftHpFill, kings.player);
 
     const phase = this.battleState?.phase ?? 'prep';
     const result = this.battleState?.result ?? null;
@@ -1132,9 +1381,10 @@ export default class BattleScene extends Phaser.Scene {
     const showEnemy = isBattleView && kings.enemy?.visible !== false;
 
     if (showEnemy) {
-      drawBar(this.kingRight, this.kingRightHpBg, this.kingRightHpFill, kings.enemy);
+      drawBar('enemy', this.kingRight, this.kingRightHpBg, this.kingRightHpLagFill, this.kingRightHpFill, kings.enemy);
     } else {
       this.kingRightHpBg.clear();
+      this.kingRightHpLagFill.clear();
       this.kingRightHpFill.clear();
       this.kingRightHpText?.setVisible(false);
       this.kingRightNameText?.setVisible(false);
@@ -1726,12 +1976,16 @@ export default class BattleScene extends Phaser.Scene {
       if (Number(u.rank ?? 1) <= donorRank) continue; // target must be higher rank than donor
 
       const targetVu = visualById?.get?.(u.id) ?? this.unitSys.findUnit(u.id);
-      // Only allow targets that already existed visually and actually rank-upped this tick.
-      // This prevents donors from flying into unrelated same-type units of higher rank.
-      if (!targetVu) continue;
-      const prevRank = Number(targetVu.rank ?? 1);
-      const nextRank = Number(u.rank ?? prevRank);
-      if (!(nextRank > prevRank)) continue;
+      const nextRank = Number(u.rank ?? 1);
+      // Existing visual target: it must really rank-up in this tick.
+      // New visual target (no targetVu yet): allow only direct rank step (r -> r+1),
+      // which is the real merge target for this donor.
+      if (targetVu) {
+        const prevRank = Number(targetVu.rank ?? 1);
+        if (!(nextRank > prevRank)) continue;
+      } else {
+        if (nextRank !== donorRank + 1) continue;
+      }
       const targetPos = this.getUnitScreenAnchor(u, targetVu);
       if (!targetPos) continue;
 
@@ -2387,6 +2641,21 @@ export default class BattleScene extends Phaser.Scene {
 
   update(time, delta) {
     this.unitSys.update(delta / 1000);
+
+    const dt = delta / 1000;
+    const lagSpeed = 18;
+    let kingLagChanged = false;
+    const playerAnim = this.kingHpAnim?.player;
+    if (playerAnim && playerAnim.lag > playerAnim.instant) {
+      playerAnim.lag = Math.max(playerAnim.instant, playerAnim.lag - lagSpeed * dt);
+      kingLagChanged = true;
+    }
+    const enemyAnim = this.kingHpAnim?.enemy;
+    if (enemyAnim && enemyAnim.lag > enemyAnim.instant) {
+      enemyAnim.lag = Math.max(enemyAnim.instant, enemyAnim.lag - lagSpeed * dt);
+      kingLagChanged = true;
+    }
+    if (kingLagChanged) this.drawKingHpBars();
   }
 
 }

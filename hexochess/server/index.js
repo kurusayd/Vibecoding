@@ -66,6 +66,8 @@ const roomState = {
   pairings: [],
   hiddenBattles: [],
   playerOpponentId: null,
+  playerOpponentIsCopy: false,
+  playerOpponentCopySourceId: null,
 };
 
 function ensureMatchRuntime(matchId = DEFAULT_MATCH_ID) {
@@ -119,6 +121,8 @@ function ensureSoloLobbyInitialized() {
   roomState.pairings = [];
   roomState.hiddenBattles = [];
   roomState.playerOpponentId = null;
+  roomState.playerOpponentIsCopy = false;
+  roomState.playerOpponentCopySourceId = null;
 }
 
 function resetSoloLobbyState() {
@@ -126,12 +130,13 @@ function resetSoloLobbyState() {
   roomState.pairings = [];
   roomState.hiddenBattles = [];
   roomState.playerOpponentId = null;
+  roomState.playerOpponentIsCopy = false;
+  roomState.playerOpponentCopySourceId = null;
 }
 
-function roundRobinPairings(participants, round) {
+function roundRobinPairingsEven(participants, round) {
   const active = (participants ?? []).filter(p => p?.alive !== false);
-  if (active.length < 2) return [];
-  if (active.length % 2 !== 0) return [];
+  if (active.length < 2 || active.length % 2 !== 0) return [];
 
   const rounds = Math.max(1, active.length - 1);
   const steps = ((Math.max(1, Number(round ?? 1)) - 1) % rounds + rounds) % rounds;
@@ -143,9 +148,44 @@ function roundRobinPairings(participants, round) {
 
   const pairings = [];
   for (let i = 0; i < arr.length / 2; i++) {
-    pairings.push([arr[i], arr[arr.length - 1 - i]]);
+    pairings.push({
+      aId: arr[i].id,
+      bId: arr[arr.length - 1 - i].id,
+      aIsCopy: false,
+      bIsCopy: false,
+      aCopySourceId: null,
+      bCopySourceId: null,
+    });
   }
   return pairings;
+}
+
+function buildRoundPairingsWithCopyFallback(participants, round) {
+  const active = (participants ?? []).filter((p) => p?.alive !== false);
+  if (active.length < 2) return [];
+
+  if (active.length % 2 === 0) {
+    return roundRobinPairingsEven(active, round);
+  }
+
+  const byeIdx = ((Math.max(1, Number(round ?? 1)) - 1) % active.length + active.length) % active.length;
+  const unmatched = active[byeIdx];
+  const others = active.filter((p) => p.id !== unmatched.id);
+  if (others.length < 1) return [];
+
+  const copySource = others[Math.floor(Math.random() * others.length)];
+  const realPairings = roundRobinPairingsEven(others, round);
+  return [
+    ...realPairings,
+    {
+      aId: unmatched.id,
+      bId: copySource.id,
+      aIsCopy: false,
+      bIsCopy: true,
+      aCopySourceId: null,
+      bCopySourceId: copySource.id,
+    },
+  ];
 }
 
 function makeBotDebugSnapshot() {
@@ -175,6 +215,8 @@ function syncMatchmakingSnapshot() {
     phase: state.phase ?? 'prep',
     allOpponentsBots: isAllPlayerOpponentsBots(),
     playerOpponentId: roomState.playerOpponentId,
+    playerOpponentIsCopy: roomState.playerOpponentIsCopy === true,
+    playerOpponentCopySourceId: roomState.playerOpponentCopySourceId ?? null,
     pairings: roomState.pairings.map(p => ({ ...p })),
     hiddenBattles: roomState.hiddenBattles.map(h => ({ ...h })),
     bots: makeBotDebugSnapshot(),
@@ -184,27 +226,44 @@ function syncMatchmakingSnapshot() {
 function syncRoundPairingsForCurrentRound() {
   ensureSoloLobbyInitialized();
 
-  const pairings = roundRobinPairings(roomState.participants, state.round ?? 1);
-  roomState.pairings = pairings.map(([a, b]) => ({ aId: a.id, bId: b.id }));
+  const pairings = buildRoundPairingsWithCopyFallback(roomState.participants, state.round ?? 1);
+  roomState.pairings = pairings.map((p) => ({ ...p }));
 
-  const playerPair = pairings.find(([a, b]) => a.id === SOLO_PLAYER_ID || b.id === SOLO_PLAYER_ID) ?? null;
-  roomState.playerOpponentId = playerPair
-    ? (playerPair[0].id === SOLO_PLAYER_ID ? playerPair[1].id : playerPair[0].id)
-    : null;
+  const playerPair = pairings.find((p) => p.aId === SOLO_PLAYER_ID || p.bId === SOLO_PLAYER_ID) ?? null;
+  roomState.playerOpponentId = null;
+  roomState.playerOpponentIsCopy = false;
+  roomState.playerOpponentCopySourceId = null;
+  if (playerPair) {
+    if (playerPair.aId === SOLO_PLAYER_ID) {
+      roomState.playerOpponentId = playerPair.bId;
+      roomState.playerOpponentIsCopy = playerPair.bIsCopy === true;
+      roomState.playerOpponentCopySourceId = playerPair.bCopySourceId ?? null;
+    } else {
+      roomState.playerOpponentId = playerPair.aId;
+      roomState.playerOpponentIsCopy = playerPair.aIsCopy === true;
+      roomState.playerOpponentCopySourceId = playerPair.aCopySourceId ?? null;
+    }
+  }
 
   roomState.hiddenBattles = pairings
-    .filter(([a, b]) => a.id !== SOLO_PLAYER_ID && b.id !== SOLO_PLAYER_ID)
-    .map(([a, b]) => ({
-      aId: a.id,
-      bId: b.id,
+    .filter((p) => p.aId !== SOLO_PLAYER_ID && p.bId !== SOLO_PLAYER_ID)
+    .map((p) => ({
+      aId: p.aId,
+      bId: p.bId,
+      aIsCopy: p.aIsCopy === true,
+      bIsCopy: p.bIsCopy === true,
+      aCopySourceId: p.aCopySourceId ?? null,
+      bCopySourceId: p.bCopySourceId ?? null,
       phase: 'prep',
       result: null, // 'a' | 'b' | 'draw'
     }));
 
   const enemyProfile = getCurrentOpponentBotProfile();
   if (state.kings?.enemy) {
-    state.kings.enemy.name = enemyProfile?.name ?? 'Enemy King';
+    state.kings.enemy.name = getCurrentOpponentBotName();
     state.kings.enemy.visualKey = enemyProfile?.kingVisualKey ?? 'king';
+    state.kings.enemy.hp = Number(enemyProfile?.hp ?? 100);
+    state.kings.enemy.maxHp = Number(enemyProfile?.maxHp ?? 100);
     state.kings.enemy.coins = Number(enemyProfile?.coins ?? 0);
     state.kings.enemy.level = Number(enemyProfile?.level ?? 1);
     state.kings.enemy.xp = Number(enemyProfile?.xp ?? 0);
@@ -226,6 +285,8 @@ function getCurrentOpponentBotProfile() {
       id: fromParticipant.id,
       name: fromParticipant.name,
       kingVisualKey: fromParticipant.kingVisualKey,
+      hp: Number(fromParticipant.hp ?? 100),
+      maxHp: Number(fromParticipant.maxHp ?? 100),
       coins: Number(fromParticipant.coins ?? 0),
       level: Number(fromParticipant.level ?? 1),
       xp: Number(fromParticipant.xp ?? 0),
@@ -238,7 +299,8 @@ function getCurrentOpponentBotProfile() {
 }
 
 function getCurrentOpponentBotName() {
-  return getCurrentOpponentBotProfile()?.name ?? 'Enemy King';
+  const base = getCurrentOpponentBotProfile()?.name ?? 'Enemy King';
+  return roomState.playerOpponentIsCopy ? `${base} (copy)` : base;
 }
 
 function markHiddenBattlesPhase(phase) {
@@ -248,11 +310,40 @@ function markHiddenBattlesPhase(phase) {
 
 function resolveHiddenBattlesNoConsequences() {
   roomState.hiddenBattles = roomState.hiddenBattles.map((h) => {
-    const roll = Math.random();
-    const result = roll < 0.45 ? 'a' : roll < 0.9 ? 'b' : 'draw';
+    const replay = simulateHiddenBotBattleReplay(h?.aId, h?.bId);
+    let result = 'draw';
+    if (replay?.result === 'victory') result = 'a';
+    else if (replay?.result === 'defeat') result = 'b';
+
+    const aDamage = Number(replay?.winnerDamageByResult?.victory ?? 0);
+    const bDamage = Number(replay?.winnerDamageByResult?.defeat ?? 0);
+    if (result === 'a' && h?.bIsCopy !== true) {
+      applyDamageToParticipantKing(h?.bId, aDamage);
+    } else if (result === 'b' && h?.aIsCopy !== true) {
+      applyDamageToParticipantKing(h?.aId, bDamage);
+    }
+
     return { ...h, phase: 'result', result };
   });
   syncMatchmakingSnapshot();
+}
+
+function applyDamageToParticipantKing(participantId, rawDamage) {
+  const target = getParticipantById(participantId);
+  if (!target) return;
+  const damage = Math.max(0, Math.floor(Number(rawDamage ?? 0)));
+  if (damage <= 0) return;
+
+  target.hp = Math.max(0, Number(target.hp ?? 0) - damage);
+  target.alive = Number(target.hp ?? 0) > 0;
+}
+
+function syncPlayerParticipantHpFromKing() {
+  const playerP = getParticipantById(SOLO_PLAYER_ID);
+  if (!playerP) return;
+  playerP.hp = Number(state?.kings?.player?.hp ?? playerP.hp ?? 0);
+  playerP.maxHp = Number(state?.kings?.player?.maxHp ?? playerP.maxHp ?? 100);
+  playerP.alive = Number(playerP.hp ?? 0) > 0;
 }
 
 function clampCoinsKing(king) {
@@ -351,7 +442,7 @@ function grantRoundGoldToAllBots(playerResult) {
   const botResults = new Map(); // botId -> 'victory' | 'defeat' | 'draw'
 
   const playerOpponentId = roomState.playerOpponentId;
-  if (playerOpponentId) {
+  if (playerOpponentId && roomState.playerOpponentIsCopy !== true) {
     let botResult = 'draw';
     if (playerResult === 'victory') botResult = 'defeat';
     else if (playerResult === 'defeat') botResult = 'victory';
@@ -365,9 +456,9 @@ function grantRoundGoldToAllBots(playerResult) {
 
     if (hb.result === 'a') {
       botResults.set(aId, 'victory');
-      botResults.set(bId, 'defeat');
+      if (hb?.bIsCopy !== true) botResults.set(bId, 'defeat');
     } else if (hb.result === 'b') {
-      botResults.set(aId, 'defeat');
+      if (hb?.aIsCopy !== true) botResults.set(aId, 'defeat');
       botResults.set(bId, 'victory');
     } else {
       botResults.set(aId, 'draw');
@@ -745,6 +836,74 @@ function spawnBotArmy() {
   }
 }
 
+function getBotArmyPresetById(botId) {
+  const profile = getBotProfileById(botId) ?? getBotProfileByIndex(1);
+  return profile?.armyPreset ?? [];
+}
+
+function buildBotBoardUnitsForSim(botId, team, nextIdRef) {
+  const preset = getBotArmyPresetById(botId);
+  const out = [];
+
+  for (const u of preset) {
+    const { q, r } = colRowToAxial(u.col, u.row);
+    if (!isInsideBoard(q, r)) continue;
+
+    const base = UNIT_CATALOG.find((x) => x.type === u.type) ?? UNIT_CATALOG[0];
+    if (!base) continue;
+
+    const rank = Math.max(1, Math.min(3, Number(u.rank ?? 1)));
+    const mult = rankMultiplier(rank);
+    const hp = Math.max(1, Math.round(Number(base.hp ?? 1) * mult));
+    const atk = Math.max(1, Math.round(Number(base.atk ?? 1) * mult));
+
+    out.push({
+      id: nextIdRef.value++,
+      q,
+      r,
+      hp,
+      maxHp: hp,
+      atk,
+      team,
+      type: base.type,
+      powerType: base.powerType,
+      rank,
+      zone: 'board',
+      benchSlot: null,
+      moveSpeed: base.moveSpeed,
+      attackSpeed: base.attackSpeed ?? 100,
+      dead: false,
+      moveCdMs: 0,
+      attackSeq: 0,
+    });
+  }
+
+  return out;
+}
+
+function simulateHiddenBotBattleReplay(botAId, botBId) {
+  const nextIdRef = { value: 1 };
+  const playerSideUnits = buildBotBoardUnitsForSim(botAId, 'player', nextIdRef);
+  const enemySideUnits = buildBotBoardUnitsForSim(botBId, 'enemy', nextIdRef);
+  const units = [...playerSideUnits, ...enemySideUnits];
+
+  const simState = createBattleState();
+  simState.phase = 'battle';
+  simState.result = null;
+  simState.units = units;
+  simState.kings.enemy.visible = true;
+
+  return simulateBattleReplayFromState(simState, {
+    tickMs: 450,
+    maxBattleMs: BATTLE_DURATION_SECONDS * 1000,
+  });
+}
+
+function sumPresetRanks(botId) {
+  return getBotArmyPresetById(botId)
+    .reduce((sum, u) => sum + Math.max(1, Number(u?.rank ?? 1)), 0);
+}
+
 
 // axial (q,r) -> "col" как на клиенте: col = q + floor(r/2)
 function isInsideBoard(q, r) {
@@ -857,6 +1016,12 @@ function computeResultIn(simState) {
   return null;
 }
 
+function sumAliveBoardRanksIn(simState, team) {
+  return (simState?.units ?? [])
+    .filter((u) => u?.zone === 'board' && !u?.dead && u?.team === team)
+    .reduce((sum, u) => sum + Math.max(1, Number(u.rank ?? 1)), 0);
+}
+
 function simulateBattleReplayFromState(sourceState, opts = {}) {
   const tickMs = Number(opts.tickMs ?? 450);
   const maxBattleMs = Number(opts.maxBattleMs ?? (BATTLE_DURATION_SECONDS * 1000));
@@ -943,6 +1108,11 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
 
   if (!result) result = 'draw';
 
+  const survivorRankSum = {
+    player: sumAliveBoardRanksIn(simState, 'player'),
+    enemy: sumAliveBoardRanksIn(simState, 'enemy'),
+  };
+
   return {
     version: 1,
     mode: 'server-sim',
@@ -950,6 +1120,12 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
     maxBattleMs,
     durationMs: Math.min(elapsedMs, maxBattleMs),
     result,
+    survivorRankSum,
+    winnerDamageByResult: {
+      victory: survivorRankSum.player,
+      defeat: survivorRankSum.enemy,
+      draw: 0,
+    },
     events,
   };
 }
@@ -1019,11 +1195,28 @@ function resetToPrep() {
 
 function finishBattle(result) {
   stopBattleTimers();
+  const replayDamage = Number(state?.battleReplay?.winnerDamageByResult?.[result] ?? 0);
+  const fallbackDefeatDamage = (result === 'defeat' && !state?.battleReplay)
+    ? sumPresetRanks(roomState.playerOpponentId)
+    : 0;
+  const playerBattleDamage = Math.max(0, Math.floor(replayDamage || fallbackDefeatDamage));
+  if (result === 'victory' && roomState.playerOpponentIsCopy !== true) {
+    applyDamageToParticipantKing(roomState.playerOpponentId, playerBattleDamage);
+  } else if (result === 'defeat') {
+    state.kings.player.hp = Math.max(0, Number(state.kings.player.hp ?? 0) - playerBattleDamage);
+    syncPlayerParticipantHpFromKing();
+  }
   resolveHiddenBattlesNoConsequences();
 
   // показываем результат, остаёмся в battle-view до resetToPrep()
   state.phase = 'battle';
   state.result = result;
+
+  const enemyProfile = getCurrentOpponentBotProfile();
+  if (state.kings?.enemy) {
+    state.kings.enemy.hp = Number(enemyProfile?.hp ?? state.kings.enemy.hp ?? 100);
+    state.kings.enemy.maxHp = Number(enemyProfile?.maxHp ?? state.kings.enemy.maxHp ?? 100);
+  }
 
 
   broadcast(makeStateMessage(state));
