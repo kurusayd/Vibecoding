@@ -20,16 +20,22 @@ export const UNIT_VISUAL_CONFIG_BY_TYPE = {
     hpUiLiftPx: 20,
   },
   Crossbowman: {
-    groundLiftPx: 100,
-    artTargetPx: 170,
-    artOffsetXPx: 0,
-    hpUiLiftPx: 0,
+    groundLiftPx: 90,
+    artTargetPx: 140,
+    artOffsetXPx: 10,
+    hpUiLiftPx: 25,
   },
-  Knight: {
+  Crusader: {
     groundLiftPx: 100,
-    artTargetPx: 170,
-    artOffsetXPx: 0,
-    hpUiLiftPx: 0,
+    artTargetPx: 160,
+    artOffsetXPx: 15,
+    hpUiLiftPx: 35,
+  },
+  Monk: {
+    groundLiftPx: 95,
+    artTargetPx: 140,
+    artOffsetXPx: 5,
+    hpUiLiftPx: 35,
   },
   Skeleton: {
     groundLiftPx: 90,

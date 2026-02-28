@@ -24,9 +24,9 @@ export const BOT_PROFILES_BY_INDEX = {
     kingVisualKey: 'bot_knight',
     difficulty: { coinIncomeMultiplier: 1.0 },
     armyPreset: [
-      cell(6, 4, 'Knight'),
-      cell(7, 4, 'Knight'),
-      cell(8, 4, 'Knight'),
+      cell(6, 4, 'Crusader'),
+      cell(7, 4, 'Crusader'),
+      cell(8, 4, 'Crusader'),
       cell(10, 2, 'Crossbowman'),
       cell(10, 6, 'Crossbowman'),
     ],

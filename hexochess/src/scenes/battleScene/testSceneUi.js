@@ -2,6 +2,7 @@ import { TEST_SCENE_UNITS } from './testScene.js';
 
 const TEST_SCENE_RACES = [
   { key: 'HUMAN', label: 'HUMAN', bg: 'rgba(30,70,130,0.72)' },
+  { key: 'LIZARD', label: 'LIZARD', bg: 'rgba(60,90,40,0.72)' },
   { key: 'UNDEAD', label: 'UNDEAD', bg: 'rgba(70,50,90,0.72)' },
 ];
 

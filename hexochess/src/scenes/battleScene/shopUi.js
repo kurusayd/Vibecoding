@@ -1,4 +1,4 @@
-export function installBattleSceneShopUi(BattleScene) {
+﻿export function installBattleSceneShopUi(BattleScene) {
   const SHOP_PORTRAIT_ATLAS_KEY = 'unitPortraitsAtlas';
   const SHOP_PORTRAIT_FRAME_PREFIX = 'ALL PORTRAITS/PREPEARE for Atlas/';
   // Portraits are square (256x256), but shop art panel is rectangular.
@@ -697,12 +697,12 @@ export function installBattleSceneShopUi(BattleScene) {
         if (!o) {
           card.enabled = false;
           card.pressed = false;
-          card.nameText.setText('Пусто');
-          card.typeText.setText('—');
+          card.nameText.setText('\u041f\u0443\u0441\u0442\u043e');
+          card.typeText.setText('\u2014');
           card.costText.setText('');
           card.costCoin?.setVisible(false);
           card.previewSprite.setVisible(false);
-          card.previewFallback.setText('…').setVisible(true);
+          card.previewFallback.setText('\u2026').setVisible(true);
           card.refreshVisual();
           continue;
         }
@@ -710,7 +710,7 @@ export function installBattleSceneShopUi(BattleScene) {
         card.enabled = true;
         card.pressed = false;
         card.nameText.setText(String(o.type ?? 'Unknown'));
-        card.typeText.setText(String(o.powerType ?? '—'));
+        card.typeText.setText(String(o.powerType ?? '\u2014'));
         card.costCoin?.setVisible(true);
         card.costText.setText(`${Number(o.cost ?? 0)}`);
 

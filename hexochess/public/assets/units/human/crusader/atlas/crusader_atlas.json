@@ -1,6 +1,6 @@
 {
   "frames": {
-    "psd_animation/attack_0001.png": {
+    "psd_anim/attack0001.png": {
       "frame": {
         "x": 3,
         "y": 3,
@@ -24,7 +24,7 @@
         "y": 0.5
       }
     },
-    "psd_animation/dead.png": {
+    "psd_anim/attack0002.png": {
       "frame": {
         "x": 3,
         "y": 265,
@@ -48,7 +48,7 @@
         "y": 0.5
       }
     },
-    "psd_animation/idle.png": {
+    "psd_anim/dead.png": {
       "frame": {
         "x": 3,
         "y": 527,
@@ -72,7 +72,7 @@
         "y": 0.5
       }
     },
-    "psd_animation/walk_0001.png": {
+    "psd_anim/idle.png": {
       "frame": {
         "x": 3,
         "y": 789,
@@ -96,7 +96,7 @@
         "y": 0.5
       }
     },
-    "psd_animation/walk_0002.png": {
+    "psd_anim/walk0001.png": {
       "frame": {
         "x": 3,
         "y": 1051,
@@ -120,82 +120,10 @@
         "y": 0.5
       }
     },
-    "psd_animation/attack_0002.png": {
+    "psd_anim/walk0002.png": {
       "frame": {
         "x": 3,
-        "y": 3,
-        "w": 256,
-        "h": 256
-      },
-      "rotated": false,
-      "trimmed": false,
-      "spriteSourceSize": {
-        "x": 0,
-        "y": 0,
-        "w": 256,
-        "h": 256
-      },
-      "sourceSize": {
-        "w": 256,
-        "h": 256
-      },
-      "pivot": {
-        "x": 0.5,
-        "y": 0.5
-      }
-    },
-    "psd_animation/attack_0003.png": {
-      "frame": {
-        "x": 3,
-        "y": 3,
-        "w": 256,
-        "h": 256
-      },
-      "rotated": false,
-      "trimmed": false,
-      "spriteSourceSize": {
-        "x": 0,
-        "y": 0,
-        "w": 256,
-        "h": 256
-      },
-      "sourceSize": {
-        "w": 256,
-        "h": 256
-      },
-      "pivot": {
-        "x": 0.5,
-        "y": 0.5
-      }
-    },
-    "psd_animation/attack_0004.png": {
-      "frame": {
-        "x": 3,
-        "y": 3,
-        "w": 256,
-        "h": 256
-      },
-      "rotated": false,
-      "trimmed": false,
-      "spriteSourceSize": {
-        "x": 0,
-        "y": 0,
-        "w": 256,
-        "h": 256
-      },
-      "sourceSize": {
-        "w": 256,
-        "h": 256
-      },
-      "pivot": {
-        "x": 0.5,
-        "y": 0.5
-      }
-    },
-    "psd_animation/attack_0005.png": {
-      "frame": {
-        "x": 3,
-        "y": 3,
+        "y": 1313,
         "w": 256,
         "h": 256
       },
@@ -220,11 +148,11 @@
   "meta": {
     "app": "http://free-tex-packer.com",
     "version": "0.6.7",
-    "image": "swordman_atlas.png",
+    "image": "crusader_atlas.png",
     "format": "RGBA8888",
     "size": {
       "w": 262,
-      "h": 1310
+      "h": 1572
     },
     "scale": 1
   }

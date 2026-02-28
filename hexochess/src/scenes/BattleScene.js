@@ -80,10 +80,12 @@ const UI_TEXT = {
 function getUnitShortLabel(type) {
   const t = String(type ?? '').toLowerCase();
   if (t === 'bonesgolem' || t === 'bones_golem') return 'BG';
+  if (t === 'crusader') return 'Cr';
   if (t === 'crossbowman') return 'C';
   if (t === 'ghost') return 'Gh';
   if (t === 'knight') return 'K';
   if (t === 'lich') return 'L';
+  if (t === 'monk') return 'M';
   if (t === 'skeleton') return 'Sk';
   if (t === 'skeletonarcher' || t === 'skeleton_archer') return 'SA';
   if (t === 'swordsman' || t === 'swordmen') return 'S';
