@@ -90,6 +90,12 @@ export const UNIT_VISUAL_CONFIG_BY_TYPE = {
     artOffsetXPx: 0,
     hpUiLiftPx: 40,
   },
+  Angel: {
+    groundLiftPx: 130,
+    artTargetPx: 220,
+    artOffsetXPx: 6,
+    hpUiLiftPx: 75,
+  },
 };
 
 function getUnitVisualConfig(type) {

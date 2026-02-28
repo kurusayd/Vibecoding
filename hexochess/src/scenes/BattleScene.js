@@ -82,6 +82,7 @@ function getUnitShortLabel(type) {
   if (t === 'bonesgolem' || t === 'bones_golem') return 'BG';
   if (t === 'crusader') return 'Cr';
   if (t === 'crossbowman') return 'C';
+  if (t === 'angel') return 'A';
   if (t === 'ghost') return 'Gh';
   if (t === 'knight') return 'K';
   if (t === 'lich') return 'L';
@@ -137,8 +138,10 @@ function areShopOffersEqual(a, b) {
       x.hp !== y.hp ||
       (x.maxHp ?? x.hp) !== (y.maxHp ?? y.hp) ||
       x.atk !== y.atk ||
-      x.moveSpeed !== y.moveSpeed ||
-      Number(x.attackSpeed ?? 100) !== Number(y.attackSpeed ?? 100)
+      Number(x.attackSpeed ?? 1) !== Number(y.attackSpeed ?? 1) ||
+      Number(x.moveSpeed ?? 1) !== Number(y.moveSpeed ?? 1) ||
+      Number(x.attackRangeMax ?? 1) !== Number(y.attackRangeMax ?? 1) ||
+      Number(x.attackRangeFullDamage ?? (x.attackRangeMax ?? 1)) !== Number(y.attackRangeFullDamage ?? (y.attackRangeMax ?? 1))
     ) return false;
   }
   return true;
@@ -161,7 +164,10 @@ function areUnitsEqual(a, b) {
       x.team !== y.team ||
       x.type !== y.type ||
       x.rank !== y.rank ||
-      Number(x.attackSpeed ?? 100) !== Number(y.attackSpeed ?? 100) ||
+      Number(x.attackSpeed ?? 1) !== Number(y.attackSpeed ?? 1) ||
+      Number(x.moveSpeed ?? 1) !== Number(y.moveSpeed ?? 1) ||
+      Number(x.attackRangeMax ?? 1) !== Number(y.attackRangeMax ?? 1) ||
+      Number(x.attackRangeFullDamage ?? (x.attackRangeMax ?? 1)) !== Number(y.attackRangeFullDamage ?? (y.attackRangeMax ?? 1)) ||
       x.hp !== y.hp ||
       (x.maxHp ?? x.hp) !== (y.maxHp ?? y.hp) ||
       Number(x.attackSeq ?? 0) !== Number(y.attackSeq ?? 0) ||
@@ -1399,7 +1405,9 @@ export default class BattleScene extends Phaser.Scene {
 
     const grouped = new Map();
     for (const ev of (replay.events ?? [])) {
-      const t = Math.max(0, Number(ev?.t ?? 0));
+      const t = (ev?.type === 'move')
+        ? Math.max(0, Number(ev?.tStart ?? ev?.t ?? 0))
+        : Math.max(0, Number(ev?.t ?? 0));
       if (!grouped.has(t)) grouped.set(t, []);
       grouped.get(t).push(ev);
     }
@@ -1465,6 +1473,10 @@ export default class BattleScene extends Phaser.Scene {
     if (ev.type === 'move') {
       const u = byId.get(ev.unitId);
       if (!u || u.dead) return;
+      const tweenMs = Number(ev.durationMs ?? NaN);
+      if (Number.isFinite(tweenMs) && tweenMs > 0) {
+        u._replayMoveTweenMs = tweenMs;
+      }
       u.q = Number(ev.q ?? u.q);
       u.r = Number(ev.r ?? u.r);
       u.zone = 'board';
@@ -2024,9 +2036,14 @@ export default class BattleScene extends Phaser.Scene {
         if (vu?.rankIcon) vu.rankIcon.setVisible(!u.dead);
       } else {
         const result = this.battleState?.result ?? null;
-        // серверный tick в бою сейчас 450мс
-        const MOVE_TWEEN_MS = 380; // чуть меньше, чтобы успевал “доехать” до следующего снапшота
-        const tweenMs = (phase === 'battle' && !result) ? MOVE_TWEEN_MS : 0;
+        // Скорость визуального перемещения по умолчанию: 2 секунды на 1 гекс.
+        const MOVE_TWEEN_MS = 2000;
+        const replayMoveTweenMs = Number(u?._replayMoveTweenMs ?? NaN);
+        const moveTweenMs = (Number.isFinite(replayMoveTweenMs) && replayMoveTweenMs > 0)
+          ? replayMoveTweenMs
+          : MOVE_TWEEN_MS;
+        const tweenMs = (phase === 'battle' && !result) ? moveTweenMs : 0;
+        if (Number.isFinite(replayMoveTweenMs)) delete u._replayMoveTweenMs;
         if (vu) {
           vu.zone = 'board';
           vu.benchSlot = null;

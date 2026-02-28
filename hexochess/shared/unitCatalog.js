@@ -6,18 +6,19 @@ const POWER_TYPE_KNIGHT = '\u041a\u043e\u043d\u044c';      // Конь
 const POWER_TYPE_ROOK = '\u041b\u0430\u0434\u044c\u044f';  // Ладья
 
 export const UNIT_CATALOG = [
-  { race: 'HUMAN',  type: 'Swordsman',      label: 'SWORDSMAN',       powerType: POWER_TYPE_PAWN,   hp: 60,  atk: 20, moveSpeed: 2.6, attackSpeed: 100 },
-  { race: 'HUMAN',  type: 'Priest',         label: 'PRIEST',          powerType: POWER_TYPE_PAWN,   hp: 60,  atk: 20, moveSpeed: 2.6, attackSpeed: 100 },
-  { race: 'LIZARD', type: 'Monk',           label: 'MONK',            powerType: POWER_TYPE_PAWN,   hp: 60,  atk: 20, moveSpeed: 2.6, attackSpeed: 100 },
-  { race: 'UNDEAD', type: 'Skeleton',       label: 'SKELETON',        powerType: POWER_TYPE_PAWN,   hp: 60,  atk: 20, moveSpeed: 2.6, attackSpeed: 100 },
-  { race: 'HUMAN',  type: 'Crossbowman',    label: 'CROSSBOW',        powerType: POWER_TYPE_KNIGHT, hp: 40,  atk: 25, moveSpeed: 2.3, attackSpeed: 100 },
-  { race: 'HUMAN',  type: 'Crusader',       label: 'CRUSADER',        powerType: POWER_TYPE_ROOK,   hp: 120, atk: 12, moveSpeed: 1.6, attackSpeed: 100 },
-  { race: 'UNDEAD', type: 'BonesGolem',     label: 'BONES GOLEM',     powerType: POWER_TYPE_ROOK,   hp: 240, atk: 12, moveSpeed: 1.6, attackSpeed: 100 },
-  { race: 'UNDEAD', type: 'Ghost',          label: 'GHOST',           powerType: POWER_TYPE_ROOK,   hp: 120, atk: 12, moveSpeed: 1.6, attackSpeed: 100 },
-  { race: 'UNDEAD', type: 'Lich',           label: 'LICH',            powerType: POWER_TYPE_ROOK,   hp: 120, atk: 12, moveSpeed: 1.6, attackSpeed: 100 },
-  { race: 'UNDEAD', type: 'SkeletonArcher', label: 'SKELETON ARCHER', powerType: POWER_TYPE_ROOK,   hp: 120, atk: 12, moveSpeed: 1.6, attackSpeed: 100 },
-  { race: 'UNDEAD', type: 'Vampire',        label: 'VAMPIRE',         powerType: POWER_TYPE_ROOK,   hp: 120, atk: 12, moveSpeed: 1.6, attackSpeed: 100 },
-  { race: 'UNDEAD', type: 'Zombie',         label: 'ZOMBIE',          powerType: POWER_TYPE_ROOK,   hp: 120, atk: 12, moveSpeed: 1.6, attackSpeed: 100 },
+  { race: 'HUMAN',  type: 'Swordsman',      label: 'SWORDSMAN',       powerType: POWER_TYPE_PAWN,   hp: 60,  atk: 20, attackSpeed: 1.0, moveSpeed: 1.4, attackRangeMax: 1,  attackRangeFullDamage: 1 },
+  { race: 'HUMAN',  type: 'Priest',         label: 'PRIEST',          powerType: POWER_TYPE_PAWN,   hp: 60,  atk: 20, attackSpeed: 1.3, moveSpeed: 0.9, attackRangeMax: 20, attackRangeFullDamage: 5 },
+  { race: 'LIZARD', type: 'Monk',           label: 'MONK',            powerType: POWER_TYPE_PAWN,   hp: 60,  atk: 20, attackSpeed: 1.1, moveSpeed: 1.9, attackRangeMax: 1,  attackRangeFullDamage: 1 },
+  { race: 'UNDEAD', type: 'Skeleton',       label: 'SKELETON',        powerType: POWER_TYPE_PAWN,   hp: 60,  atk: 20, attackSpeed: 1.0, moveSpeed: 1.3, attackRangeMax: 1,  attackRangeFullDamage: 1 },
+  { race: 'HUMAN',  type: 'Crossbowman',    label: 'CROSSBOW',        powerType: POWER_TYPE_KNIGHT, hp: 40,  atk: 25, attackSpeed: 1.6, moveSpeed: 1.0, attackRangeMax: 20, attackRangeFullDamage: 5 },
+  { race: 'HUMAN',  type: 'Crusader',       label: 'CRUSADER',        powerType: POWER_TYPE_ROOK,   hp: 120, atk: 12, attackSpeed: 0.9, moveSpeed: 1.1, attackRangeMax: 1,  attackRangeFullDamage: 1 },
+  { race: 'UNDEAD', type: 'BonesGolem',     label: 'BONES GOLEM',     powerType: POWER_TYPE_ROOK,   hp: 240, atk: 12, attackSpeed: 0.7, moveSpeed: 0.8, attackRangeMax: 1,  attackRangeFullDamage: 1 },
+  { race: 'UNDEAD', type: 'Ghost',          label: 'GHOST',           powerType: POWER_TYPE_ROOK,   hp: 120, atk: 12, attackSpeed: 1.4, moveSpeed: 2.4, attackRangeMax: 2,  attackRangeFullDamage: 2 },
+  { race: 'UNDEAD', type: 'Lich',           label: 'LICH',            powerType: POWER_TYPE_ROOK,   hp: 120, atk: 12, attackSpeed: 1.2, moveSpeed: 1.0, attackRangeMax: 20, attackRangeFullDamage: 5 },
+  { race: 'UNDEAD', type: 'SkeletonArcher', label: 'SKELETON ARCHER', powerType: POWER_TYPE_ROOK,   hp: 120, atk: 12, attackSpeed: 1.3, moveSpeed: 1.0, attackRangeMax: 20, attackRangeFullDamage: 5 },
+  { race: 'UNDEAD', type: 'Vampire',        label: 'VAMPIRE',         powerType: POWER_TYPE_ROOK,   hp: 120, atk: 12, attackSpeed: 1.6, moveSpeed: 2.0, attackRangeMax: 1,  attackRangeFullDamage: 1 },
+  { race: 'UNDEAD', type: 'Zombie',         label: 'ZOMBIE',          powerType: POWER_TYPE_ROOK,   hp: 120, atk: 12, attackSpeed: 0.8, moveSpeed: 0.9, attackRangeMax: 1,  attackRangeFullDamage: 1 },
+  { race: 'GOD',    type: 'Angel',          label: 'ANGEL',           powerType: POWER_TYPE_ROOK,   hp: 480, atk: 24, attackSpeed: 1.8, moveSpeed: 3.0, attackRangeMax: 1,  attackRangeFullDamage: 1 },
 ];
 
 export function getUnitCatalogEntry(type) {

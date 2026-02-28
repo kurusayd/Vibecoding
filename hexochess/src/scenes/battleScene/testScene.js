@@ -8,10 +8,13 @@
 } from '../../../shared/battleCore.js';
 import { UNIT_CATALOG as SHARED_UNIT_CATALOG } from '../../../shared/unitCatalog.js';
 
-const TEST_SCENE_TICK_MS = 450;
+const TEST_SCENE_TICK_MS = 100;
 const TEST_SCENE_RESTART_DELAY_MS = 500;
 const TEST_SCENE_PLAYER_SPAWN = { q: 3, r: 4 };
 const TEST_SCENE_ENEMY_SPAWN = { q: 7, r: 4 };
+const TEST_SCENE_DEFAULT_ATTACK_SPEED = 1;
+const TEST_SCENE_DEFAULT_MOVE_SPEED = 1;
+const TEST_SCENE_MAX_ACTIONS_PER_UNIT_PER_TICK = 8;
 
 export const TEST_SCENE_UNITS = SHARED_UNIT_CATALOG.map((u) => ({ ...u }));
 
@@ -70,8 +73,10 @@ export function installBattleSceneTestScene(BattleScene) {
         rank: safeRank,
         zone: 'board',
         benchSlot: null,
-        moveSpeed: base.moveSpeed,
-        attackSpeed: base.attackSpeed ?? 100,
+        attackSpeed: base.attackSpeed ?? TEST_SCENE_DEFAULT_ATTACK_SPEED,
+        moveSpeed: base.moveSpeed ?? TEST_SCENE_DEFAULT_MOVE_SPEED,
+        attackRangeMax: base.attackRangeMax ?? 1,
+        attackRangeFullDamage: base.attackRangeFullDamage ?? (base.attackRangeMax ?? 1),
         attackSeq: 0,
         dead: false,
       });
@@ -110,8 +115,10 @@ export function installBattleSceneTestScene(BattleScene) {
           hp: u.maxHp ?? u.hp,
           maxHp: u.maxHp ?? u.hp,
           atk: u.atk,
-          moveSpeed: u.moveSpeed,
-          attackSpeed: u.attackSpeed ?? 100,
+          attackSpeed: u.attackSpeed ?? TEST_SCENE_DEFAULT_ATTACK_SPEED,
+          moveSpeed: u.moveSpeed ?? TEST_SCENE_DEFAULT_MOVE_SPEED,
+          attackRangeMax: u.attackRangeMax ?? 1,
+          attackRangeFullDamage: u.attackRangeFullDamage ?? (u.attackRangeMax ?? 1),
           powerType: u.powerType ?? null,
           rank: u.rank ?? 1,
         }));
@@ -140,8 +147,10 @@ export function installBattleSceneTestScene(BattleScene) {
           rank: u.rank ?? 1,
           zone: 'board',
           benchSlot: null,
-          moveSpeed: u.moveSpeed,
-          attackSpeed: u.attackSpeed ?? 100,
+          attackSpeed: u.attackSpeed ?? TEST_SCENE_DEFAULT_ATTACK_SPEED,
+          moveSpeed: u.moveSpeed ?? TEST_SCENE_DEFAULT_MOVE_SPEED,
+          attackRangeMax: u.attackRangeMax ?? 1,
+          attackRangeFullDamage: u.attackRangeFullDamage ?? (u.attackRangeMax ?? 1),
           attackSeq: 0,
           dead: false,
         });
@@ -234,7 +243,8 @@ export function installBattleSceneTestScene(BattleScene) {
       if (!hasPlayer || !hasEnemy) return;
 
       for (const u of (this.battleState.units ?? [])) {
-        u.moveCdMs = 0;
+        u.nextAttackAt = 0;
+        u.nextMoveAt = 0;
         u.dead = false;
         u.hp = u.maxHp ?? u.hp;
       }
@@ -266,6 +276,7 @@ export function installBattleSceneTestScene(BattleScene) {
       }
 
       let didSomething = false;
+      const tickTimeMs = Number(this.time?.now ?? 0);
       const actors = (state.units ?? [])
         .filter((u) => u.zone === 'board' && !u.dead && (u.team === 'player' || u.team === 'enemy'))
         .slice()
@@ -275,32 +286,43 @@ export function installBattleSceneTestScene(BattleScene) {
         const me = (state.units ?? []).find((u) => u.id === a.id);
         if (!me || me.dead || me.zone !== 'board') continue;
 
-        me.moveCdMs = Math.max(0, Number(me.moveCdMs ?? 0) - TEST_SCENE_TICK_MS);
-        if (me.moveCdMs > 0) continue;
+        const attackSpeed = Math.max(0.1, Number(me.attackSpeed ?? TEST_SCENE_DEFAULT_ATTACK_SPEED));
+        const moveSpeed = Math.max(0.1, Number(me.moveSpeed ?? TEST_SCENE_DEFAULT_MOVE_SPEED));
+        const attackIntervalMs = 1000 / attackSpeed;
+        const moveIntervalMs = 1000 / moveSpeed;
+        me.nextAttackAt = Math.max(0, Number(me.nextAttackAt ?? 0));
+        me.nextMoveAt = Math.max(0, Number(me.nextMoveAt ?? 0));
 
-        const target = this.findTestSceneClosestOpponent?.(state, me);
-        if (!target) continue;
+        let unitActions = 0;
+        while (unitActions < TEST_SCENE_MAX_ACTIONS_PER_UNIT_PER_TICK) {
+          const target = this.findTestSceneClosestOpponent?.(state, me);
+          if (!target) break;
 
-        const dist = coreHexDistance(me.q, me.r, target.q, target.r);
-        if (dist <= 1) {
-          const res = coreAttack(state, me.id, target.id);
-          if (res.success) {
-            didSomething = true;
-            me.attackSeq = Number(me.attackSeq ?? 0) + 1;
-            this.pendingAttackAnimIds?.add?.(me.id);
-            const atkSpd = Math.max(1, Number(me.attackSpeed ?? 100));
-            me.moveCdMs = Math.max(120, Math.round(100000 / atkSpd));
+          const attackRangeMax = Math.max(1, Number(me.attackRangeMax ?? 1));
+          const dist = coreHexDistance(me.q, me.r, target.q, target.r);
+          if (dist <= attackRangeMax) {
+            if (tickTimeMs + 1e-6 < me.nextAttackAt) break;
+
+            const res = coreAttack(state, me.id, target.id);
+            me.nextAttackAt = Math.max(me.nextAttackAt, tickTimeMs) + attackIntervalMs;
+            unitActions += 1;
+            if (res.success) {
+              didSomething = true;
+              me.attackSeq = Number(me.attackSeq ?? 0) + 1;
+              this.pendingAttackAnimIds?.add?.(me.id);
+            }
+            break;
           }
-          continue;
-        }
 
-        const step = this.pickTestSceneBestStepToward?.(state, me, target);
-        if (!step) continue;
-        const moved = coreMoveUnit(state, me.id, step.q, step.r);
-        if (moved) {
+          if (tickTimeMs + 1e-6 < me.nextMoveAt) break;
+
+          const step = this.pickTestSceneBestStepToward?.(state, me, target);
+          if (!step) break;
+          const moved = coreMoveUnit(state, me.id, step.q, step.r);
+          me.nextMoveAt = Math.max(me.nextMoveAt, tickTimeMs) + moveIntervalMs;
+          unitActions += 1;
+          if (!moved) break;
           didSomething = true;
-          const spd = Number(me.moveSpeed ?? 2.0);
-          me.moveCdMs = Math.max(120, Math.round(1000 / Math.max(0.1, spd)));
         }
       }
 
@@ -337,7 +359,8 @@ export function installBattleSceneTestScene(BattleScene) {
         enemy.dead = false;
         enemy.hp = enemy.maxHp;
         enemy.attackSeq = 0;
-        enemy.moveCdMs = 0;
+        enemy.nextAttackAt = 0;
+        enemy.nextMoveAt = 0;
         enemy.zone = 'board';
         enemy.q = enemyPos.q;
         enemy.r = enemyPos.r;
@@ -363,7 +386,8 @@ export function installBattleSceneTestScene(BattleScene) {
       for (const u of (state.units ?? [])) {
         u.dead = false;
         u.hp = u.maxHp ?? u.hp;
-        u.moveCdMs = 0;
+        u.nextAttackAt = 0;
+        u.nextMoveAt = 0;
         u.attackSeq = Number(u.attackSeq ?? 0);
       }
 

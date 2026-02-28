@@ -1,4 +1,4 @@
-// server/index.js
+﻿// server/index.js
 import http from 'http';
 import { WebSocketServer } from 'ws';
 import crypto from 'crypto';
@@ -37,19 +37,19 @@ let nextUnitId = 1;
 state.battleSecondsLeft = state.battleSecondsLeft ?? 0;
 
 let battleCountdownTimer = null;
-const BATTLE_DURATION_SECONDS = 40; // ✅ "Сражение: 40с"
+const BATTLE_DURATION_SECONDS = 45; // Бой длится максимум 45с, затем ничья.
 
 // ---- rounds / prep timer ----
-state.round = state.round ?? 1;              // игра стартует с 1 раунда
+state.round = state.round ?? 1;              // РёРіСЂР° СЃС‚Р°СЂС‚СѓРµС‚ СЃ 1 СЂР°СѓРЅРґР°
 state.prepSecondsLeft = state.prepSecondsLeft ?? 0;
 
 let prepTimer = null;
 
 // ---- economy / rounds ----
-state.winStreak = state.winStreak ?? 0;  // подряд побед
-state.loseStreak = state.loseStreak ?? 0; // подряд пораж
+state.winStreak = state.winStreak ?? 0;  // РїРѕРґСЂСЏРґ РїРѕР±РµРґ
+state.loseStreak = state.loseStreak ?? 0; // РїРѕРґСЂСЏРґ РїРѕСЂР°Р¶
 
-// слепок расстановки на момент старта боя (для возврата в prep)
+// СЃР»РµРїРѕРє СЂР°СЃСЃС‚Р°РЅРѕРІРєРё РЅР° РјРѕРјРµРЅС‚ СЃС‚Р°СЂС‚Р° Р±РѕСЏ (РґР»СЏ РІРѕР·РІСЂР°С‚Р° РІ prep)
 let prepSnapshot = null; // Array of units
 
 // ---- battle timers (GLOBAL, not per connection) ----
@@ -369,10 +369,10 @@ function grantRoundGold(result) {
   const didWin = (result === 'victory');
   const didLose = (result === 'defeat');
 
-  // победа даёт +1 (как в DAC). Ничья = 0.
+  // РїРѕР±РµРґР° РґР°С‘С‚ +1 (РєР°Рє РІ DAC). РќРёС‡СЊСЏ = 0.
   const winBonus = didWin ? 1 : 0;
 
-  // стрики
+  // СЃС‚СЂРёРєРё
   if (didWin) {
     state.winStreak = (state.winStreak ?? 0) + 1;
     state.loseStreak = 0;
@@ -380,7 +380,7 @@ function grantRoundGold(result) {
     state.loseStreak = (state.loseStreak ?? 0) + 1;
     state.winStreak = 0;
   } else {
-    // draw: обычно сбрасывают стрики
+    // draw: РѕР±С‹С‡РЅРѕ СЃР±СЂР°СЃС‹РІР°СЋС‚ СЃС‚СЂРёРєРё
     state.winStreak = 0;
     state.loseStreak = 0;
   }
@@ -549,7 +549,7 @@ function prepDurationForRound(round) {
 function startPrepCountdown() {
   stopPrepTimer();
 
-  // если уже battle — не стартуем
+  // РµСЃР»Рё СѓР¶Рµ battle вЂ” РЅРµ СЃС‚Р°СЂС‚СѓРµРј
   if (state.phase !== 'prep') return;
 
   if (isAllPlayerOpponentsBots()) {
@@ -573,21 +573,21 @@ function startPrepCountdown() {
 
     if (state.prepSecondsLeft <= 0) {
       stopPrepTimer();
-      startBattle(); // авто-старт боя
+      startBattle(); // Р°РІС‚Рѕ-СЃС‚Р°СЂС‚ Р±РѕСЏ
     }
   }, 1000);
 }
 
 
-// кто каким юнитом управляет
+// РєС‚Рѕ РєР°РєРёРј СЋРЅРёС‚РѕРј СѓРїСЂР°РІР»СЏРµС‚
 /** @type {Map<string, Set<number>>} */
 const clientToUnits = new Map(); // clientId -> Set(unitIds)
 
-// держим список сокетов
+// РґРµСЂР¶РёРј СЃРїРёСЃРѕРє СЃРѕРєРµС‚РѕРІ
 /** @type {Map<string, import('ws').WebSocket>} */
 const clients = new Map();
 
-// ---- board limits (должны совпадать с клиентом) ----
+// ---- board limits (РґРѕР»Р¶РЅС‹ СЃРѕРІРїР°РґР°С‚СЊ СЃ РєР»РёРµРЅС‚РѕРј) ----
 const GRID_COLS = 12;
 const GRID_ROWS = 8;
 const BENCH_SLOTS = 8;
@@ -595,29 +595,29 @@ const BENCH_SLOTS = 8;
 // ---- MERGE (server-authoritative) ----
 const MAX_RANK = 3;
 
-// key для группировки "одинаковых"
+// key РґР»СЏ РіСЂСѓРїРїРёСЂРѕРІРєРё "РѕРґРёРЅР°РєРѕРІС‹С…"
 function mergeKey(u) {
   return `${u.type ?? 'Unknown'}#${u.rank ?? 1}`;
 }
 
-// Удаляет юнита из state + из owned set
+// РЈРґР°Р»СЏРµС‚ СЋРЅРёС‚Р° РёР· state + РёР· owned set
 function removeOwnedUnit(state, owned, unitId) {
   state.units = state.units.filter(u => u.id !== unitId);
   owned.delete(unitId);
 }
 
-// Пытаемся смёрджить ВСЕ возможные тройки для owned.
-// preferredUnitId — кого апать, если он входит в тройку (удобно: купленный/перетащенный юнит)
+// РџС‹С‚Р°РµРјСЃСЏ СЃРјС‘СЂРґР¶РёС‚СЊ Р’РЎР• РІРѕР·РјРѕР¶РЅС‹Рµ С‚СЂРѕР№РєРё РґР»СЏ owned.
+// preferredUnitId вЂ” РєРѕРіРѕ Р°РїР°С‚СЊ, РµСЃР»Рё РѕРЅ РІС…РѕРґРёС‚ РІ С‚СЂРѕР№РєСѓ (СѓРґРѕР±РЅРѕ: РєСѓРїР»РµРЅРЅС‹Р№/РїРµСЂРµС‚Р°С‰РµРЅРЅС‹Р№ СЋРЅРёС‚)
 function applyMergesForClient(clientId, preferredUnitId = null) {
   const owned = clientToUnits.get(clientId);
   if (!owned || owned.size === 0) return false;
 
-  // В prep можно мерджить все мои юниты (board + bench).
-  // Вне prep (идёт бой / экран результата) нельзя "трогать" юнитов на доске,
-  // иначе merge конфликтует с возвратом к prepSnapshot после боя.
+  // Р’ prep РјРѕР¶РЅРѕ РјРµСЂРґР¶РёС‚СЊ РІСЃРµ РјРѕРё СЋРЅРёС‚С‹ (board + bench).
+  // Р’РЅРµ prep (РёРґС‘С‚ Р±РѕР№ / СЌРєСЂР°РЅ СЂРµР·СѓР»СЊС‚Р°С‚Р°) РЅРµР»СЊР·СЏ "С‚СЂРѕРіР°С‚СЊ" СЋРЅРёС‚РѕРІ РЅР° РґРѕСЃРєРµ,
+  // РёРЅР°С‡Рµ merge РєРѕРЅС„Р»РёРєС‚СѓРµС‚ СЃ РІРѕР·РІСЂР°С‚РѕРј Рє prepSnapshot РїРѕСЃР»Рµ Р±РѕСЏ.
   const allowBoardUnitsInMerge = canMergeBoardUnitsInPhase(state.phase);
 
-  // собираем только моих player-юнитов (ботов не трогаем)
+  // СЃРѕР±РёСЂР°РµРј С‚РѕР»СЊРєРѕ РјРѕРёС… player-СЋРЅРёС‚РѕРІ (Р±РѕС‚РѕРІ РЅРµ С‚СЂРѕРіР°РµРј)
   const myUnits = state.units.filter(u =>
     u.team === 'player' &&
     owned.has(u.id) &&
@@ -626,20 +626,20 @@ function applyMergesForClient(clientId, preferredUnitId = null) {
 
   let changed = false;
 
-  // loop до тех пор, пока находятся новые мерджи (потому что 3x rank1 → rank2,
-  // потом может сложиться 3x rank2 → rank3)
+  // loop РґРѕ С‚РµС… РїРѕСЂ, РїРѕРєР° РЅР°С…РѕРґСЏС‚СЃСЏ РЅРѕРІС‹Рµ РјРµСЂРґР¶Рё (РїРѕС‚РѕРјСѓ С‡С‚Рѕ 3x rank1 в†’ rank2,
+  // РїРѕС‚РѕРј РјРѕР¶РµС‚ СЃР»РѕР¶РёС‚СЊСЃСЏ 3x rank2 в†’ rank3)
   while (true) {
-    // группируем по type+rank
+    // РіСЂСѓРїРїРёСЂСѓРµРј РїРѕ type+rank
     const groups = new Map(); // key -> array of units
     for (const u of myUnits) {
       const rank = u.rank ?? 1;
-      if (rank >= MAX_RANK) continue; // rank3 уже не мерджим
+      if (rank >= MAX_RANK) continue; // rank3 СѓР¶Рµ РЅРµ РјРµСЂРґР¶РёРј
       const k = mergeKey(u);
       if (!groups.has(k)) groups.set(k, []);
       groups.get(k).push(u);
     }
 
-    // найдём любую группу с >=3
+    // РЅР°Р№РґС‘Рј Р»СЋР±СѓСЋ РіСЂСѓРїРїСѓ СЃ >=3
     let foundKey = null;
     for (const [k, arr] of groups.entries()) {
       if (arr.length >= 3) {
@@ -651,10 +651,10 @@ function applyMergesForClient(clientId, preferredUnitId = null) {
 
     const arr = groups.get(foundKey);
 
-    // выбираем базового юнита для апа:
-    // 1) приоритет у юнита на поле (zone=board), чтобы ап не "улетал" на скамейку;
-    // 2) если юнит с preferredUnitId находится на поле и входит в группу — можно апнуть его;
-    // 3) если на поле никого нет — используем preferredUnitId (если есть) или любого.
+    // РІС‹Р±РёСЂР°РµРј Р±Р°Р·РѕРІРѕРіРѕ СЋРЅРёС‚Р° РґР»СЏ Р°РїР°:
+    // 1) РїСЂРёРѕСЂРёС‚РµС‚ Сѓ СЋРЅРёС‚Р° РЅР° РїРѕР»Рµ (zone=board), С‡С‚РѕР±С‹ Р°Рї РЅРµ "СѓР»РµС‚Р°Р»" РЅР° СЃРєР°РјРµР№РєСѓ;
+    // 2) РµСЃР»Рё СЋРЅРёС‚ СЃ preferredUnitId РЅР°С…РѕРґРёС‚СЃСЏ РЅР° РїРѕР»Рµ Рё РІС…РѕРґРёС‚ РІ РіСЂСѓРїРїСѓ вЂ” РјРѕР¶РЅРѕ Р°РїРЅСѓС‚СЊ РµРіРѕ;
+    // 3) РµСЃР»Рё РЅР° РїРѕР»Рµ РЅРёРєРѕРіРѕ РЅРµС‚ вЂ” РёСЃРїРѕР»СЊР·СѓРµРј preferredUnitId (РµСЃР»Рё РµСЃС‚СЊ) РёР»Рё Р»СЋР±РѕРіРѕ.
     let base = null;
 
     const boardCandidates = arr.filter(u => u.zone === 'board');
@@ -671,16 +671,16 @@ function applyMergesForClient(clientId, preferredUnitId = null) {
       if (!base) base = arr[0];
     }
 
-    // берём ещё 2 любых, кроме base
+    // Р±РµСЂС‘Рј РµС‰С‘ 2 Р»СЋР±С‹С…, РєСЂРѕРјРµ base
     const others = arr.filter(u => u.id !== base.id).slice(0, 2);
-    if (others.length < 2) break; // на всякий пожарный
+    if (others.length < 2) break; // РЅР° РІСЃСЏРєРёР№ РїРѕР¶Р°СЂРЅС‹Р№
 
-    // ✅ апаем base: rank + статы (x2 за каждый переход ранга)
+    // вњ… Р°РїР°РµРј base: rank + СЃС‚Р°С‚С‹ (x2 Р·Р° РєР°Р¶РґС‹Р№ РїРµСЂРµС…РѕРґ СЂР°РЅРіР°)
     const oldRank = base.rank ?? 1;
     const newRank = Math.min(MAX_RANK, oldRank + 1);
     base.rank = newRank;
 
-    // множители: x2 на каждый ап ранга (1->2 и 2->3)
+    // РјРЅРѕР¶РёС‚РµР»Рё: x2 РЅР° РєР°Р¶РґС‹Р№ Р°Рї СЂР°РЅРіР° (1->2 Рё 2->3)
     const mult = 2;
 
     // maxHp
@@ -693,16 +693,16 @@ function applyMergesForClient(clientId, preferredUnitId = null) {
     const newAtk = Math.max(1, Math.round(oldAtk * mult));
     base.atk = newAtk;
 
-    // hp всегда полное после мерджа
+    // hp РІСЃРµРіРґР° РїРѕР»РЅРѕРµ РїРѕСЃР»Рµ РјРµСЂРґР¶Р°
     base.hp = base.maxHp;
 
-    // удаляем двух остальных
+    // СѓРґР°Р»СЏРµРј РґРІСѓС… РѕСЃС‚Р°Р»СЊРЅС‹С…
     for (const o of others) {
       removeOwnedUnit(state, owned, o.id);
     }
 
-    // обновляем myUnits (т.к. мы удалили юнитов)
-    // и оставляем base в массиве (он уже там, просто rank поменялся)
+    // РѕР±РЅРѕРІР»СЏРµРј myUnits (С‚.Рє. РјС‹ СѓРґР°Р»РёР»Рё СЋРЅРёС‚РѕРІ)
+    // Рё РѕСЃС‚Р°РІР»СЏРµРј base РІ РјР°СЃСЃРёРІРµ (РѕРЅ СѓР¶Рµ С‚Р°Рј, РїСЂРѕСЃС‚Рѕ rank РїРѕРјРµРЅСЏР»СЃСЏ)
     for (const o of others) {
       const idx = myUnits.findIndex(x => x.id === o.id);
       if (idx !== -1) myUnits.splice(idx, 1);
@@ -710,35 +710,48 @@ function applyMergesForClient(clientId, preferredUnitId = null) {
 
     changed = true;
 
-    // после первого мерджа preferredUnitId лучше привязать к base,
-    // чтобы возможный следующий мердж апал свежий апнутый юнит
+    // РїРѕСЃР»Рµ РїРµСЂРІРѕРіРѕ РјРµСЂРґР¶Р° preferredUnitId Р»СѓС‡С€Рµ РїСЂРёРІСЏР·Р°С‚СЊ Рє base,
+    // С‡С‚РѕР±С‹ РІРѕР·РјРѕР¶РЅС‹Р№ СЃР»РµРґСѓСЋС‰РёР№ РјРµСЂРґР¶ Р°РїР°Р» СЃРІРµР¶РёР№ Р°РїРЅСѓС‚С‹Р№ СЋРЅРёС‚
     preferredUnitId = base.id;
   }
 
   return changed;
 }
 
-// ✅ helper: случайное целое [0..n-1]
+// вњ… helper: СЃР»СѓС‡Р°Р№РЅРѕРµ С†РµР»РѕРµ [0..n-1]
 function randInt(n) {
   return Math.floor(Math.random() * n);
 }
 
 // ---- SHOP + UNIT CATALOG (MVP) ----
-// цена строго по "силе" (шахматному типу)
+// С†РµРЅР° СЃС‚СЂРѕРіРѕ РїРѕ "СЃРёР»Рµ" (С€Р°С…РјР°С‚РЅРѕРјСѓ С‚РёРїСѓ)
 const COST_BY_POWER_TYPE = {
-  'Пешка': 1,
-  'Конь': 2,
-  'Слон': 3,
-  'Ладья': 4,
-  'Ферзь': 5,
+  '\u041f\u0435\u0448\u043a\u0430': 1, // Пешка
+  '\u041a\u043e\u043d\u044c': 2, // Конь
+  '\u0421\u043b\u043e\u043d': 3, // Слон
+  '\u041b\u0430\u0434\u044c\u044f': 4, // Ладья
+  '\u0424\u0435\u0440\u0437\u044c': 5, // Ферзь
 };
 
 const SHOP_OFFER_COUNT = 5;
+const DEFAULT_UNIT_ATTACK_SPEED = 1;
+const DEFAULT_UNIT_MOVE_SPEED = 1;
+const MAX_ACTIONS_PER_UNIT_PER_TICK = 8;
+const SNAPSHOT_STEP_MS = 100;
 
 function makeRandomOffer() {
   const base = UNIT_CATALOG.length
     ? UNIT_CATALOG[randInt(UNIT_CATALOG.length)]
-    : { type: 'Swordsman', powerType: 'Пешка', hp: 60, atk: 20, moveSpeed: 2.6, attackSpeed: 100 };
+    : {
+      type: 'Swordsman',
+      powerType: '\u041f\u0435\u0448\u043a\u0430', // Пешка
+      hp: 60,
+      atk: 20,
+      attackSpeed: DEFAULT_UNIT_ATTACK_SPEED,
+      moveSpeed: DEFAULT_UNIT_MOVE_SPEED,
+      attackRangeMax: 1,
+      attackRangeFullDamage: 1,
+    };
 
   const cost = COST_BY_POWER_TYPE[base.powerType] ?? 1;
 
@@ -749,8 +762,10 @@ function makeRandomOffer() {
     hp: base.hp,
     maxHp: base.hp,
     atk: base.atk,
-    moveSpeed: base.moveSpeed,
-    attackSpeed: base.attackSpeed ?? 100,
+    attackSpeed: base.attackSpeed ?? DEFAULT_UNIT_ATTACK_SPEED,
+    moveSpeed: base.moveSpeed ?? DEFAULT_UNIT_MOVE_SPEED,
+    attackRangeMax: base.attackRangeMax ?? 1,
+    attackRangeFullDamage: base.attackRangeFullDamage ?? (base.attackRangeMax ?? 1),
   };
 }
 
@@ -769,7 +784,7 @@ function findFirstFreeBenchSlot() {
 
 function findFirstFreeBoardCell() {
   for (let r = 0; r < GRID_ROWS; r++) {
-    // В prep игроку разрешена только "своя" половина поля (как на клиенте: первые 6 колонок).
+    // Р’ prep РёРіСЂРѕРєСѓ СЂР°Р·СЂРµС€РµРЅР° С‚РѕР»СЊРєРѕ "СЃРІРѕСЏ" РїРѕР»РѕРІРёРЅР° РїРѕР»СЏ (РєР°Рє РЅР° РєР»РёРµРЅС‚Рµ: РїРµСЂРІС‹Рµ 6 РєРѕР»РѕРЅРѕРє).
     const maxPlayerPrepCols = Math.min(GRID_COLS, 6);
     for (let col = 0; col < maxPlayerPrepCols; col++) {
       const q = col - Math.floor(r / 2);
@@ -798,7 +813,7 @@ function clearEnemyUnits() {
 function spawnBotArmy() {
   clearEnemyUnits();
 
-  // фикс-армия бота (пока хардкод)
+  // С„РёРєСЃ-Р°СЂРјРёСЏ Р±РѕС‚Р° (РїРѕРєР° С…Р°СЂРґРєРѕРґ)
   const enemyProfile = getCurrentOpponentBotProfile();
   const fallbackProfile = getBotProfileByIndex(1);
   const preset = enemyProfile?.armyPreset ?? fallbackProfile?.armyPreset ?? [];
@@ -808,7 +823,7 @@ function spawnBotArmy() {
   });
 
   for (const b of botUnits) {
-    // safety: если клетка занята или вне поля — просто пропускаем
+    // safety: РµСЃР»Рё РєР»РµС‚РєР° Р·Р°РЅСЏС‚Р° РёР»Рё РІРЅРµ РїРѕР»СЏ вЂ” РїСЂРѕСЃС‚Рѕ РїСЂРѕРїСѓСЃРєР°РµРј
     if (!isInsideBoard(b.q, b.r)) continue;
     if (getUnitAt(state, b.q, b.r)) continue;
 
@@ -830,8 +845,10 @@ function spawnBotArmy() {
       rank,
       zone: 'board',
       benchSlot: null,
-      moveSpeed: base.moveSpeed,
-      attackSpeed: base.attackSpeed ?? 100,
+      attackSpeed: base.attackSpeed ?? DEFAULT_UNIT_ATTACK_SPEED,
+      moveSpeed: base.moveSpeed ?? DEFAULT_UNIT_MOVE_SPEED,
+      attackRangeMax: base.attackRangeMax ?? 1,
+      attackRangeFullDamage: base.attackRangeFullDamage ?? (base.attackRangeMax ?? 1),
     });
   }
 }
@@ -870,10 +887,13 @@ function buildBotBoardUnitsForSim(botId, team, nextIdRef) {
       rank,
       zone: 'board',
       benchSlot: null,
-      moveSpeed: base.moveSpeed,
-      attackSpeed: base.attackSpeed ?? 100,
+      attackSpeed: base.attackSpeed ?? DEFAULT_UNIT_ATTACK_SPEED,
+      moveSpeed: base.moveSpeed ?? DEFAULT_UNIT_MOVE_SPEED,
+      attackRangeMax: base.attackRangeMax ?? 1,
+      attackRangeFullDamage: base.attackRangeFullDamage ?? (base.attackRangeMax ?? 1),
       dead: false,
-      moveCdMs: 0,
+      nextAttackAt: 0,
+      nextMoveAt: 0,
       attackSeq: 0,
     });
   }
@@ -905,7 +925,7 @@ function sumPresetRanks(botId) {
 }
 
 
-// axial (q,r) -> "col" как на клиенте: col = q + floor(r/2)
+// axial (q,r) -> "col" РєР°Рє РЅР° РєР»РёРµРЅС‚Рµ: col = q + floor(r/2)
 function isInsideBoard(q, r) {
   if (r < 0 || r >= GRID_ROWS) return false;
   const col = q + Math.floor(r / 2);
@@ -937,8 +957,8 @@ function broadcast(obj) {
 }
 
 function spawnPlayerUnitFor(clientId) {
-  // старт игры: пусто. юниты появляются только через магазин.
-  // ownership set создаём заранее, чтобы shopBuy мог добавлять туда новые unitId.
+  // СЃС‚Р°СЂС‚ РёРіСЂС‹: РїСѓСЃС‚Рѕ. СЋРЅРёС‚С‹ РїРѕСЏРІР»СЏСЋС‚СЃСЏ С‚РѕР»СЊРєРѕ С‡РµСЂРµР· РјР°РіР°Р·РёРЅ.
+  // ownership set СЃРѕР·РґР°С‘Рј Р·Р°СЂР°РЅРµРµ, С‡С‚РѕР±С‹ shopBuy РјРѕРі РґРѕР±Р°РІР»СЏС‚СЊ С‚СѓРґР° РЅРѕРІС‹Рµ unitId.
   if (!clientToUnits.get(clientId)) clientToUnits.set(clientId, new Set());
   return null;
 }
@@ -1023,10 +1043,11 @@ function sumAliveBoardRanksIn(simState, team) {
 }
 
 function simulateBattleReplayFromState(sourceState, opts = {}) {
-  const tickMs = Number(opts.tickMs ?? 450);
+  const tickMs = Number(opts.tickMs ?? SNAPSHOT_STEP_MS);
   const maxBattleMs = Number(opts.maxBattleMs ?? (BATTLE_DURATION_SECONDS * 1000));
   const simState = cloneStateForBattleReplay(sourceState);
   const events = [];
+  const snapshots = [];
 
   let elapsedMs = 0;
   let result = computeResultIn(simState);
@@ -1034,58 +1055,77 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
   while (!result && elapsedMs < maxBattleMs) {
     const tickTimeMs = elapsedMs;
     let didSomething = false;
-
     const actors = simState.units
-      .filter(u => u.zone === 'board' && !u.dead && (u.team === 'player' || u.team === 'enemy'))
+      .filter((u) => u.zone === 'board' && !u.dead && (u.team === 'player' || u.team === 'enemy'))
       .slice()
-      .sort((a, b) => a.id - b.id);
+      .sort((a, b) => Number(a.id) - Number(b.id));
 
     for (const a of actors) {
       const me = findUnitByIdIn(simState, a.id);
       if (!me || me.dead || me.zone !== 'board') continue;
 
-      me.moveCdMs = Math.max(0, (me.moveCdMs ?? 0) - tickMs);
-      if (me.moveCdMs > 0) continue;
-
       const target = findClosestOpponentIn(simState, me);
       if (!target) continue;
 
-      const dist = hexDistance(me.q, me.r, target.q, target.r);
-      if (dist <= 1) {
-        const targetBefore = { hp: Number(target.hp ?? 0), maxHp: Number(target.maxHp ?? target.hp ?? 0) };
-        const res = attack(simState, me.id, target.id);
-        if (res.success) {
-          didSomething = true;
-          me.attackSeq = Number(me.attackSeq ?? 0) + 1;
-          const targetAfter = findUnitByIdIn(simState, target.id);
-          events.push({
-            t: tickTimeMs,
-            type: 'attack',
-            attackerId: me.id,
-            targetId: target.id,
-            attackerTeam: me.team,
-            attackSeq: Number(me.attackSeq ?? 0),
-            damage: Math.max(0, targetBefore.hp - Number(targetAfter?.hp ?? 0)),
-            targetHp: Number(targetAfter?.hp ?? 0),
-            targetMaxHp: Number(targetAfter?.maxHp ?? targetBefore.maxHp),
-            killed: Boolean(res.killed),
-          });
+      const attackSpeed = Math.max(0.1, Number(me.attackSpeed ?? DEFAULT_UNIT_ATTACK_SPEED));
+      const moveSpeed = Math.max(0.1, Number(me.moveSpeed ?? DEFAULT_UNIT_MOVE_SPEED));
+      const attackIntervalMs = 1000 / attackSpeed;
+      const moveIntervalMs = 1000 / moveSpeed;
+      me.nextAttackAt = Math.max(0, Number(me.nextAttackAt ?? 0));
+      me.nextMoveAt = Math.max(0, Number(me.nextMoveAt ?? 0));
 
-          const atkSpd = Math.max(1, Number(me.attackSpeed ?? 100));
-          me.moveCdMs = Math.max(120, Math.round(100000 / atkSpd));
+      let unitActions = 0;
+      while (unitActions < MAX_ACTIONS_PER_UNIT_PER_TICK) {
+        const liveTarget = findClosestOpponentIn(simState, me);
+        if (!liveTarget) break;
+
+        const dist = hexDistance(me.q, me.r, liveTarget.q, liveTarget.r);
+        const attackRangeMax = Math.max(1, Number(me.attackRangeMax ?? 1));
+
+        if (dist <= attackRangeMax) {
+          if (tickTimeMs + 1e-6 < me.nextAttackAt) break;
+
+          const targetBefore = { hp: Number(liveTarget.hp ?? 0), maxHp: Number(liveTarget.maxHp ?? liveTarget.hp ?? 0) };
+          const res = attack(simState, me.id, liveTarget.id);
+          me.nextAttackAt = Math.max(me.nextAttackAt, tickTimeMs) + attackIntervalMs;
+          unitActions += 1;
+
+          if (res.success) {
+            didSomething = true;
+            me.attackSeq = Number(me.attackSeq ?? 0) + 1;
+            const targetAfter = findUnitByIdIn(simState, liveTarget.id);
+            events.push({
+              t: tickTimeMs,
+              type: 'attack',
+              attackerId: me.id,
+              targetId: liveTarget.id,
+              attackerTeam: me.team,
+              attackSeq: Number(me.attackSeq ?? 0),
+              damage: Math.max(0, targetBefore.hp - Number(targetAfter?.hp ?? 0)),
+              targetHp: Number(targetAfter?.hp ?? 0),
+              targetMaxHp: Number(targetAfter?.maxHp ?? targetBefore.maxHp),
+              killed: Boolean(res.killed),
+            });
+          }
+          break;
         }
-        continue;
-      }
 
-      const step = pickBestStepTowardIn(simState, me, target);
-      if (!step) continue;
+        if (tickTimeMs + 1e-6 < me.nextMoveAt) break;
 
-      const from = { q: me.q, r: me.r };
-      const moved = moveUnit(simState, me.id, step.q, step.r);
-      if (moved) {
+        const step = pickBestStepTowardIn(simState, me, liveTarget);
+        if (!step) break;
+
+        const from = { q: me.q, r: me.r };
+        const moved = moveUnit(simState, me.id, step.q, step.r);
+        me.nextMoveAt = Math.max(me.nextMoveAt, tickTimeMs) + moveIntervalMs;
+        unitActions += 1;
+        if (!moved) break;
+
         didSomething = true;
         events.push({
-          t: tickTimeMs,
+          tStart: tickTimeMs,
+          t: tickTimeMs + moveIntervalMs,
+          durationMs: moveIntervalMs,
           type: 'move',
           unitId: me.id,
           team: me.team,
@@ -1094,14 +1134,30 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
           q: step.q,
           r: step.r,
         });
-
-        const spd = Number(me.moveSpeed ?? 2.0);
-        me.moveCdMs = Math.max(120, Math.round(1000 / spd));
       }
+
+      result = computeResultIn(simState);
+      if (result) break;
     }
 
     result = computeResultIn(simState);
     if (result) break;
+
+    snapshots.push({
+      t: tickTimeMs,
+      units: (simState.units ?? []).map((u) => ({
+        id: u.id,
+        q: u.q,
+        r: u.r,
+        zone: u.zone,
+        team: u.team,
+        type: u.type,
+        hp: u.hp,
+        maxHp: u.maxHp,
+        dead: Boolean(u.dead),
+        attackSeq: Number(u.attackSeq ?? 0),
+      })),
+    });
 
     elapsedMs += tickMs;
   }
@@ -1118,7 +1174,7 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
     mode: 'server-sim',
     tickMs,
     maxBattleMs,
-    durationMs: Math.min(elapsedMs, maxBattleMs),
+    durationMs: Math.min(maxBattleMs, Math.max(elapsedMs, 0, ...events.map((e) => Number(e?.t ?? 0)))),
     result,
     survivorRankSum,
     winnerDamageByResult: {
@@ -1127,18 +1183,21 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
       draw: 0,
     },
     events,
+    snapshots,
   };
 }
 
 function sanitizeUnitForBattleStart(unit) {
   if (!unit) return;
-  unit.moveCdMs = 0;
+  unit.nextAttackAt = 0;
+  unit.nextMoveAt = 0;
   unit.attackSeq = 0;
 }
 
 function clonePlayerUnitForPrep(unit) {
   const clone = { ...unit };
-  clone.moveCdMs = 0;
+  clone.nextAttackAt = 0;
+  clone.nextMoveAt = 0;
   clone.attackSeq = 0;
   clone.dead = false;
   if (Number(clone.hp ?? 0) <= 0) {
@@ -1148,25 +1207,25 @@ function clonePlayerUnitForPrep(unit) {
 }
 
 function resetToPrep() {
-  // Auto Chess rule: +1 XP each round (win/lose doesn’t matter)
+  // Auto Chess rule: +1 XP each round (win/lose doesnвЂ™t matter)
   applyKingXp(state.kings.player, 1);
   grantRoundXpToAllBots(1);
 
-  // следующий раунд начинается в prep
+  // СЃР»РµРґСѓСЋС‰РёР№ СЂР°СѓРЅРґ РЅР°С‡РёРЅР°РµС‚СЃСЏ РІ prep
   state.round = Number(state.round ?? 1) + 1;
 
-  // GOLD: начисляем золото за прошедший бой
-  // state.result в этот момент ещё содержит 'victory/defeat/draw'
+  // GOLD: РЅР°С‡РёСЃР»СЏРµРј Р·РѕР»РѕС‚Рѕ Р·Р° РїСЂРѕС€РµРґС€РёР№ Р±РѕР№
+  // state.result РІ СЌС‚РѕС‚ РјРѕРјРµРЅС‚ РµС‰С‘ СЃРѕРґРµСЂР¶РёС‚ 'victory/defeat/draw'
   grantRoundGold(state.result);
   grantRoundGoldToAllBots(state.result);
   state.phase = 'prep';
   state.result = null;
   state.battleReplay = null;
 
-  // enemy king скрыт в prep
+  // enemy king СЃРєСЂС‹С‚ РІ prep
   if (state.kings?.enemy) state.kings.enemy.visible = false;
 
-  // Сохраняем покупки во время result-screen: они появляются на bench и должны пережить resetToPrep().
+  // РЎРѕС…СЂР°РЅСЏРµРј РїРѕРєСѓРїРєРё РІРѕ РІСЂРµРјСЏ result-screen: РѕРЅРё РїРѕСЏРІР»СЏСЋС‚СЃСЏ РЅР° bench Рё РґРѕР»Р¶РЅС‹ РїРµСЂРµР¶РёС‚СЊ resetToPrep().
   const snapshotUnits = Array.isArray(prepSnapshot) ? prepSnapshot : [];
   const snapshotIds = new Set(snapshotUnits.map(u => u.id));
   const extraBenchBoughtDuringResult = (state.units ?? [])
@@ -1178,14 +1237,14 @@ function resetToPrep() {
     ...extraBenchBoughtDuringResult,
   ];
 
-  // Сразу после возврата в prep пересчитываем merge для всех игроков:
-  // это покрывает кейс "докупил 3-го во время боя/экрана результата",
-  // когда новый юнит на bench должен слиться с двумя юнитами на board.
+  // РЎСЂР°Р·Сѓ РїРѕСЃР»Рµ РІРѕР·РІСЂР°С‚Р° РІ prep РїРµСЂРµСЃС‡РёС‚С‹РІР°РµРј merge РґР»СЏ РІСЃРµС… РёРіСЂРѕРєРѕРІ:
+  // СЌС‚Рѕ РїРѕРєСЂС‹РІР°РµС‚ РєРµР№СЃ "РґРѕРєСѓРїРёР» 3-РіРѕ РІРѕ РІСЂРµРјСЏ Р±РѕСЏ/СЌРєСЂР°РЅР° СЂРµР·СѓР»СЊС‚Р°С‚Р°",
+  // РєРѕРіРґР° РЅРѕРІС‹Р№ СЋРЅРёС‚ РЅР° bench РґРѕР»Р¶РµРЅ СЃР»РёС‚СЊСЃСЏ СЃ РґРІСѓРјСЏ СЋРЅРёС‚Р°РјРё РЅР° board.
   for (const clientId of clientToUnits.keys()) {
     applyMergesForClient(clientId);
   }
 
-  // каждый prep — новый магазин
+  // РєР°Р¶РґС‹Р№ prep вЂ” РЅРѕРІС‹Р№ РјР°РіР°Р·РёРЅ
   generateShopOffers();
   syncRoundPairingsForCurrentRound();
 
@@ -1208,7 +1267,7 @@ function finishBattle(result) {
   }
   resolveHiddenBattlesNoConsequences();
 
-  // показываем результат, остаёмся в battle-view до resetToPrep()
+  // РїРѕРєР°Р·С‹РІР°РµРј СЂРµР·СѓР»СЊС‚Р°С‚, РѕСЃС‚Р°С‘РјСЃСЏ РІ battle-view РґРѕ resetToPrep()
   state.phase = 'battle';
   state.result = result;
 
@@ -1233,25 +1292,25 @@ function startBattle() {
   syncRoundPairingsForCurrentRound();
   markHiddenBattlesPhase('battle');
 
-  // 1) Всегда сохраняем актуальную расстановку игрока перед любым исходом старта боя
-  // (в том числе перед instant defeat, если на доске пусто)
+  // 1) Р’СЃРµРіРґР° СЃРѕС…СЂР°РЅСЏРµРј Р°РєС‚СѓР°Р»СЊРЅСѓСЋ СЂР°СЃСЃС‚Р°РЅРѕРІРєСѓ РёРіСЂРѕРєР° РїРµСЂРµРґ Р»СЋР±С‹Рј РёСЃС…РѕРґРѕРј СЃС‚Р°СЂС‚Р° Р±РѕСЏ
+  // (РІ С‚РѕРј С‡РёСЃР»Рµ РїРµСЂРµРґ instant defeat, РµСЃР»Рё РЅР° РґРѕСЃРєРµ РїСѓСЃС‚Рѕ)
   prepSnapshot = state.units
     .filter(u => u.team === 'player')
     .map((u) => clonePlayerUnitForPrep(u));
 
-  // 2) Если на доске нет игроков — мгновенное поражение
+  // 2) Р•СЃР»Рё РЅР° РґРѕСЃРєРµ РЅРµС‚ РёРіСЂРѕРєРѕРІ вЂ” РјРіРЅРѕРІРµРЅРЅРѕРµ РїРѕСЂР°Р¶РµРЅРёРµ
   const hasPlayersOnBoard = state.units.some(u => u.team === 'player' && u.zone === 'board');
   if (!hasPlayersOnBoard) {
     finishBattle('defeat');
     return;
   }
 
-  // дальше обычный старт боя...
+  // РґР°Р»СЊС€Рµ РѕР±С‹С‡РЅС‹Р№ СЃС‚Р°СЂС‚ Р±РѕСЏ...
   state.phase = 'battle';
   state.result = null;
   state.battleReplay = null;
 
-  // спавним армию бота только на старт боя
+  // СЃРїР°РІРЅРёРј Р°СЂРјРёСЋ Р±РѕС‚Р° С‚РѕР»СЊРєРѕ РЅР° СЃС‚Р°СЂС‚ Р±РѕСЏ
   spawnBotArmy();
 
   for (const u of (state.units ?? [])) {
@@ -1259,7 +1318,7 @@ function startBattle() {
     sanitizeUnitForBattleStart(u);
   }
 
-  // enemy king появляется только в бою
+  // enemy king РїРѕСЏРІР»СЏРµС‚СЃСЏ С‚РѕР»СЊРєРѕ РІ Р±РѕСЋ
   if (state.kings?.enemy) {
     state.kings.enemy.visible = true;
     state.kings.enemy.name = getCurrentOpponentBotName();
@@ -1267,20 +1326,21 @@ function startBattle() {
 
   // Replay-only authoritative battle simulation.
   state.battleReplay = simulateBattleReplayFromState(state, {
-    tickMs: 450,
+    tickMs: SNAPSHOT_STEP_MS,
     maxBattleMs: BATTLE_DURATION_SECONDS * 1000,
   });
 
   const replayResult = state.battleReplay?.result ?? 'draw';
   const rawDurationMs = Number(state.battleReplay?.durationMs ?? 0);
-  const battleDurationMs = Number.isFinite(rawDurationMs)
+  const replayFinishMs = Number.isFinite(rawDurationMs)
     ? Math.max(0, Math.min(BATTLE_DURATION_SECONDS * 1000, rawDurationMs))
     : (BATTLE_DURATION_SECONDS * 1000);
+  const battleDisplayMs = BATTLE_DURATION_SECONDS * 1000;
 
-  state.battleSecondsLeft = Math.max(0, Math.ceil(battleDurationMs / 1000));
+  state.battleSecondsLeft = Math.max(0, Math.ceil(battleDisplayMs / 1000));
   broadcast(makeStateMessage(state));
 
-  if (battleDurationMs <= 0) {
+  if (replayFinishMs <= 0) {
     finishBattle(replayResult);
     return;
   }
@@ -1296,7 +1356,7 @@ function startBattle() {
     }
 
     const elapsed = Date.now() - startedAt;
-    const remainingMs = Math.max(0, battleDurationMs - elapsed);
+    const remainingMs = Math.max(0, battleDisplayMs - elapsed);
     const nextSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
     if (nextSeconds !== lastShownSeconds) {
       lastShownSeconds = nextSeconds;
@@ -1307,7 +1367,7 @@ function startBattle() {
 
   finishTimeout = setTimeout(() => {
     finishBattle(replayResult);
-  }, battleDurationMs);
+  }, replayFinishMs);
 }
 
 function handleIntent(clientId, msg, ws) {
@@ -1333,7 +1393,7 @@ function handleIntent(clientId, msg, ws) {
   };
 
   if (msg.action === 'startGame') {
-    // стартуем только если сейчас prep и таймер не идёт
+    // СЃС‚Р°СЂС‚СѓРµРј С‚РѕР»СЊРєРѕ РµСЃР»Рё СЃРµР№С‡Р°СЃ prep Рё С‚Р°Р№РјРµСЂ РЅРµ РёРґС‘С‚
     const isPreStart =
       state.phase === 'prep' &&
       !state.result &&
@@ -1348,7 +1408,7 @@ function handleIntent(clientId, msg, ws) {
       return;
     }
 
-    // стартуем строго с 1-го раунда
+    // СЃС‚Р°СЂС‚СѓРµРј СЃС‚СЂРѕРіРѕ СЃ 1-РіРѕ СЂР°СѓРЅРґР°
     state.round = 1;
     state.winStreak = 0;
     state.loseStreak = 0;
@@ -1356,7 +1416,7 @@ function handleIntent(clientId, msg, ws) {
     state.gameStarted = true;
     state.prepSecondsLeft = 0;
 
-    // магазин на старт
+    // РјР°РіР°Р·РёРЅ РЅР° СЃС‚Р°СЂС‚
     generateShopOffers();
     ensureSoloLobbyInitialized();
     syncRoundPairingsForCurrentRound();
@@ -1367,7 +1427,7 @@ function handleIntent(clientId, msg, ws) {
   }
 
   if (msg.action === 'startBattle') {
-    // стартует только из prep
+    // СЃС‚Р°СЂС‚СѓРµС‚ С‚РѕР»СЊРєРѕ РёР· prep
     if (state.phase !== 'prep') {
       ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'Battle can start only from prep')));
       return;
@@ -1397,14 +1457,14 @@ function handleIntent(clientId, msg, ws) {
       return;
     }
 
-    // Скамейка доступна всегда, но вне prep разрешаем только менеджмент юнитов,
-    // которые УЖЕ стоят на скамейке (bench -> bench, включая swap).
+    // РЎРєР°РјРµР№РєР° РґРѕСЃС‚СѓРїРЅР° РІСЃРµРіРґР°, РЅРѕ РІРЅРµ prep СЂР°Р·СЂРµС€Р°РµРј С‚РѕР»СЊРєРѕ РјРµРЅРµРґР¶РјРµРЅС‚ СЋРЅРёС‚РѕРІ,
+    // РєРѕС‚РѕСЂС‹Рµ РЈР–Р• СЃС‚РѕСЏС‚ РЅР° СЃРєР°РјРµР№РєРµ (bench -> bench, РІРєР»СЋС‡Р°СЏ swap).
     if (state.phase !== 'prep' && me.zone !== 'bench') {
       ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'Only bench units can be managed outside prep')));
       return;
     }
 
-    // запоминаем откуда пришёл
+    // Р·Р°РїРѕРјРёРЅР°РµРј РѕС‚РєСѓРґР° РїСЂРёС€С‘Р»
     const prev = {
         zone: me.zone,
         q: me.q,
@@ -1414,7 +1474,7 @@ function handleIntent(clientId, msg, ws) {
 
     const occupied = getUnitInBenchSlot(slot);
     if (occupied && occupied.id !== requestedUnitId) {
-      // ✅ swap только если занято МОИМ юнитом
+      // вњ… swap С‚РѕР»СЊРєРѕ РµСЃР»Рё Р·Р°РЅСЏС‚Рѕ РњРћРРњ СЋРЅРёС‚РѕРј
       if (occupied.team !== 'player' || !owned.has(occupied.id)) {
         ws.send(JSON.stringify(makeErrorMessage('OCCUPIED', 'Bench slot occupied')));
         return;
@@ -1435,14 +1495,14 @@ function handleIntent(clientId, msg, ws) {
         occupied.r = prev.r;
       }
 
-      // ✅ MERGE: предпочитаем юнит, который двигали
+      // вњ… MERGE: РїСЂРµРґРїРѕС‡РёС‚Р°РµРј СЋРЅРёС‚, РєРѕС‚РѕСЂС‹Р№ РґРІРёРіР°Р»Рё
       applyMergesForClient(clientId, requestedUnitId);
 
       broadcast(makeStateMessage(state));
       return;
     }
 
-    // обычная установка (слот свободен)
+    // РѕР±С‹С‡РЅР°СЏ СѓСЃС‚Р°РЅРѕРІРєР° (СЃР»РѕС‚ СЃРІРѕР±РѕРґРµРЅ)
     me.zone = 'bench';
     me.benchSlot = slot;
 
@@ -1472,8 +1532,8 @@ function handleIntent(clientId, msg, ws) {
       return;
     }
 
-    // В prep игрок может ставить юнитов только на свою половину поля (первые 6 колонок).
-    // Это дублирует ограничение клиента, но должно проверяться и на сервере.
+    // Р’ prep РёРіСЂРѕРє РјРѕР¶РµС‚ СЃС‚Р°РІРёС‚СЊ СЋРЅРёС‚РѕРІ С‚РѕР»СЊРєРѕ РЅР° СЃРІРѕСЋ РїРѕР»РѕРІРёРЅСѓ РїРѕР»СЏ (РїРµСЂРІС‹Рµ 6 РєРѕР»РѕРЅРѕРє).
+    // Р­С‚Рѕ РґСѓР±Р»РёСЂСѓРµС‚ РѕРіСЂР°РЅРёС‡РµРЅРёРµ РєР»РёРµРЅС‚Р°, РЅРѕ РґРѕР»Р¶РЅРѕ РїСЂРѕРІРµСЂСЏС‚СЊСЃСЏ Рё РЅР° СЃРµСЂРІРµСЂРµ.
     if (state.phase === 'prep') {
       const col = q + Math.floor(r / 2);
       const maxPlayerPrepCols = Math.min(GRID_COLS, 6);
@@ -1489,7 +1549,7 @@ function handleIntent(clientId, msg, ws) {
       return;
     }
 
-    // запоминаем откуда юнит пришёл (чтобы было куда "вытолкнуть" второго)
+    // Р·Р°РїРѕРјРёРЅР°РµРј РѕС‚РєСѓРґР° СЋРЅРёС‚ РїСЂРёС€С‘Р» (С‡С‚РѕР±С‹ Р±С‹Р»Рѕ РєСѓРґР° "РІС‹С‚РѕР»РєРЅСѓС‚СЊ" РІС‚РѕСЂРѕРіРѕ)
     const prev = {
       zone: me.zone,
       q: me.q,
@@ -1499,7 +1559,7 @@ function handleIntent(clientId, msg, ws) {
 
     const occupied = getUnitAt(state, q, r);
     if (occupied && occupied.id !== requestedUnitId) {
-      // ✅ swap только если занято МОИМ юнитом
+      // вњ… swap С‚РѕР»СЊРєРѕ РµСЃР»Рё Р·Р°РЅСЏС‚Рѕ РњРћРРњ СЋРЅРёС‚РѕРј
       if (occupied.team !== 'player' || !owned.has(occupied.id)) {
         ws.send(JSON.stringify(makeErrorMessage('OCCUPIED', 'Cell is occupied')));
         return;
@@ -1518,7 +1578,7 @@ function handleIntent(clientId, msg, ws) {
         occupied.q = prev.q;
         occupied.r = prev.r;
       } else {
-        // me был на bench → occupied уезжает на его слот
+        // me Р±С‹Р» РЅР° bench в†’ occupied СѓРµР·Р¶Р°РµС‚ РЅР° РµРіРѕ СЃР»РѕС‚
         occupied.zone = 'bench';
         occupied.benchSlot = prev.benchSlot;
       }
@@ -1529,7 +1589,7 @@ function handleIntent(clientId, msg, ws) {
       return;
     }
 
-    // обычная установка (клетка свободна)
+    // РѕР±С‹С‡РЅР°СЏ СѓСЃС‚Р°РЅРѕРІРєР° (РєР»РµС‚РєР° СЃРІРѕР±РѕРґРЅР°)
     me.zone = 'board';
     me.benchSlot = null;
 
@@ -1648,11 +1708,11 @@ function handleIntent(clientId, msg, ws) {
       return;
     }
 
-    // списываем монеты
+    // СЃРїРёСЃС‹РІР°РµРј РјРѕРЅРµС‚С‹
     state.kings.player.coins -= offer.cost;
     clampPlayerCoins();
 
-    // создаём купленного юнита: сначала на поле (если сейчас можно), иначе на bench
+    // СЃРѕР·РґР°С‘Рј РєСѓРїР»РµРЅРЅРѕРіРѕ СЋРЅРёС‚Р°: СЃРЅР°С‡Р°Р»Р° РЅР° РїРѕР»Рµ (РµСЃР»Рё СЃРµР№С‡Р°СЃ РјРѕР¶РЅРѕ), РёРЅР°С‡Рµ РЅР° bench
     const newId = nextUnitId++;
     addUnit(state, {
       id: newId,
@@ -1667,17 +1727,19 @@ function handleIntent(clientId, msg, ws) {
       rank: 1,
       zone: freeBoardCell ? 'board' : 'bench',
       benchSlot: freeBoardCell ? null : freeSlot,
-      moveSpeed: offer.moveSpeed,
-      attackSpeed: offer.attackSpeed ?? 100,
+      attackSpeed: offer.attackSpeed ?? DEFAULT_UNIT_ATTACK_SPEED,
+      moveSpeed: offer.moveSpeed ?? DEFAULT_UNIT_MOVE_SPEED,
+      attackRangeMax: offer.attackRangeMax ?? 1,
+      attackRangeFullDamage: offer.attackRangeFullDamage ?? (offer.attackRangeMax ?? 1),
     });
 
-    // ownership: купленный юнит принадлежит этому клиенту
+    // ownership: РєСѓРїР»РµРЅРЅС‹Р№ СЋРЅРёС‚ РїСЂРёРЅР°РґР»РµР¶РёС‚ СЌС‚РѕРјСѓ РєР»РёРµРЅС‚Сѓ
     owned.add(newId);
 
-    // заменяем купленный слот новым оффером
+    // Р·Р°РјРµРЅСЏРµРј РєСѓРїР»РµРЅРЅС‹Р№ СЃР»РѕС‚ РЅРѕРІС‹Рј РѕС„С„РµСЂРѕРј
     state.shop.offers[idx] = null;
 
-    // ✅ MERGE: пробуем смёрджить, предпочитаем только что купленного
+    // вњ… MERGE: РїСЂРѕР±СѓРµРј СЃРјС‘СЂРґР¶РёС‚СЊ, РїСЂРµРґРїРѕС‡РёС‚Р°РµРј С‚РѕР»СЊРєРѕ С‡С‚Рѕ РєСѓРїР»РµРЅРЅРѕРіРѕ
     applyMergesForClient(clientId, newId);
 
     broadcast(makeStateMessage(state));
@@ -1693,11 +1755,11 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
-// раздаём Vite build
+// СЂР°Р·РґР°С‘Рј Vite build
 const distPath = path.join(__dirname, '..', 'dist');
 app.use(express.static(distPath));
 
-// SPA fallback (чтобы обновление страницы не давало 404)
+// SPA fallback (С‡С‚РѕР±С‹ РѕР±РЅРѕРІР»РµРЅРёРµ СЃС‚СЂР°РЅРёС†С‹ РЅРµ РґР°РІР°Р»Рѕ 404)
 app.get('*', (req, res) => {
   res.sendFile(path.join(distPath, 'index.html'));
 });
@@ -1714,21 +1776,21 @@ wss.on('connection', (ws) => {
   const clientId = crypto.randomUUID();
   clients.set(clientId, ws);
 
-  // выдаём юнит этому клиенту
+  // РІС‹РґР°С‘Рј СЋРЅРёС‚ СЌС‚РѕРјСѓ РєР»РёРµРЅС‚Сѓ
   const unitId = spawnPlayerUnitFor(clientId);
 
   if (!state.shop?.offers || state.shop.offers.length !== SHOP_OFFER_COUNT) {
     generateShopOffers();
   }
 
-  // init только подключившемуся
+  // init С‚РѕР»СЊРєРѕ РїРѕРґРєР»СЋС‡РёРІС€РµРјСѓСЃСЏ
   ws.send(JSON.stringify(makeInitMessage({
     clientId,
     unitId,
     state,
   })));
 
-  // и обновлённый state всем (чтобы все видели нового игрока)
+  // Рё РѕР±РЅРѕРІР»С‘РЅРЅС‹Р№ state РІСЃРµРј (С‡С‚РѕР±С‹ РІСЃРµ РІРёРґРµР»Рё РЅРѕРІРѕРіРѕ РёРіСЂРѕРєР°)
   broadcast(makeStateMessage(state));
 
   ws.on('message', (raw) => {
@@ -1754,7 +1816,7 @@ wss.on('connection', (ws) => {
       broadcast(makeStateMessage(state));
     }
 
-    // если никого не осталось — можно остановить таймеры
+    // РµСЃР»Рё РЅРёРєРѕРіРѕ РЅРµ РѕСЃС‚Р°Р»РѕСЃСЊ вЂ” РјРѕР¶РЅРѕ РѕСЃС‚Р°РЅРѕРІРёС‚СЊ С‚Р°Р№РјРµСЂС‹
     const hasPlayers = state.units.some(u => u.team === 'player');
     if (!hasPlayers) {
       stopBattleTimers();
@@ -1772,3 +1834,5 @@ const PORT = Number(process.env.PORT || 3001);
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server listening on port ${PORT}`);
 });
+
+

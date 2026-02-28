@@ -353,6 +353,13 @@ export function createUnitSystem(scene) {
       return;
     }
 
+    // If the logical cell didn't change and a move tween is already running,
+    // do not restart it on every state/event update (prevents jitter/back-and-forth).
+    if (sameCell && u._moveTween) {
+      updateHpBar(scene, u);
+      return;
+    }
+
 
     state.occupied.delete(cellKey(u.q, u.r));
     state.occupied.add(cellKey(q, r));
@@ -362,8 +369,17 @@ export function createUnitSystem(scene) {
     u.r = r;
 
 
-    const tweenMs = Number(opts.tweenMs ?? 0);
+    let tweenMs = Number(opts.tweenMs ?? 0);
+    if (u.dead) tweenMs = 0;
     if (!tweenMs || tweenMs <= 0) {
+      if (u._moveTween) {
+        try { u._moveTween.stop(); } catch {}
+        u._moveTween = null;
+      }
+      if (u._artMoveTween) {
+        try { u._artMoveTween.stop(); } catch {}
+        u._artMoveTween = null;
+      }
       u.sprite.setPosition(p.x, p.y);
       u.dragHandle?.setPosition(p.x, p.y);
       if (u.art) u.art.setPosition(artX, g.y);
@@ -377,6 +393,10 @@ export function createUnitSystem(scene) {
     if (u._moveTween) {
       try { u._moveTween.stop(); } catch {}
       u._moveTween = null;
+    }
+    if (u._artMoveTween) {
+      try { u._artMoveTween.stop(); } catch {}
+      u._artMoveTween = null;
     }
 
 
@@ -394,14 +414,14 @@ export function createUnitSystem(scene) {
     });
 
     if (u.art) {
-      scene.tweens.add({
+      u._artMoveTween = scene.tweens.add({
         targets: u.art,
         x: artX,
         y: g.y,
         duration: tweenMs,
         ease: 'Linear',
         onUpdate: () => updateArtDepth(u),
-        onComplete: () => updateArtDepth(u),
+        onComplete: () => { u._artMoveTween = null; updateArtDepth(u); },
       });
     }
   }
@@ -451,6 +471,10 @@ export function createUnitSystem(scene) {
         if (u._moveTween) {
           try { u._moveTween.stop(); } catch {}
           u._moveTween = null;
+        }
+        if (u._artMoveTween) {
+          try { u._artMoveTween.stop(); } catch {}
+          u._artMoveTween = null;
         }
         if (deadAnim && scene.anims.exists(deadAnim) && u.art.anims?.getName?.() !== deadAnim) {
           u.art.play(deadAnim);
