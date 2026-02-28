@@ -7,6 +7,7 @@ const POWER_TYPE_ROOK = '\u041b\u0430\u0434\u044c\u044f';  // Ладья
 
 export const UNIT_CATALOG = [
   { race: 'HUMAN',  type: 'Swordsman',      label: 'SWORDSMAN',       powerType: POWER_TYPE_PAWN,   hp: 60,  atk: 20, moveSpeed: 2.6, attackSpeed: 100 },
+  { race: 'HUMAN',  type: 'Priest',         label: 'PRIEST',          powerType: POWER_TYPE_PAWN,   hp: 60,  atk: 20, moveSpeed: 2.6, attackSpeed: 100 },
   { race: 'LIZARD', type: 'Monk',           label: 'MONK',            powerType: POWER_TYPE_PAWN,   hp: 60,  atk: 20, moveSpeed: 2.6, attackSpeed: 100 },
   { race: 'UNDEAD', type: 'Skeleton',       label: 'SKELETON',        powerType: POWER_TYPE_PAWN,   hp: 60,  atk: 20, moveSpeed: 2.6, attackSpeed: 100 },
   { race: 'HUMAN',  type: 'Crossbowman',    label: 'CROSSBOW',        powerType: POWER_TYPE_KNIGHT, hp: 40,  atk: 25, moveSpeed: 2.3, attackSpeed: 100 },

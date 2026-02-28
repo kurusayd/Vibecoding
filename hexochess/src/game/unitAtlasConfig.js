@@ -52,6 +52,16 @@ export const UNIT_ATLAS_DEFS = [
     framePrefix: 'psd_anim',
   },
   {
+    type: 'Priest',
+    atlasKey: 'priest_atlas',
+    atlasPath: '/assets/units/human/priest/atlas/priest_atlas',
+    idleAnim: 'priest_idle',
+    walkAnim: 'priest_walk',
+    attackAnim: 'priest_attack',
+    deadAnim: 'priest_dead',
+    framePrefix: 'psd_anim',
+  },
+  {
     type: 'Monk',
     atlasKey: 'lizard_atlas',
     atlasPath: '/assets/units/lizard/monk/lizard_atlas',

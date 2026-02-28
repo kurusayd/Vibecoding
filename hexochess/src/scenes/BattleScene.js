@@ -86,6 +86,7 @@ function getUnitShortLabel(type) {
   if (t === 'knight') return 'K';
   if (t === 'lich') return 'L';
   if (t === 'monk') return 'M';
+  if (t === 'priest') return 'P';
   if (t === 'skeleton') return 'Sk';
   if (t === 'skeletonarcher' || t === 'skeleton_archer') return 'SA';
   if (t === 'swordsman' || t === 'swordmen') return 'S';
