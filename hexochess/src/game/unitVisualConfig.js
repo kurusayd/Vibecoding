@@ -15,9 +15,9 @@ export const UNIT_VISUAL_CONFIG_BY_TYPE = {
   Swordsman: {
     // Baseline example config. Use this as reference when tuning other units.
     groundLiftPx: 100,
-    artTargetPx: 170,
-    artOffsetXPx: 0,
-    hpUiLiftPx: 0,
+    artTargetPx: 160,
+    artOffsetXPx: 15,
+    hpUiLiftPx: 20,
   },
   Crossbowman: {
     groundLiftPx: 100,

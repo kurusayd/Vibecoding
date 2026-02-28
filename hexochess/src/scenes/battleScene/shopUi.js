@@ -224,8 +224,8 @@ export function installBattleSceneShopUi(BattleScene) {
       const previewSprite = this.add.sprite(
         0,
         (artPanel.y + artPanel.height / 2) - artLiftY,
-        'sworman_atlas',
-        'psd_animation/idle.png'
+        'swordman_atlas',
+        'psd_anim/idle.png'
       )
         .setOrigin(0.5, 1)
         .setScale(0.68);

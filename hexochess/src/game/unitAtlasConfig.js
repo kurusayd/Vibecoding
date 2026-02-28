@@ -23,13 +23,13 @@ export function atlasAttackFrameRegex(def) {
 export const UNIT_ATLAS_DEFS = [
   {
     type: 'Swordsman',
-    atlasKey: 'sworman_atlas',
+    atlasKey: 'swordman_atlas',
     atlasPath: '/assets/units/human/swordman/atlas/swordman_atlas',
     idleAnim: 'swordman_idle',
     walkAnim: 'swordman_walk',
     attackAnim: 'swordman_attack',
     deadAnim: 'swordman_dead',
-    framePrefix: 'psd_animation',
+    framePrefix: 'psd_anim',
   },
   {
     type: 'Crossbowman',
