@@ -1336,7 +1336,8 @@ export default class BattleScene extends Phaser.Scene {
     if (!kings) return;
 
     const barWidth = 95;
-    const barHeight = 14;
+    const barHeight = 10;
+    const barRadius = 6;
     const kingHpBarDownPx = 10; // опускает HP-бар (и имя над ним) у обоих королей
 
     const drawBar = (side, kingSprite, hpBg, hpLagFill, hpFill, kingData) => {
@@ -1369,27 +1370,35 @@ export default class BattleScene extends Phaser.Scene {
       hpLagFill.clear();
       hpFill.clear();
 
-      hpBg.fillStyle(0x222222, 1);
-      hpBg.fillRect(x, y, barWidth, barHeight);
+      hpBg.fillStyle(0x1c1c1c, 0.96);
+      hpBg.fillRoundedRect(x, y, barWidth, barHeight, barRadius);
 
       const hpInstant = anim ? anim.instant : targetHp;
       const hpLag = anim ? anim.lag : targetHp;
       const lagRatio = Phaser.Math.Clamp(hpLag / maxHp, 0, 1);
       const ratio = Phaser.Math.Clamp(hpInstant / maxHp, 0, 1);
+      const lagW = barWidth * lagRatio;
+      const fillW = barWidth * ratio;
 
-      hpLagFill.fillStyle(0xffcc33, 0.85);
-      hpLagFill.fillRect(x, y, barWidth * lagRatio, barHeight);
+      hpLagFill.fillStyle(0xc29b4a, 1);
+      hpLagFill.fillRoundedRect(x, y, lagW, barHeight, barRadius);
 
-      hpFill.fillStyle(0x00ff00, 1);
-      hpFill.fillRect(x, y, barWidth * ratio, barHeight);
+      hpFill.fillStyle(0x76c56f, 0.95);
+      hpFill.fillRoundedRect(x, y, fillW, barHeight, barRadius);
 
-      // текст HP поверх полоски
-      const hpText = (kingSprite === this.kingLeft) ? this.kingLeftHpText : this.kingRightHpText;
-      if (hpText) {
-        hpText.setPosition(kingSprite.x, y + barHeight / 2);
-        hpText.setText(`${Math.round(targetHp)}/${kingData.maxHp}`);
-        hpText.setVisible(true);
+      // subtle top highlight for a cleaner "royal" look
+      if (fillW > 3) {
+        hpFill.fillStyle(0xffffff, 0.14);
+        hpFill.fillRect(x + 1, y + 1, fillW - 2, 1);
       }
+
+      // thin frame to separate bar from the king portrait
+      hpBg.lineStyle(1, 0x1b1b1b, 0.85);
+      hpBg.strokeRoundedRect(x, y, barWidth, barHeight, barRadius);
+
+      // Numeric HP text hidden by design: HP is shown only via bar (details in Rating).
+      const hpText = (kingSprite === this.kingLeft) ? this.kingLeftHpText : this.kingRightHpText;
+      hpText?.setVisible(false);
 
       // имя короля над полоской HP
       const kingNameText = (kingSprite === this.kingLeft) ? this.kingLeftNameText : this.kingRightNameText;
