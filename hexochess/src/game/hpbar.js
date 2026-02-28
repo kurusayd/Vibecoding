@@ -4,9 +4,11 @@
 // unit.hp        вЂ” Р»РѕРіРёС‡РµСЃРєРѕРµ (РјРѕР¶РµС‚ СЃРѕРІРїР°РґР°С‚СЊ СЃ hpInstant)
 
 import { getUnitHpUiLiftPx } from './unitVisualConfig.js';
+import { boardDepth, hasBoardCoords } from './depthOrder.js';
 
 const HP_BAR_EXTRA_LIFT_PX = 3; // РѕР±С‰РёР№ РїРѕРґСЉС‘Рј HP-Р±Р°СЂР° РґР»СЏ РІСЃРµС… СЋРЅРёС‚РѕРІ (rank icon РЅРµ С‚СЂРѕРіР°РµРј)
 const RANK_ICON_OFFSET_Y_PX = 8; // + вниз, - вверх (только rank icon, HP-бар не двигается)
+const HP_UI_DEPTH_BASE = 2000;
 
 export function updateHpBar(scene, unit) {
   // Tween callbacks can still fire during scene teardown/restart.
@@ -43,6 +45,10 @@ export function updateHpBar(scene, unit) {
   const y = Math.round(tipY - h - hpGap - uiLift - HP_BAR_EXTRA_LIFT_PX);
 
   const x = Math.round(cx - w / 2);
+  const uiDepth = (hasBoardCoords(coreUnit) && coreUnit?.zone !== 'bench')
+    ? boardDepth(HP_UI_DEPTH_BASE, coreUnit.q, coreUnit.r)
+    : HP_UI_DEPTH_BASE;
+  g.setDepth(uiDepth);
 
   // в­ђ rank icon (РІРЅРёР·Сѓ РіРµРєСЃР°, РїРѕРІРµСЂС… Р°СЂС‚Р°)
   if (unit.rankIcon) {
@@ -58,6 +64,7 @@ export function updateHpBar(scene, unit) {
 
     // rankIcon РїСЂРёРІСЏР·С‹РІР°РµРј Рє РЅРёР¶РЅРµР№ РіСЂР°РЅРёС†Рµ HP-Р±Р°СЂР° (originY = 1).
     unit.rankIcon.setPosition(cx, y + h - 5 + RANK_ICON_OFFSET_Y_PX);
+    unit.rankIcon.setDepth(uiDepth + 1);
 
     // РІРёРґРёРјРѕСЃС‚СЊ:
     // - РЅР° СЃРєР°РјРµР№РєРµ СЂР°РЅРі РїРѕРєР°Р·С‹РІР°РµРј РІСЃРµРіРґР°;
@@ -99,5 +106,6 @@ export function updateHpBar(scene, unit) {
 function clamp(v, a, b) {
   return Math.max(a, Math.min(b, v));
 }
+
 
 

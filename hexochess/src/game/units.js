@@ -2,6 +2,7 @@
 import Phaser from 'phaser';
 import { getUnitArtOffsetXPx, getUnitArtTargetPx, getUnitGroundLiftPx } from './unitVisualConfig.js';
 import { atlasIdleFrame, atlasDeadFrame, UNIT_ATLAS_DEF_BY_TYPE } from './unitAtlasConfig.js';
+import { boardDepth, hasBoardCoords } from './depthOrder.js';
 
 export function cellKey(q, r) {
   return `${q},${r}`;
@@ -11,8 +12,6 @@ const RANK_ICON_SCALE = 0.25;
 
 const UNIT_ART_DEPTH_LIVE = 1040;
 const UNIT_ART_DEPTH_DEAD = 990;
-const UNIT_ART_DEPTH_ROW_FACTOR = 10;
-const UNIT_ART_DEPTH_COL_FACTOR = 0.01;
 const UNIT_ART_DEPTH_Y_FACTOR = 0.01;
 const UNIT_ART_DEPTH_X_FACTOR = 0.0002;
 
@@ -59,16 +58,11 @@ function updateRankStroke(unit) {
 function updateArtDepth(unit) {
   if (!unit?.art) return;
   const base = unit.dead ? UNIT_ART_DEPTH_DEAD : UNIT_ART_DEPTH_LIVE;
-  const q = Number(unit.q);
-  const r = Number(unit.r);
-
   // Board ordering:
   // 1) lower rows (bigger r) are rendered above upper rows
   // 2) inside the same row, right cells are rendered above left cells
-  if (Number.isFinite(q) && Number.isFinite(r) && unit.zone !== 'bench') {
-    const row = r;
-    const col = q + Math.floor(r / 2);
-    unit.art.setDepth(base + row * UNIT_ART_DEPTH_ROW_FACTOR + col * UNIT_ART_DEPTH_COL_FACTOR);
+  if (hasBoardCoords(unit) && unit.zone !== 'bench') {
+    unit.art.setDepth(boardDepth(base, unit.q, unit.r));
     return;
   }
 
@@ -543,4 +537,5 @@ export function createUnitSystem(scene) {
     update,
   };
 }
+
 
