@@ -11,7 +11,10 @@ const RANK_ICON_SCALE = 0.25;
 
 const UNIT_ART_DEPTH_LIVE = 1040;
 const UNIT_ART_DEPTH_DEAD = 990;
+const UNIT_ART_DEPTH_ROW_FACTOR = 10;
+const UNIT_ART_DEPTH_COL_FACTOR = 0.01;
 const UNIT_ART_DEPTH_Y_FACTOR = 0.01;
+const UNIT_ART_DEPTH_X_FACTOR = 0.0002;
 
 function makeHexHitArea(scene, w, h) {
   const s = scene.hexSize;
@@ -55,9 +58,24 @@ function updateRankStroke(unit) {
 
 function updateArtDepth(unit) {
   if (!unit?.art) return;
-  const y = Number(unit.art.y ?? unit.sprite?.y ?? 0);
   const base = unit.dead ? UNIT_ART_DEPTH_DEAD : UNIT_ART_DEPTH_LIVE;
-  unit.art.setDepth(base + y * UNIT_ART_DEPTH_Y_FACTOR);
+  const q = Number(unit.q);
+  const r = Number(unit.r);
+
+  // Board ordering:
+  // 1) lower rows (bigger r) are rendered above upper rows
+  // 2) inside the same row, right cells are rendered above left cells
+  if (Number.isFinite(q) && Number.isFinite(r) && unit.zone !== 'bench') {
+    const row = r;
+    const col = q + Math.floor(r / 2);
+    unit.art.setDepth(base + row * UNIT_ART_DEPTH_ROW_FACTOR + col * UNIT_ART_DEPTH_COL_FACTOR);
+    return;
+  }
+
+  // Fallback ordering for non-board visuals (bench/temporary states).
+  const y = Number(unit.art.y ?? unit.sprite?.y ?? 0);
+  const x = Number(unit.art.x ?? unit.sprite?.x ?? 0);
+  unit.art.setDepth(base + y * UNIT_ART_DEPTH_Y_FACTOR + x * UNIT_ART_DEPTH_X_FACTOR);
 }
 
 export function createUnitSystem(scene) {
