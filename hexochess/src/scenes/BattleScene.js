@@ -173,6 +173,12 @@ export default class BattleScene extends Phaser.Scene {
     super('BattleScene');
   }
 
+  init(data) {
+    this.autoStartRequested = Boolean(data?.autoStart);
+    this.autoStartSent = false;
+    this.openTestSceneRequested = Boolean(data?.openTestScene);
+  }
+
   preload() { //Подгружаем пулл картинок
     this.load.image('battleBg', '/assets/bg/grass.png');
     this.load.image('king', '/assets/kings/king_princess.png');
@@ -577,6 +583,8 @@ export default class BattleScene extends Phaser.Scene {
       .setDepth(20001)
       .setInteractive({ useHandCursor: true });
 
+    if (this.autoStartRequested) this.startGameBtn.setVisible(false);
+
     this.startGameBtn.on('pointerdown', () => {
       this.ws?.sendIntentStartGame?.();
     });
@@ -606,6 +614,15 @@ export default class BattleScene extends Phaser.Scene {
       this.syncShopUI();
       this.refreshAllDraggable();
       this.maybeStartServerBattleReplayPlayback?.(this.battleState, { force: true });
+
+      if (this.autoStartRequested && !this.autoStartSent) {
+        this.autoStartSent = true;
+        this.ws?.sendIntentStartGame?.();
+      }
+      if (this.openTestSceneRequested) {
+        this.openTestSceneRequested = false;
+        this.enterTestScene?.();
+      }
     };
 
     this.ws.onState = (state) => {
@@ -1099,6 +1116,7 @@ export default class BattleScene extends Phaser.Scene {
       const battleLeft = Number(this.battleState?.battleSecondsLeft ?? 0);
 
       const started = Boolean(this.battleState?.gameStarted) ||
+        this.autoStartRequested ||
         round !== 1 ||
         phase !== 'prep' ||
         result != null ||

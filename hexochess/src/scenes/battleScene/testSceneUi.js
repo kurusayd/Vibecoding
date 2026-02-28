@@ -86,6 +86,7 @@ export function installBattleSceneTestSceneUi(BattleScene) {
         pointer?.event?.stopPropagation?.();
         if (!this.testSceneActive) return;
         this.exitTestScene?.();
+        this.scene.start('StartScene');
       });
 
       this.testSceneUnitsMenu = this.add.container(0, 0)

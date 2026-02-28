@@ -1,6 +1,7 @@
 async function boot() {
-  const [{ default: Phaser }, { default: BattleScene }] = await Promise.all([
+  const [{ default: Phaser }, { default: StartScene }, { default: BattleScene }] = await Promise.all([
     import('phaser'),
+    import('./scenes/StartScene.js'),
     import('./scenes/BattleScene.js'),
   ]);
 
@@ -24,11 +25,10 @@ async function boot() {
       height: 720,
       fullscreenTarget: 'app',
     },
-    scene: BattleScene,
+    scene: [StartScene, BattleScene],
   });
 }
 
 boot().catch((err) => {
   console.error('Failed to boot game', err);
 });
-

@@ -433,8 +433,13 @@ export function installBattleSceneDebugUi(BattleScene) {
         this.ws?.sendIntentDebugAddLevel?.();
       });
       this.debugExitBtn.on('pointerdown', () => {
+        if (this.testSceneActive) {
+          this.exitTestScene?.();
+          this.scene.start('StartScene');
+          return;
+        }
         this.ws?.sendIntentResetGame?.();
-        this.hideDebugMenu?.();
+        this.scene.start('StartScene');
       });
 
       // Close debug/rating panels on the next tap anywhere outside their buttons.
