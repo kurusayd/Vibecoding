@@ -20,10 +20,10 @@ export const UNIT_VISUAL_CONFIG_BY_TYPE = {
     hpUiLiftPx: 20,
   },
   Priest: {
-    groundLiftPx: 95,
+    groundLiftPx: 100,
     artTargetPx: 150,
-    artOffsetXPx: 0,
-    hpUiLiftPx: 35,
+    artOffsetXPx: 5,
+    hpUiLiftPx: 45,
   },
   Crossbowman: {
     groundLiftPx: 90,
