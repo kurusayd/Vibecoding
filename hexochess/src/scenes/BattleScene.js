@@ -21,6 +21,7 @@ import { installBattleSceneDrag } from './battleScene/dragController.js';
 import { installBattleSceneShopUi } from './battleScene/shopUi.js';
 import { installBattleSceneTestScene } from './battleScene/testScene.js';
 import { installBattleSceneDebugUi } from './battleScene/debugUi.js';
+import { installBattleSceneKingDamageFx } from './battleScene/kingDamageFx.js';
 
 const PLAYER_KING_DISPLAY_NAME = 'Devis J. Jones';
 const ENEMY_KING_DISPLAY_NAME = 'Enemy King';
@@ -39,6 +40,25 @@ const SHOP_OFFER_COUNT = 5;
 const SHOP_CARD_ART_LIFT_Y = 75; // увеличивай/уменьшай, чтобы поднять/опустить арт в сером блоке карточки
 const AUTO_ENTER_TEST_SCENE_ON_BOOT = false; // обычный старт: live battle scene
 const USE_SERVER_BATTLE_REPLAY = true; // постепенный переход: клиент проигрывает precomputed battleReplay от сервера
+const KING_UI = {
+  hpBar: {
+    width: 95,
+    height: 10,
+    radius: 6,
+    yOffset: 10,
+    bgColor: 0x1c1c1c,
+    bgAlpha: 0.96,
+    lagColor: 0xc29b4a,
+    lagAlpha: 1,
+    fillColor: 0x76c56f,
+    fillAlpha: 0.95,
+    frameColor: 0x1b1b1b,
+    frameAlpha: 0.85,
+    highlightColor: 0xffffff,
+    highlightAlpha: 0.14,
+  },
+  hpLagSpeed: 18,
+};
 const UI_TEXT = {
   START_GAME: '\u041d\u0410\u0427\u0410\u0422\u042c \u0418\u0413\u0420\u0423',
   TEST_SCENE: '\u0422\u0435\u0441\u0442\u043e\u0432\u0430\u044f \u0441\u0446\u0435\u043d\u0430',
@@ -275,7 +295,7 @@ export default class BattleScene extends Phaser.Scene {
     })
       .setOrigin(0, 0.5)
       .setStroke('#b35a00', 3)
-      .setShadow(0, 0, '#000000', 4, true, true);
+      .setShadow(0, 0, '#000000', 2, true, true);
     this.kingLeftCoinText.setPosition((this.coinSize / 2) + 8, 0);
 
     this.kingLeftCoinMaxText = this.add.text(0, 0, 'Max', {
@@ -887,243 +907,6 @@ export default class BattleScene extends Phaser.Scene {
     }
   }
 
-  collectWinnerStarLaunchPoints(state, winnerTeam, count) {
-    const units = (state?.units ?? []).filter((u) =>
-      u?.zone === 'board' &&
-      !u?.dead &&
-      u?.team === winnerTeam
-    );
-    if (!units.length || count <= 0) return [];
-
-    const points = [];
-    for (const u of units) {
-      const rank = Math.max(1, Number(u.rank ?? 1));
-      const vu = this.unitSys?.findUnit?.(u.id);
-      let px = vu?.rankIcon?.x ?? vu?.art?.x ?? vu?.sprite?.x ?? null;
-      let py = vu?.rankIcon?.y ?? vu?.art?.y ?? vu?.sprite?.y ?? null;
-      if (Number.isFinite(py)) py -= 25;
-
-      if (!Number.isFinite(px) || !Number.isFinite(py)) {
-        const g = this.hexToGroundPixel(u?.q ?? 0, u?.r ?? 0, getUnitGroundLiftPx(u?.type));
-        px = g.x + getUnitArtOffsetXPx(u?.type, u?.team);
-        py = g.y;
-      }
-
-      const rankKey = `rank${rank}`;
-      const baseScale = Number(vu?.rankIcon?.scaleX ?? 0.25);
-      for (let i = 0; i < rank; i++) {
-        points.push({ x: px, y: py, rankKey, baseScale });
-      }
-    }
-
-    if (!points.length) return [];
-    while (points.length < count) {
-      const p = points[Math.floor(Math.random() * points.length)];
-      points.push({ ...p });
-    }
-    return points.slice(0, count);
-  }
-
-  playKingDamageStarsFx({ loserSide, winnerTeam, damage, state, onFirstHit, onComplete }) {
-    const done = () => {
-      if (typeof onComplete === 'function') onComplete();
-    };
-    const targetKing = loserSide === 'player' ? this.kingLeft : this.kingRight;
-    if (!targetKing || damage <= 0) {
-      done();
-      return;
-    }
-
-    const starts = this.collectWinnerStarLaunchPoints(state, winnerTeam, damage);
-    if (!starts.length) {
-      this.time.delayedCall(250, done);
-      return;
-    }
-
-    let alive = starts.length;
-    let firstHitFired = false;
-    const finishOne = () => {
-      alive -= 1;
-      if (alive <= 0) done();
-    };
-
-    starts.forEach((p, idx) => {
-      const baseScale = Number(p?.baseScale ?? 0.25);
-      const startScale = Math.max(0.08, baseScale * 1.2);
-      const bounceScale = Math.max(startScale, baseScale * 1.5);
-      const sequenceDelay = idx * 53;
-      const star = this.add.image(p.x, p.y, p?.rankKey ?? 'rank1')
-        .setScale(startScale)
-        .setDepth(10050)
-        .setAlpha(0.98)
-        .setVisible(false);
-
-      this.tweens.add({
-        targets: star,
-        scaleX: bounceScale,
-        scaleY: bounceScale,
-        delay: sequenceDelay,
-        duration: 128,
-        ease: 'Quad.Out',
-        yoyo: true,
-        onStart: () => {
-          if (star?.active) star.setVisible(true);
-        },
-        onComplete: () => {
-          if (!star?.active) {
-            finishOne();
-            return;
-          }
-
-          this.tweens.add({
-            targets: star,
-            alpha: 0.9,
-            duration: 1,
-            onComplete: () => {
-              if (!star?.active) {
-                finishOne();
-                return;
-              }
-
-              // Lightweight particle trail that follows the flying rank-star.
-              const trailFx = this.add.particles(0, 0, 'particleStar', {
-                follow: star,
-                emitZone: {
-                  type: 'random',
-                  source: new Phaser.Geom.Rectangle(-3, -5, 6, 10),
-                },
-                frequency: 18,
-                quantity: 4,
-                lifespan: { min: 280, max: 460 },
-                speedX: { min: -10, max: 10 },
-                speedY: { min: 8, max: 26 },
-                gravityY: 120,
-                scale: { start: 0.28, end: 0.04 },
-                alpha: { start: 0.8, end: 0 },
-                blendMode: 'ADD',
-              });
-              if (trailFx?.setDepth) trailFx.setDepth(10049);
-              const disposeTrailFx = () => {
-                if (!trailFx) return;
-                trailFx.stop?.();
-                trailFx.killAll?.();
-                this.time.delayedCall(180, () => trailFx.destroy?.());
-              };
-
-              const targetX = targetKing.x + Phaser.Math.Between(-20, 20);
-              const targetY = targetKing.y + Phaser.Math.Between(-20, 20);
-              const startX = star.x;
-              const startY = star.y;
-
-              const midX = (startX + targetX) / 2 + Phaser.Math.Between(-16, 16);
-              const arcBase = Math.max(35, Math.min(95, Math.abs(targetX - startX) * 0.18));
-              const midY = Math.min(startY, targetY) - arcBase;
-
-              const flightProxy = { t: 0 };
-              this.tweens.add({
-                targets: flightProxy,
-                t: 1,
-                duration: 744,
-                ease: 'Cubic.In', // softer start, faster finish
-                onUpdate: () => {
-                  if (!star?.active) return;
-                  const t = Phaser.Math.Clamp(Number(flightProxy.t ?? 0), 0, 1);
-                  const inv = 1 - t;
-                  const x = (inv * inv * startX) + (2 * inv * t * midX) + (t * t * targetX);
-                  const y = (inv * inv * startY) + (2 * inv * t * midY) + (t * t * targetY);
-                  star.setPosition(x, y);
-                },
-                onComplete: () => {
-                  if (!firstHitFired) {
-                    firstHitFired = true;
-                    if (typeof onFirstHit === 'function') onFirstHit();
-                  }
-                  if (!star?.active) {
-                    disposeTrailFx();
-                    finishOne();
-                    return;
-                  }
-                  disposeTrailFx();
-                  const impactScale = Math.max(startScale * 1.25, startScale + 0.02);
-                  this.tweens.add({
-                    targets: star,
-                    scaleX: impactScale,
-                    scaleY: impactScale,
-                    duration: 70,
-                    ease: 'Quad.Out',
-                    yoyo: true,
-                    onComplete: () => {
-                      if (star?.active) star.destroy();
-                      finishOne();
-                    },
-                  });
-                },
-              });
-            },
-          });
-        },
-      });
-    });
-  }
-
-  maybeStartKingDamageFx(prevState, nextState, { resultChanged }) {
-    if (!resultChanged) return;
-    if ((nextState?.phase ?? null) !== 'battle') return;
-    if (!nextState?.result) return;
-
-    const prevPlayerHp = Number(prevState?.kings?.player?.hp ?? 0);
-    const nextPlayerHp = Number(nextState?.kings?.player?.hp ?? 0);
-    const prevEnemyHp = Number(prevState?.kings?.enemy?.hp ?? 0);
-    const nextEnemyHp = Number(nextState?.kings?.enemy?.hp ?? 0);
-
-    const playerDamage = Math.max(0, prevPlayerHp - nextPlayerHp);
-    const enemyDamage = Math.max(0, prevEnemyHp - nextEnemyHp);
-    if (playerDamage <= 0 && enemyDamage <= 0) return;
-
-    const token = ++this.kingDamageFxToken;
-
-    if (enemyDamage > 0) {
-      this.kingHpLock.enemy = prevEnemyHp;
-      this.drawKingHpBars();
-      this.playKingDamageStarsFx({
-        loserSide: 'enemy',
-        winnerTeam: 'player',
-        damage: enemyDamage,
-        state: nextState,
-        onFirstHit: () => {
-          if (token !== this.kingDamageFxToken) return;
-          this.kingHpLock.enemy = null;
-          this.drawKingHpBars();
-        },
-        onComplete: () => {
-          if (token !== this.kingDamageFxToken) return;
-          this.kingHpLock.enemy = null;
-          this.drawKingHpBars();
-        },
-      });
-      return;
-    }
-
-    this.kingHpLock.player = prevPlayerHp;
-    this.drawKingHpBars();
-    this.playKingDamageStarsFx({
-      loserSide: 'player',
-      winnerTeam: 'enemy',
-      damage: playerDamage,
-      state: nextState,
-      onFirstHit: () => {
-        if (token !== this.kingDamageFxToken) return;
-        this.kingHpLock.player = null;
-        this.drawKingHpBars();
-      },
-      onComplete: () => {
-        if (token !== this.kingDamageFxToken) return;
-        this.kingHpLock.player = null;
-        this.drawKingHpBars();
-      },
-    });
-  }
-
   positionCoinsHUD() {
     if (!this.kingLeftCoinIcon || !this.kingLeftCoinText || !this.kingLevelContainer) return;
 
@@ -1335,10 +1118,10 @@ export default class BattleScene extends Phaser.Scene {
     const kings = this.battleState?.kings;
     if (!kings) return;
 
-    const barWidth = 95;
-    const barHeight = 10;
-    const barRadius = 6;
-    const kingHpBarDownPx = 10; // опускает HP-бар (и имя над ним) у обоих королей
+    const barWidth = KING_UI.hpBar.width;
+    const barHeight = KING_UI.hpBar.height;
+    const barRadius = KING_UI.hpBar.radius;
+    const kingHpBarDownPx = KING_UI.hpBar.yOffset; // опускает HP-бар (и имя над ним) у обоих королей
 
     const drawBar = (side, kingSprite, hpBg, hpLagFill, hpFill, kingData) => {
       if (!kingSprite || !kingData) return;
@@ -1370,7 +1153,7 @@ export default class BattleScene extends Phaser.Scene {
       hpLagFill.clear();
       hpFill.clear();
 
-      hpBg.fillStyle(0x1c1c1c, 0.96);
+      hpBg.fillStyle(KING_UI.hpBar.bgColor, KING_UI.hpBar.bgAlpha);
       hpBg.fillRoundedRect(x, y, barWidth, barHeight, barRadius);
 
       const hpInstant = anim ? anim.instant : targetHp;
@@ -1380,20 +1163,20 @@ export default class BattleScene extends Phaser.Scene {
       const lagW = barWidth * lagRatio;
       const fillW = barWidth * ratio;
 
-      hpLagFill.fillStyle(0xc29b4a, 1);
+      hpLagFill.fillStyle(KING_UI.hpBar.lagColor, KING_UI.hpBar.lagAlpha);
       hpLagFill.fillRoundedRect(x, y, lagW, barHeight, barRadius);
 
-      hpFill.fillStyle(0x76c56f, 0.95);
+      hpFill.fillStyle(KING_UI.hpBar.fillColor, KING_UI.hpBar.fillAlpha);
       hpFill.fillRoundedRect(x, y, fillW, barHeight, barRadius);
 
       // subtle top highlight for a cleaner "royal" look
       if (fillW > 3) {
-        hpFill.fillStyle(0xffffff, 0.14);
+        hpFill.fillStyle(KING_UI.hpBar.highlightColor, KING_UI.hpBar.highlightAlpha);
         hpFill.fillRect(x + 1, y + 1, fillW - 2, 1);
       }
 
       // thin frame to separate bar from the king portrait
-      hpBg.lineStyle(1, 0x1b1b1b, 0.85);
+      hpBg.lineStyle(1, KING_UI.hpBar.frameColor, KING_UI.hpBar.frameAlpha);
       hpBg.strokeRoundedRect(x, y, barWidth, barHeight, barRadius);
 
       // Numeric HP text hidden by design: HP is shown only via bar (details in Rating).
@@ -2680,7 +2463,7 @@ export default class BattleScene extends Phaser.Scene {
     this.unitSys.update(delta / 1000);
 
     const dt = delta / 1000;
-    const lagSpeed = 18;
+    const lagSpeed = KING_UI.hpLagSpeed;
     let kingLagChanged = false;
     const playerAnim = this.kingHpAnim?.player;
     if (playerAnim && playerAnim.lag > playerAnim.instant) {
@@ -2701,5 +2484,7 @@ installBattleSceneDrag(BattleScene);
 installBattleSceneShopUi(BattleScene);
 installBattleSceneTestScene(BattleScene);
 installBattleSceneDebugUi(BattleScene);
+installBattleSceneKingDamageFx(BattleScene);
+
 
 
