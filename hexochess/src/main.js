@@ -1,3 +1,5 @@
+import './style.css';
+
 async function boot() {
   const [{ default: Phaser }, { default: StartScene }, { default: BattleScene }] = await Promise.all([
     import('phaser'),

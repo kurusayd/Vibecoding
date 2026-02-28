@@ -1316,7 +1316,7 @@ function handleIntent(clientId, msg, ws) {
   const owned = clientToUnits.get(clientId) ?? new Set();
   if (!clientToUnits.get(clientId)) clientToUnits.set(clientId, owned);
 
-  // разрешаем "системные" intents даже если у клиента пока нет юнитов
+  // DEV ONLY: BELOW INTENTS INCLUDE DEBUG/RESET ACTIONS AND MUST BE RESTRICTED BEFORE SHARED LOBBIES.
   const ALLOW_WITHOUT_UNITS = new Set(['shopBuy', 'shopRefresh', 'startGame', 'startBattle', 'buyXp', 'resetGame', 'debugAddGold100', 'debugAddLevel']);
   if (!ALLOW_WITHOUT_UNITS.has(msg.action) && owned.size === 0) {
     ws.send(JSON.stringify(makeErrorMessage('NO_UNIT', 'No unit assigned to this client')));
@@ -1377,6 +1377,7 @@ function handleIntent(clientId, msg, ws) {
   }
 
   if (msg.action === 'resetGame') {
+    // DEV ONLY: GLOBAL MATCH RESET. DO NOT KEEP OPEN WHEN MULTIPLE REAL CLIENTS SHARE A LOBBY.
     resetGameToStart();
     return;
   }
@@ -1568,6 +1569,7 @@ function handleIntent(clientId, msg, ws) {
   }
 
   if (msg.action === 'debugAddGold100') {
+    // DEV ONLY: DEBUG ECONOMY CHEAT. MUST BE DISABLED/PROTECTED IN PRODUCTION.
     state.kings = state.kings ?? {};
     state.kings.player = state.kings.player ?? { hp: 100, maxHp: 100, coins: 0, level: 1, xp: 0 };
     state.kings.player.coins = Number(state.kings.player.coins ?? 0) + 100;
@@ -1577,6 +1579,7 @@ function handleIntent(clientId, msg, ws) {
   }
 
   if (msg.action === 'debugAddLevel') {
+    // DEV ONLY: DEBUG LEVEL CHEAT. MUST BE DISABLED/PROTECTED IN PRODUCTION.
     state.kings = state.kings ?? {};
     state.kings.player = state.kings.player ?? { hp: 100, maxHp: 100, coins: 0, level: 1, xp: 0 };
     const p = state.kings.player;

@@ -1,3 +1,15 @@
+@font-face {
+  font-family: 'CormorantSC-Regular';
+  src: url('/assets/fonts/CormorantSC-Regular.ttf') format('truetype');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'CormorantSC-SemiBold';
+  src: url('/assets/fonts/CormorantSC-SemiBold.ttf') format('truetype');
+  font-display: swap;
+}
+
 html, body {
   margin: 0;
   padding: 0;
