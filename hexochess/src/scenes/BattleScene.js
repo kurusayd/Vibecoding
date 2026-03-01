@@ -203,6 +203,7 @@ export default class BattleScene extends Phaser.Scene {
     this.load.image('battleBg', '/assets/bg/grass.png');
     this.load.image('king', '/assets/kings/king_princess.png');
     this.load.image('coin', '/assets/icons/Coin.png');
+    this.load.image('bookExp', '/assets/icons/BookExp.png');
     this.load.image('rank1', '/assets/icons/rank1.png');
     this.load.image('rank2', '/assets/icons/rank2.png');
     this.load.image('rank3', '/assets/icons/rank3.png');
@@ -458,31 +459,46 @@ export default class BattleScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(9998);
 
-    this.kingXpBuyBtnShadow = this.add.rectangle(3, 3, 92, 44, 0x000000, 0.30)
+    this.kingXpBuyBtnIcon = this.add.image(0, 0, 'bookExp')
+      .setDisplaySize(50, 50)
       .setOrigin(0.5, 0.5);
-    this.kingXpBuyBtnBg = this.add.rectangle(0, 0, 92, 44, 0x5b3f24, 0.96)
-      .setOrigin(0.5, 0.5)
-      .setStrokeStyle(2, 0xc69b5f, 0.95);
-    this.kingXpBuyBtnTopText = this.add.text(0, -8, `+${KING_XP_BUY_GAIN} EXP`, {
+    this.kingXpBuyBtnTopText = this.add.text(0, -31, `+${KING_XP_BUY_GAIN} EXP`, {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-      fontSize: '12px',
+      fontSize: '10px',
       color: '#fff0cf',
       fontStyle: 'bold',
     })
       .setOrigin(0.5, 0.5)
       .setShadow(0, 0, '#000000', 2, true, true);
-    this.kingXpBuyBtnCoin = this.add.image(-8, 11, 'coin')
-      .setDisplaySize(12, 12)
+    const xpBuyCostGroupX = 11;
+    const xpBuyCostGroupY = 30;
+    const xpBuyCostGroupScale = 1.5;
+    const xpBuyCostCoinSize = 14;
+    const xpBuyCostBlurCenterX = -8;
+    this.kingXpBuyBtnCostBlurSoft = this.add.graphics();
+    this.kingXpBuyBtnCostBlurSoft.fillStyle(0x000000, 0.5);
+    this.kingXpBuyBtnCostBlurSoft.fillRoundedRect(xpBuyCostBlurCenterX - 15, -8, 30, 16, 6);
+    this.kingXpBuyBtnCostBlurSoft.lineStyle(1, 0x1a1a1a, 0.45);
+    this.kingXpBuyBtnCostBlurSoft.strokeRoundedRect(xpBuyCostBlurCenterX - 15, -8, 30, 16, 6);
+    this.kingXpBuyBtnCoin = this.add.image(-12, 0, 'coin')
+      .setDisplaySize(xpBuyCostCoinSize, xpBuyCostCoinSize)
       .setOrigin(0.5, 0.5);
-    this.kingXpBuyBtnCostText = this.add.text(4, 11, `${KING_XP_BUY_COST}`, {
+    this.kingXpBuyBtnCostText = this.add.text(-4, 0, `${KING_XP_BUY_COST}`, {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-      fontSize: '12px',
-      color: '#ffd978',
+      fontSize: '13px',
+      color: '#ffd85a',
       fontStyle: 'bold',
     })
       .setOrigin(0, 0.5)
+      .setStroke('#b35a00', 2)
       .setShadow(0, 0, '#000000', 2, true, true);
-    this.kingXpBuyBtnHit = this.add.zone(0, 0, 92, 44)
+    this.kingXpBuyBtnCostGroup = this.add.container(xpBuyCostGroupX, xpBuyCostGroupY, [
+      this.kingXpBuyBtnCostBlurSoft,
+      this.kingXpBuyBtnCoin,
+      this.kingXpBuyBtnCostText,
+    ])
+      .setScale(xpBuyCostGroupScale);
+    this.kingXpBuyBtnHit = this.add.zone(0, 0, 62, 62)
       .setOrigin(0.5, 0.5)
       .setInteractive({ useHandCursor: true });
     this.kingXpBuyBtnHit.on('pointerdown', (pointer) => {
@@ -494,15 +510,26 @@ export default class BattleScene extends Phaser.Scene {
         Number(this.battleState?.kings?.player?.coins ?? 0) >= KING_XP_BUY_COST &&
         Number(this.battleState?.kings?.player?.level ?? 1) < Number(this.kingMaxLevel ?? KING_MAX_LEVEL);
       if (!canBuy) return;
-      this.playPressFeedback?.(this.kingXpBuyBtn, { scaleTo: 0.96, duration: 70 });
+      if (this.kingXpBuyBtnIcon) {
+        this.tweens.killTweensOf(this.kingXpBuyBtnIcon);
+        const baseScaleX = this.kingXpBuyBtnIcon.scaleX;
+        const baseScaleY = this.kingXpBuyBtnIcon.scaleY;
+        this.kingXpBuyBtnIcon.setScale(baseScaleX, baseScaleY);
+        this.tweens.add({
+          targets: this.kingXpBuyBtnIcon,
+          scaleX: baseScaleX * 0.96,
+          scaleY: baseScaleY * 0.96,
+          duration: 70,
+          yoyo: true,
+          ease: 'Quad.Out',
+        });
+      }
       this.ws?.sendIntentBuyXp?.();
     });
     this.kingXpBuyBtn.add([
-      this.kingXpBuyBtnShadow,
-      this.kingXpBuyBtnBg,
+      this.kingXpBuyBtnIcon,
       this.kingXpBuyBtnTopText,
-      this.kingXpBuyBtnCoin,
-      this.kingXpBuyBtnCostText,
+      this.kingXpBuyBtnCostGroup,
       this.kingXpBuyBtnHit,
     ]);
 
@@ -1145,11 +1172,11 @@ export default class BattleScene extends Phaser.Scene {
       this.kingXpBuyBtn.setVisible(!this.testSceneActive);
       this.kingXpBuyBtn.setAlpha(canBuyXp ? 1 : 0.62);
       if (this.kingXpBuyBtnHit?.input) this.kingXpBuyBtnHit.input.enabled = canBuyXp;
-      this.kingXpBuyBtnBg?.setFillStyle(canBuyXp ? 0x6b4b2f : 0x4a4a4a, canBuyXp ? 0.96 : 0.75);
-      this.kingXpBuyBtnBg?.setStrokeStyle(2, canBuyXp ? 0xc69b5f : 0x888888, canBuyXp ? 0.95 : 0.7);
+      this.kingXpBuyBtnIcon?.setTint(canBuyXp ? 0xffffff : 0xb0b0b0);
       this.kingXpBuyBtnCoin?.setAlpha(canBuyXp ? 1 : 0.72);
-      this.kingXpBuyBtnCostText?.setColor(canBuyXp ? '#ffd978' : '#c8c8c8');
-      this.kingXpBuyBtnTopText?.setColor(canBuyXp ? '#fff0cf' : '#e0e0e0');
+      this.kingXpBuyBtnCostText?.setColor(canBuyXp ? '#ffd85a' : '#c8c8c8');
+      this.kingXpBuyBtnCostText?.setStroke(canBuyXp ? '#b35a00' : '#6e6e6e', 2);
+      this.kingXpBuyBtnTopText?.setColor(canBuyXp ? '#fff0cf' : '#d8d8d8');
     }
 
     const phase = this.battleState?.phase ?? 'prep';
