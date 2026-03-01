@@ -113,6 +113,16 @@ export const UNIT_VISUAL_CONFIG_BY_TYPE = {
     footShadowOffsetXPx: 0,
     footShadowOffsetYPx: 15,
   },
+  Skeleton: {
+    groundLiftPx: 80,
+    artTargetPx: 130,
+    artOffsetXPx: 5,
+    hpUiLiftPx: 20,
+    footShadowWidthPx: 50,
+    footShadowHeightPx: 15,
+    footShadowOffsetXPx: 0,
+    footShadowOffsetYPx: 15,
+  },
   SkeletonArcher: {
     groundLiftPx: 80,
     artTargetPx: 120,

@@ -628,6 +628,7 @@ export default class BattleScene extends Phaser.Scene {
     this.mergeBounceAnimatingIds = new Set(); // avoid stacking bounce on the same merge target
     this.pendingMergeTargetBounces = new Map(); // targetId -> { targetCoreUnit, delayMs }
     this.pendingAttackAnimIds = new Set();
+    this.pendingRangedBeamFx = [];
     this.initDragState();
 
     // --- SERVER CONNECTION ---
@@ -1102,6 +1103,7 @@ export default class BattleScene extends Phaser.Scene {
       units: (battleStartState?.units ?? []).map((u) => ({ ...u })),
     };
     this.pendingAttackAnimIds = new Set();
+    this.pendingRangedBeamFx = [];
     this.renderFromState();
     this.drawGrid();
     this.syncKingsUI();
@@ -1127,6 +1129,7 @@ export default class BattleScene extends Phaser.Scene {
 
       this.pendingAttackAnimIds = pendingAttack;
       this.renderFromState();
+      this.flushPendingRangedBeamFx?.();
       this.drawGrid();
       this.syncKingsUI();
     };
@@ -1202,6 +1205,16 @@ export default class BattleScene extends Phaser.Scene {
         attacker.attackSeq = Number(ev.attackSeq ?? (Number(attacker.attackSeq ?? 0) + 1));
         if (pendingAttackAnimIds) pendingAttackAnimIds.add(attacker.id);
       }
+      if (attacker && target) {
+        const attackRangeMax = Math.max(1, Number(attacker.attackRangeMax ?? 1));
+        if (attackRangeMax > 1) {
+          this.pendingRangedBeamFx = this.pendingRangedBeamFx ?? [];
+          this.pendingRangedBeamFx.push({
+            attackerId: attacker.id,
+            targetId: target.id,
+          });
+        }
+      }
       if (target) {
         if (Number.isFinite(Number(ev.targetMaxHp))) target.maxHp = Number(ev.targetMaxHp);
         if (Number.isFinite(Number(ev.targetHp))) target.hp = Number(ev.targetHp);
@@ -1212,6 +1225,73 @@ export default class BattleScene extends Phaser.Scene {
       }
       return;
     }
+  }
+
+  getUnitVisualCenter(coreUnitLike, fallbackVu = null) {
+    const vu = fallbackVu ?? this.unitSys?.findUnit?.(coreUnitLike?.id);
+    if (vu?.art?.active) {
+      const b = vu.art.getBounds?.();
+      if (b) return { x: b.centerX, y: b.centerY };
+      return { x: Number(vu.art.x ?? 0), y: Number(vu.art.y ?? 0) };
+    }
+    if (vu?.sprite?.active) {
+      return { x: Number(vu.sprite.x ?? 0), y: Number(vu.sprite.y ?? 0) };
+    }
+
+    const anchor = this.getUnitScreenAnchor(coreUnitLike, fallbackVu);
+    if (anchor) return { x: Number(anchor.artX ?? anchor.x ?? 0), y: Number(anchor.artY ?? anchor.y ?? 0) };
+    return null;
+  }
+
+  playRangedBeamFx(attackerCore, targetCore) {
+    if (!attackerCore || !targetCore) return;
+
+    const from = this.getUnitVisualCenter(attackerCore);
+    const to = this.getUnitVisualCenter(targetCore);
+    if (!from || !to) return;
+
+    const beam = this.add.graphics().setDepth(1600);
+    beam.lineStyle(6, 0x6ecfff, 0.30);
+    beam.beginPath();
+    beam.moveTo(from.x, from.y);
+    beam.lineTo(to.x, to.y);
+    beam.strokePath();
+    beam.lineStyle(2, 0xe8f9ff, 0.95);
+    beam.beginPath();
+    beam.moveTo(from.x, from.y);
+    beam.lineTo(to.x, to.y);
+    beam.strokePath();
+
+    const hit = this.add.circle(to.x, to.y, 5, 0xcdf5ff, 0.95).setDepth(1601);
+
+    this.tweens.add({
+      targets: beam,
+      alpha: 0,
+      duration: 150,
+      ease: 'Quad.Out',
+      onComplete: () => beam.destroy(),
+    });
+    this.tweens.add({
+      targets: hit,
+      alpha: 0,
+      scale: 1.7,
+      duration: 140,
+      ease: 'Quad.Out',
+      onComplete: () => hit.destroy(),
+    });
+  }
+
+  flushPendingRangedBeamFx() {
+    const queue = this.pendingRangedBeamFx ?? [];
+    if (!Array.isArray(queue) || queue.length === 0) return;
+
+    for (const fx of queue) {
+      const attackerCore = (this.battleState?.units ?? []).find((u) => u.id === fx?.attackerId);
+      const targetCore = (this.battleState?.units ?? []).find((u) => u.id === fx?.targetId);
+      if (!attackerCore || !targetCore) continue;
+      this.playRangedBeamFx(attackerCore, targetCore);
+    }
+    this.pendingRangedBeamFx = [];
   }
 
   getReplayCombatHexForUnit(coreUnitLike, nowMs = Number(this.time?.now ?? 0)) {
