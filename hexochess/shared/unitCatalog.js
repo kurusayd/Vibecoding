@@ -1,9 +1,10 @@
-// Shared unit catalog used by the server (authoritative gameplay) and test scene UI/spawn presets.
+﻿// Shared unit catalog used by the server (authoritative gameplay) and test scene UI/spawn presets.
 // Edit stats here to keep server and local test scene in sync.
 
 const POWER_TYPE_PAWN = '\u041f\u0435\u0448\u043a\u0430';   // Пешка
 const POWER_TYPE_KNIGHT = '\u041a\u043e\u043d\u044c';      // Конь
 const POWER_TYPE_ROOK = '\u041b\u0430\u0434\u044c\u044f';  // Ладья
+const POWER_TYPE_QUEEN = '\u0424\u0435\u0440\u0437\u044c'; // Ферзь
 
 export const UNIT_CATALOG = [
   { race: 'HUMAN',  type: 'Swordsman',      label: 'SWORDSMAN',       powerType: POWER_TYPE_PAWN,   hp: 60,  atk: 20, attackSpeed: 1.0, moveSpeed: 1.4, attackRangeMax: 1,  attackRangeFullDamage: 1 },
@@ -18,7 +19,8 @@ export const UNIT_CATALOG = [
   { race: 'UNDEAD', type: 'SkeletonArcher', label: 'SKELETON ARCHER', powerType: POWER_TYPE_ROOK,   hp: 120, atk: 12, attackSpeed: 1.3, moveSpeed: 1.0, attackRangeMax: 20, attackRangeFullDamage: 5 },
   { race: 'UNDEAD', type: 'Vampire',        label: 'VAMPIRE',         powerType: POWER_TYPE_ROOK,   hp: 120, atk: 12, attackSpeed: 1.6, moveSpeed: 2.0, attackRangeMax: 1,  attackRangeFullDamage: 1 },
   { race: 'UNDEAD', type: 'Zombie',         label: 'ZOMBIE',          powerType: POWER_TYPE_ROOK,   hp: 120, atk: 12, attackSpeed: 0.8, moveSpeed: 0.9, attackRangeMax: 1,  attackRangeFullDamage: 1 },
-  { race: 'GOD',    type: 'Angel',          label: 'ANGEL',           powerType: POWER_TYPE_ROOK,   hp: 480, atk: 24, attackSpeed: 1.8, moveSpeed: 3.0, attackRangeMax: 1,  attackRangeFullDamage: 1 },
+  { race: 'GOD',    type: 'Angel',          label: 'ANGEL',           powerType: POWER_TYPE_QUEEN,  hp: 480, atk: 24, attackSpeed: 1, moveSpeed: 3.0, attackRangeMax: 1,  attackRangeFullDamage: 1 },
+  { race: 'DEMON',  type: 'Devil',          label: 'DEVIL',           powerType: POWER_TYPE_QUEEN,  hp: 480, atk: 24, attackSpeed: 1, moveSpeed: 3.0, attackRangeMax: 1,  attackRangeFullDamage: 1 },
 ];
 
 export function getUnitCatalogEntry(type) {

@@ -1116,6 +1116,9 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
           break;
         }
 
+        // Do not allow movement while attack cooldown is active:
+        // after attacking, unit "commits" and waits for its attack timer before advancing.
+        if (tickTimeMs + 1e-6 < me.nextAttackAt) break;
         if (tickTimeMs + 1e-6 < me.nextMoveAt) break;
 
         const step = pickBestStepTowardIn(simState, me, liveTarget);

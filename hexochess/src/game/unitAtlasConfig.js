@@ -160,6 +160,16 @@ export const UNIT_ATLAS_DEFS = [
     deadAnim: 'angel_dead',
     framePrefix: '',
   },
+  {
+    type: 'Devil',
+    atlasKey: 'devil_atlas',
+    atlasPath: '/assets/units/demons/devil/atlas/devil_atlas',
+    idleAnim: 'devil_idle',
+    walkAnim: 'devil_walk',
+    attackAnim: 'devil_attack',
+    deadAnim: 'devil_dead',
+    framePrefix: 'psd_anim',
+  },
 ];
 
 export const UNIT_ATLAS_DEF_BY_TYPE = Object.fromEntries(

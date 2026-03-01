@@ -314,6 +314,8 @@ export function installBattleSceneTestScene(BattleScene) {
             break;
           }
 
+          // Match server combat pacing: after attack, movement is blocked until attack cooldown ends.
+          if (tickTimeMs + 1e-6 < me.nextAttackAt) break;
           if (tickTimeMs + 1e-6 < me.nextMoveAt) break;
 
           const step = this.pickTestSceneBestStepToward?.(state, me, target);

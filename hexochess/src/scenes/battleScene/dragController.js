@@ -7,9 +7,52 @@ export function installBattleSceneDrag(BattleScene) {
       this.draggingUnitId = null;
       this.dragBoardHover = null; // { q, r }
       this.dragBenchHoverSlot = null; // number
+      this.hoverPickupCell = null; // { area: 'board'|'bench', q?, r?, slot?, unitId }
     },
 
     bindDragHandlers() {
+      const restoreHoverAfterDrop = (pointer, unitId, preferredCell = null) => {
+        if (!unitId) {
+          this.hoverPickupCell = null;
+          return;
+        }
+
+        const core = (this.battleState?.units ?? []).find((u) => String(u.id) === String(unitId));
+        if (!core || core.dead) {
+          this.hoverPickupCell = null;
+          return;
+        }
+
+        const canUsePreferred = (() => {
+          if (!preferredCell || !pointer) return false;
+          if (preferredCell.area === 'board') {
+            const hit = this.tryPickBoard(pointer.worldX, pointer.worldY);
+            return !!hit && Number(hit.q) === Number(preferredCell.q) && Number(hit.r) === Number(preferredCell.r);
+          }
+          if (preferredCell.area === 'bench' && Number.isInteger(preferredCell.slot)) {
+            const hitBench = this.tryPickBench(pointer.worldX, pointer.worldY);
+            return !!hitBench && Number(hitBench.row) === Number(preferredCell.slot);
+          }
+          return false;
+        })();
+
+        if (canUsePreferred) {
+          this.hoverPickupCell = { ...preferredCell, unitId: core.id };
+          return;
+        }
+
+        if (core.zone === 'board') {
+          this.hoverPickupCell = { area: 'board', q: core.q, r: core.r, unitId: core.id };
+          return;
+        }
+        if (core.zone === 'bench') {
+          const slot = Number.isInteger(core.benchSlot) ? core.benchSlot : 0;
+          this.hoverPickupCell = { area: 'bench', slot, unitId: core.id };
+          return;
+        }
+        this.hoverPickupCell = null;
+      };
+
       this.input.on('dragstart', (pointer, gameObject) => {
         const uid = gameObject?.data?.get?.('unitId');
         if (!uid) return;
@@ -24,6 +67,7 @@ export function installBattleSceneDrag(BattleScene) {
         if (core.zone !== 'board' && core.zone !== 'bench') return;
 
         this.draggingUnitId = uid;
+        this.hoverPickupCell = null;
         if (!this.testSceneActive) {
           const hitBench = this.tryPickBench(pointer.worldX, pointer.worldY);
           this.dragBenchHoverSlot = hitBench ? hitBench.row : null;
@@ -126,6 +170,7 @@ export function installBattleSceneDrag(BattleScene) {
 
         if (!uid || String(uid) !== String(draggedId)) {
           this.renderFromState();
+          restoreHoverAfterDrop(pointer, uid);
           this.drawGrid();
           return;
         }
@@ -133,6 +178,7 @@ export function installBattleSceneDrag(BattleScene) {
         const core = (this.battleState?.units ?? []).find((u) => String(u.id) === String(uid));
         if (!core) {
           this.renderFromState();
+          restoreHoverAfterDrop(pointer, uid);
           this.drawGrid();
           return;
         }
@@ -141,6 +187,7 @@ export function installBattleSceneDrag(BattleScene) {
         const isBenchManageAnytime = !this.testSceneActive && core.team === 'player' && core.zone === 'bench';
         if (!isPrepManage && !isBenchManageAnytime) {
           this.renderFromState();
+          restoreHoverAfterDrop(pointer, uid);
           this.drawGrid();
           return;
         }
@@ -148,7 +195,7 @@ export function installBattleSceneDrag(BattleScene) {
         if (!this.testSceneActive && Number.isInteger(dropBenchSlot)) {
           if (core.zone === 'bench' && Number(core.benchSlot) === Number(dropBenchSlot)) {
             const vu = this.unitSys.findUnit(uid);
-          if (vu) {
+            if (vu) {
               const p = this.benchSlotToScreen(dropBenchSlot);
               const lift = getUnitGroundLiftPx(core.type);
               const shadowCfg = getUnitFootShadowConfig(core.type);
@@ -162,15 +209,19 @@ export function installBattleSceneDrag(BattleScene) {
               if (vu.rankIcon) vu.rankIcon.setVisible(!core.dead);
               updateHpBar(this, vu);
             }
+            restoreHoverAfterDrop(pointer, uid, { area: 'bench', slot: dropBenchSlot });
             this.drawGrid();
             return;
           }
+          restoreHoverAfterDrop(pointer, uid, { area: 'bench', slot: dropBenchSlot });
+          this.drawGrid();
           this.ws?.sendIntentSetBench(uid, dropBenchSlot);
           return;
         }
 
         if (!isPrepManage) {
           this.renderFromState();
+          restoreHoverAfterDrop(pointer, uid);
           this.drawGrid();
           return;
         }
@@ -178,6 +229,7 @@ export function installBattleSceneDrag(BattleScene) {
         const hit = this.tryPickBoard(pointer.worldX, pointer.worldY);
         if (!hit) {
           this.renderFromState();
+          restoreHoverAfterDrop(pointer, uid);
           this.drawGrid();
           return;
         }
@@ -190,6 +242,7 @@ export function installBattleSceneDrag(BattleScene) {
             local.zone = 'board';
             local.benchSlot = null;
             this.renderFromState();
+            restoreHoverAfterDrop(pointer, uid, { area: 'board', q: hit.q, r: hit.r });
             this.drawGrid();
             return;
           }
@@ -211,15 +264,19 @@ export function installBattleSceneDrag(BattleScene) {
               if (vu.rankIcon) vu.rankIcon.setVisible(!core.dead);
               updateHpBar(this, vu);
             }
+            restoreHoverAfterDrop(pointer, uid, { area: 'board', q: hit.q, r: hit.r });
             this.drawGrid();
             return;
           }
 
+          restoreHoverAfterDrop(pointer, uid, { area: 'board', q: hit.q, r: hit.r });
+          this.drawGrid();
           this.ws?.sendIntentSetStart(uid, hit.q, hit.r);
           return;
         }
 
         this.renderFromState();
+        restoreHoverAfterDrop(pointer, uid);
         this.drawGrid();
       });
     },

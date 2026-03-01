@@ -83,6 +83,7 @@ function getUnitShortLabel(type) {
   if (t === 'crusader') return 'Cr';
   if (t === 'crossbowman') return 'C';
   if (t === 'angel') return 'A';
+  if (t === 'devil') return 'D';
   if (t === 'ghost') return 'Gh';
   if (t === 'knight') return 'K';
   if (t === 'lich') return 'L';
@@ -615,6 +616,7 @@ export default class BattleScene extends Phaser.Scene {
       this.draggingUnitId = null;
       this.dragBoardHover = null;
       this.dragBenchHoverSlot = null;
+      this.hoverPickupCell = null;
 
       this.renderFromState();
       this.drawGrid();
@@ -712,6 +714,7 @@ export default class BattleScene extends Phaser.Scene {
           this.draggingUnitId = null;
           this.dragBoardHover = null;
           this.dragBenchHoverSlot = null;
+          this.hoverPickupCell = null;
         }
       }
 
@@ -786,6 +789,7 @@ export default class BattleScene extends Phaser.Scene {
       this.draggingUnitId = null;
       this.dragBoardHover = null;
       this.dragBenchHoverSlot = null;
+      this.hoverPickupCell = null;
       this.layout();
       this.drawGrid();
 
@@ -1852,6 +1856,41 @@ export default class BattleScene extends Phaser.Scene {
     return best;
   }
 
+  bindUnitHoverGlow(vu) {
+    const handle = vu?.dragHandle;
+    if (!handle) return;
+    handle.setDataEnabled?.();
+    if (handle.data?.get?.('hoverGlowBound')) return;
+    handle.data?.set?.('hoverGlowBound', true);
+
+    handle.on('pointerover', () => {
+      if (this.draggingUnitId != null) return;
+      if (!handle.input?.enabled) return;
+
+      const unitId = handle.data?.get?.('unitId');
+      if (unitId == null) return;
+      const core = (this.battleState?.units ?? []).find((u) => String(u.id) === String(unitId));
+      if (!core || core.dead) return;
+
+      if (core.zone === 'board') {
+        this.hoverPickupCell = { area: 'board', q: core.q, r: core.r, unitId: core.id };
+      } else if (core.zone === 'bench') {
+        const slot = Number.isInteger(core.benchSlot) ? core.benchSlot : 0;
+        this.hoverPickupCell = { area: 'bench', slot, unitId: core.id };
+      } else {
+        this.hoverPickupCell = null;
+      }
+      this.drawGrid();
+    });
+
+    handle.on('pointerout', () => {
+      const unitId = handle.data?.get?.('unitId');
+      if (this.hoverPickupCell?.unitId != null && String(this.hoverPickupCell.unitId) !== String(unitId)) return;
+      this.hoverPickupCell = null;
+      this.drawGrid();
+    });
+  }
+
   renderFromState() {
     this.coreUnitsById = new Map((this.battleState?.units ?? []).map((u) => [u.id, u]));
     const currentVisualById = new Map((this.unitSys?.state?.units ?? []).map((vu) => [vu.id, vu]));
@@ -1962,6 +2001,7 @@ export default class BattleScene extends Phaser.Scene {
 
         created.dragHandle.setDataEnabled();
         created.dragHandle.data.set('unitId', created.id);
+        this.bindUnitHoverGlow(created);
         // если сервер сказал "bench" — сразу переставим на скамейку
         if (u.zone === 'bench') {
           const slot = Number.isInteger(u.benchSlot) ? u.benchSlot : 0;
@@ -2014,6 +2054,7 @@ export default class BattleScene extends Phaser.Scene {
 
       // ---- UPDATE ----
       const vu = existing;
+      this.bindUnitHoverGlow(vu);
 
       // Пока юнит в локальном drag, не пересаживаем его визуал из state.
       if (this.draggingUnitId != null && String(u.id) === String(this.draggingUnitId)) {
@@ -2289,6 +2330,24 @@ export default class BattleScene extends Phaser.Scene {
     this.drawHexFilledOn(this.gDynamic, cx, cy, fillColor, fillAlpha);
   }
 
+  drawHexGlowOn(g, cx, cy) {
+    const pts = this.hexCorners(cx, cy);
+    const stroke = (width, color, alpha) => {
+      g.lineStyle(width, color, alpha);
+      g.beginPath();
+      g.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x, pts[i].y);
+      g.closePath();
+      g.strokePath();
+    };
+
+    // Soft gold fantasy glow around hex border.
+    stroke(5, 0xf0c36a, 0.18);
+    stroke(3, 0xf5cf7a, 0.36);
+    stroke(2, 0xffe2a0, 0.66);
+    stroke(1, 0xfff4cd, 0.95);
+  }
+
   drawGridStatic() {
     const g = this.gStatic ?? this.g;
     g.clear();
@@ -2356,6 +2415,26 @@ export default class BattleScene extends Phaser.Scene {
       const p = this.benchSlotToScreen(this.dragBenchHoverSlot);
       this.drawHexFilledOn(g, p.x, p.y, 0x000000, 0.55);
       this.drawHexOn(g, p.x, p.y, 0xffcc66, 0.95);
+    }
+
+    // Hover highlight: which unit will be picked up on pointer down.
+    if (this.hoverPickupCell && this.draggingUnitId == null) {
+      const hoverUnitId = this.hoverPickupCell.unitId;
+      if (hoverUnitId != null) {
+        const hoverUnit = (this.battleState?.units ?? []).find((u) => String(u.id) === String(hoverUnitId));
+        if (!hoverUnit || hoverUnit.dead) {
+          this.hoverPickupCell = null;
+        }
+      }
+    }
+    if (this.hoverPickupCell && this.draggingUnitId == null) {
+      let p = null;
+      if (this.hoverPickupCell.area === 'board') {
+        p = this.hexToPixel(this.hoverPickupCell.q, this.hoverPickupCell.r);
+      } else if (this.hoverPickupCell.area === 'bench' && Number.isInteger(this.hoverPickupCell.slot)) {
+        p = this.benchSlotToScreen(this.hoverPickupCell.slot);
+      }
+      if (p) this.drawHexGlowOn(g, p.x, p.y);
     }
 
     // выделение
