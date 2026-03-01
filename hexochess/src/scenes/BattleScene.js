@@ -40,6 +40,8 @@ const SHOP_OFFER_COUNT = 5;
 const SHOP_CARD_ART_LIFT_Y = 75; // увеличивай/уменьшай, чтобы поднять/опустить арт в сером блоке карточки
 const AUTO_ENTER_TEST_SCENE_ON_BOOT = false; // обычный старт: live battle scene
 const USE_SERVER_BATTLE_REPLAY = true; // постепенный переход: клиент проигрывает precomputed battleReplay от сервера
+const KING_XP_BUY_GAIN = 4;
+const KING_XP_BUY_COST = 4;
 const KING_UI = {
   hpBar: {
     width: 95,
@@ -58,6 +60,14 @@ const KING_UI = {
     highlightAlpha: 0.14,
   },
   hpLagSpeed: 18,
+};
+const KING_XP_BAR_UI = {
+  width: 156,            // ширина XP-бара
+  height: 14,            // высота XP-бара
+  radius: 6,             // скругление
+  xOffset: -8,           // смещение бара по X (влево/вправо)
+  fillColor: 0xc9a7ff,   // светло-фиолетовая заливка
+  fillAlpha: 0.95,
 };
 const UI_TEXT = {
   START_GAME: '\u041d\u0410\u0427\u0410\u0422\u042c \u0418\u0413\u0420\u0423',
@@ -441,6 +451,59 @@ export default class BattleScene extends Phaser.Scene {
       this.kingLevelText,
       this.kingLevelXpText,
       this.kingLevelHit,
+    ]);
+
+    // --- BUY XP BUTTON (+4 EXP for 4 gold) ---
+    this.kingXpBuyBtn = this.add.container(0, 0)
+      .setScrollFactor(0)
+      .setDepth(9998);
+
+    this.kingXpBuyBtnShadow = this.add.rectangle(3, 3, 92, 44, 0x000000, 0.30)
+      .setOrigin(0.5, 0.5);
+    this.kingXpBuyBtnBg = this.add.rectangle(0, 0, 92, 44, 0x5b3f24, 0.96)
+      .setOrigin(0.5, 0.5)
+      .setStrokeStyle(2, 0xc69b5f, 0.95);
+    this.kingXpBuyBtnTopText = this.add.text(0, -8, `+${KING_XP_BUY_GAIN} EXP`, {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '12px',
+      color: '#fff0cf',
+      fontStyle: 'bold',
+    })
+      .setOrigin(0.5, 0.5)
+      .setShadow(0, 0, '#000000', 2, true, true);
+    this.kingXpBuyBtnCoin = this.add.image(-8, 11, 'coin')
+      .setDisplaySize(12, 12)
+      .setOrigin(0.5, 0.5);
+    this.kingXpBuyBtnCostText = this.add.text(4, 11, `${KING_XP_BUY_COST}`, {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '12px',
+      color: '#ffd978',
+      fontStyle: 'bold',
+    })
+      .setOrigin(0, 0.5)
+      .setShadow(0, 0, '#000000', 2, true, true);
+    this.kingXpBuyBtnHit = this.add.zone(0, 0, 92, 44)
+      .setOrigin(0.5, 0.5)
+      .setInteractive({ useHandCursor: true });
+    this.kingXpBuyBtnHit.on('pointerdown', (pointer) => {
+      pointer?.event?.stopPropagation?.();
+      const canBuy =
+        !this.testSceneActive &&
+        this.battleState?.phase === 'prep' &&
+        !this.battleState?.result &&
+        Number(this.battleState?.kings?.player?.coins ?? 0) >= KING_XP_BUY_COST &&
+        Number(this.battleState?.kings?.player?.level ?? 1) < Number(this.kingMaxLevel ?? KING_MAX_LEVEL);
+      if (!canBuy) return;
+      this.playPressFeedback?.(this.kingXpBuyBtn, { scaleTo: 0.96, duration: 70 });
+      this.ws?.sendIntentBuyXp?.();
+    });
+    this.kingXpBuyBtn.add([
+      this.kingXpBuyBtnShadow,
+      this.kingXpBuyBtnBg,
+      this.kingXpBuyBtnTopText,
+      this.kingXpBuyBtnCoin,
+      this.kingXpBuyBtnCostText,
+      this.kingXpBuyBtnHit,
     ]);
 
     const hpTextStyle = { //вставляем текст НР бара короля поверх полоски
@@ -915,11 +978,22 @@ export default class BattleScene extends Phaser.Scene {
 
     const targets = [vu.sprite, vu.art, vu.label, vu.rankIcon].filter((obj) => obj?.active);
     for (const obj of targets) {
-      const baseScaleX = Number(obj.scaleX ?? 1);
-      const baseScaleY = Number(obj.scaleY ?? 1);
+      const dragBaseX = (obj === vu.art) ? Number(vu?._dragPickupArtScale?.x) : NaN;
+      const dragBaseY = (obj === vu.art) ? Number(vu?._dragPickupArtScale?.y) : NaN;
+      const storedBaseX = Number(obj.getData?.('__bounceBaseScaleX'));
+      const storedBaseY = Number(obj.getData?.('__bounceBaseScaleY'));
+      const baseScaleX = Number.isFinite(dragBaseX)
+        ? dragBaseX
+        : (Number.isFinite(storedBaseX) ? storedBaseX : Number(obj.scaleX ?? 1));
+      const baseScaleY = Number.isFinite(dragBaseY)
+        ? dragBaseY
+        : (Number.isFinite(storedBaseY) ? storedBaseY : Number(obj.scaleY ?? 1));
+
+      obj.setData?.('__bounceBaseScaleX', baseScaleX);
+      obj.setData?.('__bounceBaseScaleY', baseScaleY);
 
       this.tweens.killTweensOf(obj);
-      if (obj.scaleX !== baseScaleX || obj.scaleY !== baseScaleY) {
+      if (Math.abs((obj.scaleX ?? 1) - baseScaleX) > 1e-6 || Math.abs((obj.scaleY ?? 1) - baseScaleY) > 1e-6) {
         obj.setScale(baseScaleX, baseScaleY);
       }
 
@@ -956,6 +1030,11 @@ export default class BattleScene extends Phaser.Scene {
     // как и левый край иконки монет
     const crownW = this.kingLevelIcon?.displayWidth ?? 30;
     this.kingLevelContainer.setPosition(baseX + crownW / 2, xpY);
+
+    if (this.kingXpBuyBtn) {
+      // Right of XP bar block
+      this.kingXpBuyBtn.setPosition(baseX + 232, xpY);
+    }
 
     // 2) монеты — слева от блока опыта короля
     const iconW = this.kingLeftCoinIcon.displayWidth || this.coinSize;
@@ -1053,6 +1132,25 @@ export default class BattleScene extends Phaser.Scene {
 
     this.drawKingXpBar?.(lvl, xp, need);
     this.positionCoinsHUD();
+
+    if (this.kingXpBuyBtn) {
+      const phase = this.battleState?.phase ?? 'prep';
+      const result = this.battleState?.result ?? null;
+      const canBuyXp =
+        !this.testSceneActive &&
+        phase === 'prep' &&
+        !result &&
+        Number(rawCoins) >= KING_XP_BUY_COST &&
+        Number(lvl) < Number(this.kingMaxLevel ?? KING_MAX_LEVEL);
+      this.kingXpBuyBtn.setVisible(!this.testSceneActive);
+      this.kingXpBuyBtn.setAlpha(canBuyXp ? 1 : 0.62);
+      if (this.kingXpBuyBtnHit?.input) this.kingXpBuyBtnHit.input.enabled = canBuyXp;
+      this.kingXpBuyBtnBg?.setFillStyle(canBuyXp ? 0x6b4b2f : 0x4a4a4a, canBuyXp ? 0.96 : 0.75);
+      this.kingXpBuyBtnBg?.setStrokeStyle(2, canBuyXp ? 0xc69b5f : 0x888888, canBuyXp ? 0.95 : 0.7);
+      this.kingXpBuyBtnCoin?.setAlpha(canBuyXp ? 1 : 0.72);
+      this.kingXpBuyBtnCostText?.setColor(canBuyXp ? '#ffd978' : '#c8c8c8');
+      this.kingXpBuyBtnTopText?.setColor(canBuyXp ? '#fff0cf' : '#e0e0e0');
+    }
 
     const phase = this.battleState?.phase ?? 'prep';
     const result = this.battleState?.result ?? null;
@@ -1245,8 +1343,9 @@ export default class BattleScene extends Phaser.Scene {
   drawKingXpBar(level, xp, need) {
     if (!this.kingLevelBarBg || !this.kingLevelBarFill) return;
 
-    const w = 170;     // длиннее
-    const h = 18;      // чуть толще
+    const w = Number(KING_XP_BAR_UI.width ?? 156);
+    const h = Number(KING_XP_BAR_UI.height ?? 14);
+    const r = Number(KING_XP_BAR_UI.radius ?? 6);
 
     const iconW = this.kingLevelIcon?.displayWidth ?? 30;
 
@@ -1255,25 +1354,27 @@ export default class BattleScene extends Phaser.Scene {
     const gap = 2;
 
     // старт бара: немного "под" корону
-    const barDx = -2; // +2px вправо только бар
+    const barDx = Number(KING_XP_BAR_UI.xOffset ?? -8);
     const x = (iconW / 2) - overlap + gap + barDx;
     const y = -h / 2;
 
     this.kingLevelBarBg.clear();
     this.kingLevelBarFill.clear();
 
-    // --- Тонкая фиолетовая обводка ---
-    this.kingLevelBarBg.lineStyle(1, 0x5c3c9c, 1); // тонкая, тёмно-фиолетовая
-    this.kingLevelBarBg.strokeRoundedRect(x, y, w, h, 6);
+    // Same visual language as king HP bar: dark rounded background + thin frame + soft highlight.
+    this.kingLevelBarBg.fillStyle(KING_UI.hpBar.bgColor, KING_UI.hpBar.bgAlpha);
+    this.kingLevelBarBg.fillRoundedRect(x, y, w, h, r);
 
-    // --- Фон ---
-    this.kingLevelBarBg.fillStyle(0x2a2a2a, 1);
-    this.kingLevelBarBg.fillRoundedRect(x + 1, y + 1, w - 2, h - 2, 5);
-
-    // fill (фиолетовый)
     const ratio = (need > 0) ? Phaser.Math.Clamp(xp / need, 0, 1) : 1;
-    this.kingLevelBarFill.fillStyle(0x8a2be2, 0.95);
-    this.kingLevelBarFill.fillRoundedRect(x + 1, y + 1, (w - 2) * ratio, h - 2, 5);
+    const fillW = Math.max(0, w * ratio);
+    this.kingLevelBarFill.fillStyle(KING_XP_BAR_UI.fillColor, KING_XP_BAR_UI.fillAlpha);
+    this.kingLevelBarFill.fillRoundedRect(x, y, fillW, h, r);
+    if (fillW > 3) {
+      this.kingLevelBarFill.fillStyle(KING_UI.hpBar.highlightColor, KING_UI.hpBar.highlightAlpha);
+      this.kingLevelBarFill.fillRect(x + 1, y + 1, fillW - 2, 1);
+    }
+    this.kingLevelBarBg.lineStyle(1, KING_UI.hpBar.frameColor, KING_UI.hpBar.frameAlpha);
+    this.kingLevelBarBg.strokeRoundedRect(x, y, w, h, r);
 
     // центр бара (нужен для exp-текста и hitbox)
     const cx = x + w / 2;
@@ -2055,6 +2156,10 @@ export default class BattleScene extends Phaser.Scene {
       // ---- UPDATE ----
       const vu = existing;
       this.bindUnitHoverGlow(vu);
+      const prevZone = vu?.zone;
+      const prevBenchSlot = Number(vu?.benchSlot);
+      const prevQ = Number(vu?.q);
+      const prevR = Number(vu?.r);
 
       // Пока юнит в локальном drag, не пересаживаем его визуал из state.
       if (this.draggingUnitId != null && String(u.id) === String(this.draggingUnitId)) {
@@ -2076,11 +2181,18 @@ export default class BattleScene extends Phaser.Scene {
         if (vu?.dragHandle) vu.dragHandle.setPosition(p.x, p.y);
         const lift = getUnitGroundLiftPx(u.type);
         if (vu?.art) vu.art.setPosition(p.x + getUnitArtOffsetXPx(u.type, u.team), p.y + this.hexSize - lift);
-        if (vu?.footShadow) vu.footShadow.setPosition(p.x, p.y + 6);
+        if (vu?.footShadow) {
+          const shadowCfg = getUnitFootShadowConfig(u.type);
+          vu.footShadow.setPosition(p.x + shadowCfg.offsetXPx, p.y + shadowCfg.offsetYPx);
+        }
         if (vu?.label) vu.label.setPosition(p.x, p.y);
 
         if (vu?.hpBar) vu.hpBar.setVisible(false);
         if (vu?.rankIcon) vu.rankIcon.setVisible(!u.dead);
+        const benchPlacementChanged = prevZone !== 'bench' || prevBenchSlot !== Number(slot);
+        if (benchPlacementChanged && u.team === 'player' && !u.dead) {
+          this.playUnitFeedbackBounce?.(vu, { scaleMul: 1.06, duration: 90 });
+        }
       } else {
         const result = this.battleState?.result ?? null;
         // Скорость визуального перемещения по умолчанию: 2 секунды на 1 гекс.
@@ -2096,8 +2208,8 @@ export default class BattleScene extends Phaser.Scene {
           vu.benchSlot = null;
         }
         const didBoardCellChange =
-          Number(vu?.q) !== Number(u.q) ||
-          Number(vu?.r) !== Number(u.r);
+          prevQ !== Number(u.q) ||
+          prevR !== Number(u.r);
         const shouldFaceMoveDirection = didBoardCellChange && !!vu?.art && tweenMs > 0;
         if (shouldFaceMoveDirection) {
           const lift = getUnitGroundLiftPx(u.type);
@@ -2109,6 +2221,15 @@ export default class BattleScene extends Phaser.Scene {
         // На доске показываем HP только вне prep (в prep скрываем по запросу).
         if (vu?.hpBar) vu.hpBar.setVisible(phase !== 'prep');
         if (vu?.rankIcon) vu.rankIcon.setVisible((phase === 'prep') && !u.dead);
+        const fromBenchToBoard = prevZone === 'bench';
+        const shouldBounceOnPlace =
+          (didBoardCellChange || fromBenchToBoard) &&
+          phase === 'prep' &&
+          u.team === 'player' &&
+          !u.dead;
+        if (shouldBounceOnPlace) {
+          this.playUnitFeedbackBounce?.(vu, { scaleMul: 1.06, duration: 90 });
+        }
       }
 
       if (vu) vu.rank = u.rank ?? 1;

@@ -163,9 +163,9 @@ export function installBattleSceneDrag(BattleScene) {
             ease: 'Quad.Out',
             onComplete: () => {
               if (draggedVu?.art?.active) draggedVu.art.setScale(base.x, base.y);
+              if (draggedVu) draggedVu._dragPickupArtScale = null;
             },
           });
-          draggedVu._dragPickupArtScale = null;
         }
 
         if (!uid || String(uid) !== String(draggedId)) {

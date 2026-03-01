@@ -1627,7 +1627,7 @@ function handleIntent(clientId, msg, ws) {
       return;
     }
 
-    const COST = 5;
+    const COST = 4;
     const GAIN = 4;
 
     const coins = state.kings?.player?.coins ?? 0;

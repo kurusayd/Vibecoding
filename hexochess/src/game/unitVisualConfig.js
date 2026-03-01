@@ -105,8 +105,8 @@ export const UNIT_VISUAL_CONFIG_BY_TYPE = {
     footShadowOffsetYPx: 12,
   },
   Lich: {
-    groundLiftPx: 100,
-    artTargetPx: 170,
+    groundLiftPx: 95,
+    artTargetPx: 150,
     artOffsetXPx: 0,
     hpUiLiftPx: 40,
     footShadowWidthPx: 58,

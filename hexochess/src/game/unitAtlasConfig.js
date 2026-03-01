@@ -118,7 +118,7 @@ export const UNIT_ATLAS_DEFS = [
     walkAnim: 'lich_walk',
     attackAnim: 'lich_attack',
     deadAnim: 'lich_dead',
-    framePrefix: 'psd_animation',
+    framePrefix: 'psd_anim',
   },
   {
     type: 'SkeletonArcher',
