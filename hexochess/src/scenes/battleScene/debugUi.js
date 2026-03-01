@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { installBattleSceneTestSceneUi } from './testSceneUi.js';
 import { kingXpToNext } from '../../../shared/battleCore.js';
 import { COINS_CAP } from '../../../shared/economy.js';
+import { UNIT_CATALOG } from '../../../shared/unitCatalog.js';
 
 const DEBUG_UI_TEXT = {
   BATTLE: '\u0411\u041e\u0419',
@@ -22,6 +23,17 @@ const BUTTON_SHADOW_COLOR = 0x000000;
 const BUTTON_SHADOW_ALPHA = 0.35;
 const BUTTON_SHADOW_OFFSET_X = 2;
 const BUTTON_SHADOW_OFFSET_Y = 3;
+const DEBUG_UNITS_MENU_W = 220;
+const DEBUG_UNITS_ROW_STEP = 46;
+const DEBUG_UNITS_TOP = 14;
+const DEBUG_UNITS_RACES = [
+  { key: 'HUMAN', label: 'HUMAN', bg: 'rgba(30,70,130,0.72)' },
+  { key: 'LIZARD', label: 'LIZARD', bg: 'rgba(60,90,40,0.72)' },
+  { key: 'UNDEAD', label: 'UNDEAD', bg: 'rgba(70,50,90,0.72)' },
+  { key: 'DEMON', label: 'DEMON', bg: 'rgba(120,45,35,0.78)' },
+  { key: 'GOD', label: 'GOD', bg: 'rgba(120,100,35,0.78)' },
+];
+const DEBUG_SHOP_UNITS = UNIT_CATALOG.map((u) => ({ ...u }));
 
 export function installBattleSceneDebugUi(BattleScene) {
   // Install test scene UI first, because debug UI delegates part of its layout/sync to it.
@@ -47,6 +59,8 @@ export function installBattleSceneDebugUi(BattleScene) {
       this.testSceneSavedLiveState = null;
       this.testSceneQueuedLiveState = null;
       this.debugShowHexShadowDuringBattle = false;
+      this.debugUnitsMenuOpen = false;
+      this.debugUnitsMenuRace = null;
 
       this.debugBtn = this.add.text(this.scale.width - 14, 19, 'Debug', {
         fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
@@ -143,7 +157,7 @@ export function installBattleSceneDebugUi(BattleScene) {
         .setScrollFactor(0)
         .setVisible(false);
 
-      this.debugModalBg = this.add.rectangle(0, 0, 180, 380, 0x111111, 0.94)
+      this.debugModalBg = this.add.rectangle(0, 0, 180, 430, 0x111111, 0.94)
         .setOrigin(0, 0)
         .setStrokeStyle(2, 0x666666, 0.95);
 
@@ -231,6 +245,17 @@ export function installBattleSceneDebugUi(BattleScene) {
         .setDepth(10031)
         .setInteractive({ useHandCursor: true });
 
+      this.debugUnitsBtn = this.add.text(90, 310, 'UNITS', {
+        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+        fontSize: '16px',
+        color: '#ffffff',
+        backgroundColor: 'rgba(0,70,110,0.72)',
+        padding: { left: 10, right: 10, top: 7, bottom: 7 },
+      })
+        .setOrigin(0.5, 0)
+        .setDepth(10031)
+        .setInteractive({ useHandCursor: true });
+
       this.debugKingBtn = this.add.text(90, 82, DEBUG_UI_TEXT.KING, {
         fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
         fontSize: '18px',
@@ -242,7 +267,7 @@ export function installBattleSceneDebugUi(BattleScene) {
         .setDepth(10031)
         .setInteractive({ useHandCursor: true });
 
-      this.debugModalHit = this.add.zone(0, 0, 180, 380)
+      this.debugModalHit = this.add.zone(0, 0, 180, 430)
         .setOrigin(0, 0)
         .setInteractive();
       this.debugModalHit.on('pointerdown', (pointer) => {
@@ -264,6 +289,7 @@ export function installBattleSceneDebugUi(BattleScene) {
         this.debugExitBtn,
         this.debugTestSceneBtn,
         this.debugHexShadowBtn,
+        this.debugUnitsBtn,
       ];
       debugMenuBtns.forEach((btn, idx) => {
         if (!btn) return;
@@ -284,7 +310,93 @@ export function installBattleSceneDebugUi(BattleScene) {
         this.debugExitBtn,
         this.debugTestSceneBtn,
         this.debugHexShadowBtn,
+        this.debugUnitsBtn,
       ]);
+
+      this.debugUnitsMenu = this.add.container(0, 0)
+        .setDepth(10035)
+        .setScrollFactor(0)
+        .setVisible(false);
+      this.debugUnitsMenuBg = this.add.rectangle(0, 0, DEBUG_UNITS_MENU_W, 220, 0x111111, 0.95)
+        .setOrigin(0, 0)
+        .setStrokeStyle(2, 0x666666, 0.95);
+      this.debugUnitsMenuHit = this.add.zone(0, 0, DEBUG_UNITS_MENU_W, 220)
+        .setOrigin(0, 0)
+        .setInteractive();
+      this.debugUnitsMenuHit.on('pointerdown', (pointer) => pointer?.event?.stopPropagation?.());
+      this.debugUnitsMenu.add([this.debugUnitsMenuHit, this.debugUnitsMenuBg]);
+
+      this.debugUnitRaceButtons = [];
+      this.debugUnitTypeButtons = [];
+
+      DEBUG_UNITS_RACES.forEach((race, idx) => {
+        const btn = this.add.text(DEBUG_UNITS_MENU_W / 2, DEBUG_UNITS_TOP + idx * DEBUG_UNITS_ROW_STEP, race.label, {
+          fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+          fontSize: '16px',
+          color: '#ffffff',
+          backgroundColor: race.bg,
+          padding: { left: 12, right: 12, top: 7, bottom: 7 },
+        })
+          .setOrigin(0.5, 0)
+          .setDepth(10036)
+          .setInteractive({ useHandCursor: true });
+        btn._debugRace = race.key;
+        btn.on('pointerdown', (pointer) => {
+          pointer?.event?.stopPropagation?.();
+          this.debugUnitsMenuRace = race.key;
+          this.refreshDebugUnitsMenuContent?.();
+          this.syncDebugUI?.();
+        });
+        this.debugUnitRaceButtons.push(btn);
+        this.debugUnitsMenu.add(btn);
+      });
+
+      this.debugUnitsBackBtn = this.add.text(DEBUG_UNITS_MENU_W / 2, DEBUG_UNITS_TOP, '← BACK TO RACES', {
+        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+        fontSize: '14px',
+        color: '#ffffff',
+        backgroundColor: 'rgba(60,60,60,0.75)',
+        padding: { left: 10, right: 10, top: 6, bottom: 6 },
+      })
+        .setOrigin(0.5, 0)
+        .setDepth(10036)
+        .setInteractive({ useHandCursor: true })
+        .setVisible(false);
+      this.debugUnitsBackBtn.on('pointerdown', (pointer) => {
+        pointer?.event?.stopPropagation?.();
+        this.debugUnitsMenuRace = null;
+        this.refreshDebugUnitsMenuContent?.();
+        this.syncDebugUI?.();
+      });
+      this.debugUnitsMenu.add(this.debugUnitsBackBtn);
+
+      DEBUG_SHOP_UNITS.forEach((def, idx) => {
+        const btn = this.add.text(DEBUG_UNITS_MENU_W / 2, DEBUG_UNITS_TOP + idx * DEBUG_UNITS_ROW_STEP, def.label, {
+          fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+          fontSize: '15px',
+          color: '#ffffff',
+          backgroundColor: 'rgba(0,0,0,0.55)',
+          padding: { left: 8, right: 8, top: 6, bottom: 6 },
+        })
+          .setOrigin(0.5, 0)
+          .setDepth(10036)
+          .setInteractive({ useHandCursor: true });
+        btn._debugRace = def.race ?? null;
+        btn._debugType = def.type ?? null;
+        btn.on('pointerdown', (pointer) => {
+          pointer?.event?.stopPropagation?.();
+          if (!btn._debugType) return;
+          this.ws?.sendIntentDebugSetShopUnit?.(btn._debugType);
+          this.debugUnitsMenuOpen = false;
+          this.debugUnitsMenuRace = null;
+          this.refreshDebugUnitsMenuContent?.();
+          this.syncDebugUI?.();
+        });
+        this.debugUnitTypeButtons.push(btn);
+        this.debugUnitsMenu.add(btn);
+      });
+
+      this.refreshDebugUnitsMenuContent?.();
 
       this.debugBotsModal = this.add.container(0, 0)
         .setDepth(10030)
@@ -452,6 +564,14 @@ export function installBattleSceneDebugUi(BattleScene) {
         this.drawGrid?.();
         this.syncDebugUI?.();
       });
+      this.debugUnitsBtn.on('pointerdown', (pointer) => {
+        pointer?.event?.stopPropagation?.();
+        const nextOpen = !this.debugUnitsMenuOpen;
+        this.debugUnitsMenuOpen = nextOpen;
+        if (nextOpen) this.debugUnitsMenuRace = null;
+        this.refreshDebugUnitsMenuContent?.();
+        this.syncDebugUI?.();
+      });
       this.debugExitBtn.on('pointerdown', () => {
         if (this.testSceneActive) {
           this.exitTestScene?.();
@@ -476,6 +596,11 @@ export function installBattleSceneDebugUi(BattleScene) {
             this.debugExitBtn,
             this.debugTestSceneBtn,
             this.debugHexShadowBtn,
+            this.debugUnitsBtn,
+            this.debugUnitsMenuHit,
+            this.debugUnitsBackBtn,
+            ...(this.debugUnitRaceButtons ?? []),
+            ...(this.debugUnitTypeButtons ?? []),
           ].filter(Boolean);
           const tappedDebugButton = debugButtons.some((obj) => over.includes(obj));
           if (!tappedDebugButton) {
@@ -603,6 +728,68 @@ export function installBattleSceneDebugUi(BattleScene) {
           y = Math.max(8, this.scale.height - infoH - 8);
         }
         this.debugRoundModal.setPosition(x, y);
+      }
+      if (this.debugUnitsMenu) {
+        const mainX = this.debugModal?.x ?? (this.scale.width - (this.debugModalBg?.width ?? 180) - 14);
+        const mainY = this.debugModal?.y ?? 14;
+        const menuW = this.debugUnitsMenuBg?.width ?? DEBUG_UNITS_MENU_W;
+        const menuH = this.debugUnitsMenuBg?.height ?? 220;
+        const gap = 8;
+        let x = mainX - menuW - gap;
+        let y = mainY;
+        if (x < 8) {
+          x = Math.max(8, this.scale.width - menuW - 8);
+          y = Math.min(Math.max(8, mainY + (this.debugModalBg?.height ?? 430) + gap), Math.max(8, this.scale.height - menuH - 8));
+        }
+        if (y + menuH > this.scale.height - 8) {
+          y = Math.max(8, this.scale.height - menuH - 8);
+        }
+        this.debugUnitsMenu.setPosition(x, y);
+      }
+    },
+
+    refreshDebugUnitsMenuContent() {
+      if (!this.debugUnitsMenuBg || !this.debugUnitsMenuHit) return;
+
+      const selectedRace = this.debugUnitsMenuRace ?? null;
+      const raceButtons = this.debugUnitRaceButtons ?? [];
+      const unitButtons = this.debugUnitTypeButtons ?? [];
+
+      if (!selectedRace) {
+        const rows = Math.max(1, raceButtons.length);
+        const h = Math.max(120, DEBUG_UNITS_TOP + rows * DEBUG_UNITS_ROW_STEP + 8);
+        this.debugUnitsMenuBg.setSize(DEBUG_UNITS_MENU_W, h);
+        this.debugUnitsMenuHit.setSize(DEBUG_UNITS_MENU_W, h);
+
+        raceButtons.forEach((btn, idx) => {
+          btn.setPosition(DEBUG_UNITS_MENU_W / 2, DEBUG_UNITS_TOP + idx * DEBUG_UNITS_ROW_STEP);
+          btn.setVisible(true);
+        });
+
+        this.debugUnitsBackBtn?.setVisible(false);
+        unitButtons.forEach((btn) => btn.setVisible(false));
+        return;
+      }
+
+      const visibleUnits = unitButtons.filter((btn) => btn?._debugRace === selectedRace);
+      const rows = 1 + Math.max(1, visibleUnits.length);
+      const h = Math.max(160, DEBUG_UNITS_TOP + rows * DEBUG_UNITS_ROW_STEP + 8);
+      this.debugUnitsMenuBg.setSize(DEBUG_UNITS_MENU_W, h);
+      this.debugUnitsMenuHit.setSize(DEBUG_UNITS_MENU_W, h);
+
+      raceButtons.forEach((btn) => btn.setVisible(false));
+      if (this.debugUnitsBackBtn) {
+        this.debugUnitsBackBtn.setPosition(DEBUG_UNITS_MENU_W / 2, DEBUG_UNITS_TOP);
+        this.debugUnitsBackBtn.setVisible(true);
+      }
+
+      let i = 0;
+      for (const btn of unitButtons) {
+        const show = btn?._debugRace === selectedRace;
+        btn.setVisible(show);
+        if (!show) continue;
+        btn.setPosition(DEBUG_UNITS_MENU_W / 2, DEBUG_UNITS_TOP + DEBUG_UNITS_ROW_STEP + i * DEBUG_UNITS_ROW_STEP);
+        i += 1;
       }
     },
 
@@ -851,6 +1038,8 @@ export function installBattleSceneDebugUi(BattleScene) {
       this.debugMenuOpen = false;
       this.debugKingMenuOpen = false;
       this.roundInfoOpen = false;
+      this.debugUnitsMenuOpen = false;
+      this.debugUnitsMenuRace = null;
       this.syncDebugUI();
     },
 
@@ -859,6 +1048,8 @@ export function installBattleSceneDebugUi(BattleScene) {
       if (!this.debugMenuOpen) {
         this.debugKingMenuOpen = false;
         this.roundInfoOpen = false;
+        this.debugUnitsMenuOpen = false;
+        this.debugUnitsMenuRace = null;
       }
       this.syncDebugUI();
     },
@@ -884,6 +1075,10 @@ export function installBattleSceneDebugUi(BattleScene) {
       if (this.debugRoundModal) {
         this.refreshRoundDebugInfo?.();
         this.debugRoundModal.setVisible(!!this.debugMenuOpen && !!this.roundInfoOpen);
+      }
+      if (this.debugUnitsMenu) {
+        this.refreshDebugUnitsMenuContent?.();
+        this.debugUnitsMenu.setVisible(!!this.debugMenuOpen && !!this.debugUnitsMenuOpen && !this.testSceneActive);
       }
 
       const canBattle = !!this.debugCanStartBattle;
@@ -931,6 +1126,12 @@ export function installBattleSceneDebugUi(BattleScene) {
         const active = !!this.debugShowHexShadowDuringBattle;
         this.debugHexShadowBtn.setAlpha(active ? 1 : 0.9);
         this.debugHexShadowBtn.setText(`${active ? '[x]' : '[ ]'} HEX SHADOW`);
+      }
+      if (this.debugUnitsBtn) {
+        const canUse = !!this.debugMenuOpen && !this.testSceneActive;
+        this.debugUnitsBtn.setVisible(!!this.debugMenuOpen);
+        if (this.debugUnitsBtn.input) this.debugUnitsBtn.input.enabled = canUse;
+        this.debugUnitsBtn.setAlpha(canUse ? (this.debugUnitsMenuOpen ? 1 : 0.9) : 0.45);
       }
 
       if (this.debugKingBtn) {

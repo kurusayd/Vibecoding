@@ -5,6 +5,7 @@ const DEFAULT_ATTACK_RANGE_MAX = 1;
 const DEFAULT_ATTACK_RANGE_FULL_DAMAGE = 1;
 const DEFAULT_ATTACK_SPEED = 1;
 const DEFAULT_MOVE_SPEED = 1;
+const DEFAULT_ABILITY_TYPE = 'none';
 
 export function createBattleState() {
   return {
@@ -46,6 +47,8 @@ export function addUnit(state, unit) {
     moveSpeed,
     attackRangeMax,
     attackRangeFullDamage,
+    abilityType: String(unit.abilityType ?? DEFAULT_ABILITY_TYPE),
+    abilityKey: unit.abilityKey ?? null,
     attackSeq: unit.attackSeq ?? 0,
     dead: Boolean(unit.dead ?? false),
   });

@@ -64,10 +64,11 @@ const KING_UI = {
   hpLagSpeed: 18,
 };
 const KING_XP_BAR_UI = {
-  width: 156,            // ширина XP-бара
+  width: 138,            // ширина XP-бара
   height: 14,            // высота XP-бара
   radius: 6,             // скругление
-  xOffset: -8,           // смещение бара по X (влево/вправо)
+  xOffset: -3,            // смещение бара по X (влево/вправо)
+  yOffset: 5,            // смещение бара по Y (вверх/вниз)
   fillColor: 0xc9a7ff,   // светло-фиолетовая заливка
   fillAlpha: 0.95,
 };
@@ -104,6 +105,7 @@ function getUnitShortLabel(type) {
   if (t === 'skeleton') return 'Sk';
   if (t === 'skeletonarcher' || t === 'skeleton_archer') return 'SA';
   if (t === 'swordsman' || t === 'swordmen') return 'S';
+  if (t === 'undertaker') return 'U';
   if (t === 'vampire') return 'V';
   if (t === 'zombie') return 'Z';
   return '?';
@@ -129,7 +131,7 @@ export default class BattleScene extends Phaser.Scene {
     this.load.image('rank2', '/assets/icons/rank2.png');
     this.load.image('rank3', '/assets/icons/rank3.png');
     this.load.image('particleStar', '/assets/particles/particle_star.png');
-    this.load.image('crownexp', '/assets/crownexp.png');
+    this.load.image('crownexp', '/assets/icons/crownexp.png');
     this.load.image('updateMarketIcon', '/assets/icons/update_market.png');
 
     for (const asset of EXTRA_PORTRAIT_ASSETS) {
@@ -430,13 +432,9 @@ export default class BattleScene extends Phaser.Scene {
       .setInteractive({ useHandCursor: true });
     this.kingXpBuyBtnHit.on('pointerdown', (pointer) => {
       pointer?.event?.stopPropagation?.();
-      const canBuy =
-        !this.testSceneActive &&
-        this.battleState?.phase === 'prep' &&
-        !this.battleState?.result &&
-        Number(this.battleState?.kings?.player?.coins ?? 0) >= KING_XP_BUY_COST &&
-        Number(this.battleState?.kings?.player?.level ?? 1) < Number(this.kingMaxLevel ?? KING_MAX_LEVEL);
-      if (!canBuy) return;
+      const isPrepPhase = !this.testSceneActive && this.battleState?.phase === 'prep' && !this.battleState?.result;
+      const canLevel = Number(this.battleState?.kings?.player?.level ?? 1) < Number(this.kingMaxLevel ?? KING_MAX_LEVEL);
+      if (!isPrepPhase || !canLevel) return;
       if (this.kingXpBuyBtnIcon) {
         this.tweens.killTweensOf(this.kingXpBuyBtnIcon);
         const baseScaleX = this.kingXpBuyBtnIcon.scaleX;
@@ -451,6 +449,11 @@ export default class BattleScene extends Phaser.Scene {
           ease: 'Quad.Out',
         });
       }
+      const hasCoins = Number(this.battleState?.kings?.player?.coins ?? 0) >= KING_XP_BUY_COST;
+      if (!hasCoins) {
+        this.showKingXpBuyInsufficientHint?.();
+        return;
+      }
       this.ws?.sendIntentBuyXp?.();
     });
     this.kingXpBuyBtn.add([
@@ -459,6 +462,48 @@ export default class BattleScene extends Phaser.Scene {
       this.kingXpBuyBtnCostGroup,
       this.kingXpBuyBtnHit,
     ]);
+    this.kingXpBuyHintText = this.add.text(0, 0, 'Не хватает', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '24px',
+      color: '#ffd7d7',
+      fontStyle: 'bold',
+    })
+      .setOrigin(0, 0.5)
+      .setShadow(0, 0, '#000000', 6, true, true);
+    this.kingXpBuyHintCoin = this.add.image(0, 0, 'coin')
+      .setDisplaySize(24, 24)
+      .setOrigin(0.5, 0.5);
+
+    const xpBuyHintGap = 10;
+    const xpBuyHintTextW = Number(this.kingXpBuyHintText.width ?? 0);
+    const xpBuyHintCoinW = Number(this.kingXpBuyHintCoin.displayWidth ?? 24);
+    const xpBuyHintTotalW = xpBuyHintTextW + xpBuyHintGap + xpBuyHintCoinW;
+    const xpBuyHintLeftX = -xpBuyHintTotalW / 2;
+    this.kingXpBuyHintText.setPosition(xpBuyHintLeftX, 0);
+    this.kingXpBuyHintCoin.setPosition(xpBuyHintLeftX + xpBuyHintTextW + xpBuyHintGap + xpBuyHintCoinW / 2, 0);
+    this.kingXpBuyHint = this.add.container(0, 44, [
+      this.kingXpBuyHintText,
+      this.kingXpBuyHintCoin,
+    ])
+      .setVisible(false)
+      .setAlpha(0);
+    this.kingXpBuyBtn.add(this.kingXpBuyHint);
+
+    this.showKingXpBuyInsufficientHint = () => {
+      if (!this.kingXpBuyHint) return;
+      this.tweens.killTweensOf(this.kingXpBuyHint);
+      this.kingXpBuyHint.setVisible(true).setAlpha(1).setY(44);
+      this.tweens.add({
+        targets: this.kingXpBuyHint,
+        y: 50,
+        alpha: 0,
+        duration: 850,
+        ease: 'Quad.Out',
+        onComplete: () => {
+          this.kingXpBuyHint?.setVisible(false).setY(44);
+        },
+      });
+    };
 
     const hpTextStyle = { //вставляем текст НР бара короля поверх полоски
       fontFamily: kingTextStyle.fontFamily,
@@ -1800,6 +1845,11 @@ export default class BattleScene extends Phaser.Scene {
         const vu = byId.get(id);
         if (!vu?.art) continue;
         const attackerCore = (this.battleState?.units ?? []).find((x) => x.id === id) ?? null;
+        // Replay parity with server: when attack starts, attacker must stop moving.
+        // Snap to the current logical hex immediately (no glide during attack animation).
+        if (attackerCore && attackerCore.zone === 'board' && !attackerCore.dead) {
+          this.unitSys.setUnitPos(attackerCore.id, attackerCore.q, attackerCore.r, { tweenMs: 0 });
+        }
         const targetCore = this.findClosestOpponentForFacing(attackerCore);
         this.faceUnitVisualTowardCoreUnit(vu, targetCore);
         vu._attackAnimPlaying = true;

@@ -67,6 +67,10 @@ export function makeDebugAddLevelIntent() {
   return { type: 'intent', action: 'debugAddLevel' };
 }
 
+export function makeDebugSetShopUnitIntent(unitType) {
+  return { type: 'intent', action: 'debugSetShopUnit', unitType };
+}
+
 export function makeShopBuyIntent(offerIndex) {
   return { type: 'intent', action: 'shopBuy', offerIndex };
 }

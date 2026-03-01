@@ -151,6 +151,16 @@ export const UNIT_ATLAS_DEFS = [
     framePrefix: 'psd_anim',
   },
   {
+    type: 'Undertaker',
+    atlasKey: 'undertaker_atlas',
+    atlasPath: '/assets/units/undead/undertaker/undertaker_atlas',
+    idleAnim: 'undertaker_idle',
+    walkAnim: 'undertaker_walk',
+    attackAnim: 'undertaker_attack',
+    deadAnim: 'undertaker_dead',
+    framePrefix: 'psd_anim',
+  },
+  {
     type: 'Angel',
     atlasKey: 'angel_atlas',
     atlasPath: '/assets/units/gods/angel/angel_atlas',

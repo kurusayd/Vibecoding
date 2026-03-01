@@ -144,6 +144,17 @@ export const UNIT_VISUAL_CONFIG_BY_TYPE = {
     footShadowOffsetXPx: 0,
     footShadowOffsetYPx: 11,
   },
+  Undertaker: {
+    // Same visual profile as Crusader for now.
+    groundLiftPx: 100,
+    artTargetPx: 160,
+    artOffsetXPx: 5,
+    hpUiLiftPx: 40,
+    footShadowWidthPx: 65,
+    footShadowHeightPx: 18,
+    footShadowOffsetXPx: 0,
+    footShadowOffsetYPx: 15,
+  },
   Angel: {
     groundLiftPx: 130,
     artTargetPx: 220,

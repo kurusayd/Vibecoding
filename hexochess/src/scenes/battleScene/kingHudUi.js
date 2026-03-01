@@ -18,7 +18,7 @@ export function installBattleSceneKingHudUi(BattleScene) {
       this.kingLevelContainer.setPosition(baseX + crownW / 2, xpY);
 
       if (this.kingXpBuyBtn) {
-        this.kingXpBuyBtn.setPosition(baseX + 232, xpY);
+        this.kingXpBuyBtn.setPosition(baseX + 222, xpY);
       }
 
       const iconW = this.kingLeftCoinIcon.displayWidth || this.coinSize;
@@ -57,20 +57,33 @@ export function installBattleSceneKingHudUi(BattleScene) {
       if (this.kingXpBuyBtn) {
         const phase = this.battleState?.phase ?? 'prep';
         const result = this.battleState?.result ?? null;
-        const canBuyXp =
+        const level = Number(lvl);
+        const buyCost = Number(this.kingXpBuyCost ?? 4);
+        const hasCoins = Number(rawCoins) >= buyCost;
+        const canUseXpButton =
           !this.testSceneActive &&
           phase === 'prep' &&
           !result &&
-          Number(rawCoins) >= Number(this.kingXpBuyCost ?? 4) &&
-          Number(lvl) < Number(this.kingMaxLevel ?? KING_MAX_LEVEL);
+          level < Number(this.kingMaxLevel ?? KING_MAX_LEVEL);
         this.kingXpBuyBtn.setVisible(!this.testSceneActive);
-        this.kingXpBuyBtn.setAlpha(canBuyXp ? 1 : 0.62);
-        if (this.kingXpBuyBtnHit?.input) this.kingXpBuyBtnHit.input.enabled = canBuyXp;
-        this.kingXpBuyBtnIcon?.setTint(canBuyXp ? 0xffffff : 0xb0b0b0);
-        this.kingXpBuyBtnCoin?.setAlpha(canBuyXp ? 1 : 0.72);
-        this.kingXpBuyBtnCostText?.setColor(canBuyXp ? '#ffd85a' : '#c8c8c8');
-        this.kingXpBuyBtnCostText?.setStroke(canBuyXp ? '#b35a00' : '#6e6e6e', 2);
-        this.kingXpBuyBtnTopText?.setColor(canBuyXp ? '#fff0cf' : '#d8d8d8');
+        this.kingXpBuyBtn.setAlpha(canUseXpButton ? 1 : 0.62);
+        if (this.kingXpBuyBtnHit?.input) this.kingXpBuyBtnHit.input.enabled = canUseXpButton;
+        this.kingXpBuyBtnIcon?.setTint(canUseXpButton ? 0xffffff : 0xb0b0b0);
+        this.kingXpBuyBtnCoin?.setAlpha(canUseXpButton ? 1 : 0.72);
+
+        if (!canUseXpButton) {
+          this.kingXpBuyBtnCostText?.setColor('#c8c8c8');
+          this.kingXpBuyBtnCostText?.setStroke('#6e6e6e', 2);
+          this.kingXpBuyBtnTopText?.setColor('#d8d8d8');
+        } else if (!hasCoins) {
+          this.kingXpBuyBtnCostText?.setColor('#ff5f5f');
+          this.kingXpBuyBtnCostText?.setStroke('#6b1212', 2);
+          this.kingXpBuyBtnTopText?.setColor('#fff0cf');
+        } else {
+          this.kingXpBuyBtnCostText?.setColor('#ffd85a');
+          this.kingXpBuyBtnCostText?.setStroke('#b35a00', 2);
+          this.kingXpBuyBtnTopText?.setColor('#fff0cf');
+        }
       }
 
       const phase = this.battleState?.phase ?? 'prep';
@@ -107,8 +120,9 @@ export function installBattleSceneKingHudUi(BattleScene) {
       const overlap = 10;
       const gap = 2;
       const barDx = Number(ui.xOffset ?? -8);
+      const barDy = Number(ui.yOffset ?? 0);
       const x = (iconW / 2) - overlap + gap + barDx;
-      const y = -h / 2;
+      const y = -h / 2 + barDy;
 
       this.kingLevelBarBg.clear();
       this.kingLevelBarFill.clear();
@@ -303,4 +317,3 @@ export function installBattleSceneKingHudUi(BattleScene) {
     },
   });
 }
-

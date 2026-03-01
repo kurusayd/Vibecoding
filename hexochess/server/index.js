@@ -766,6 +766,36 @@ function makeRandomOffer() {
     moveSpeed: base.moveSpeed ?? DEFAULT_UNIT_MOVE_SPEED,
     attackRangeMax: base.attackRangeMax ?? 1,
     attackRangeFullDamage: base.attackRangeFullDamage ?? (base.attackRangeMax ?? 1),
+    abilityType: base.abilityType ?? 'none',
+    abilityKey: base.abilityKey ?? null,
+  };
+}
+
+function makeOfferFromCatalogUnit(base) {
+  const src = base ?? {
+    type: 'Swordsman',
+    powerType: 'Пешка',
+    hp: 60,
+    atk: 20,
+    attackSpeed: DEFAULT_UNIT_ATTACK_SPEED,
+    moveSpeed: DEFAULT_UNIT_MOVE_SPEED,
+    attackRangeMax: 1,
+    attackRangeFullDamage: 1,
+  };
+  const cost = COST_BY_POWER_TYPE[src.powerType] ?? 1;
+  return {
+    type: src.type,
+    powerType: src.powerType,
+    cost,
+    hp: src.hp,
+    maxHp: src.hp,
+    atk: src.atk,
+    attackSpeed: src.attackSpeed ?? DEFAULT_UNIT_ATTACK_SPEED,
+    moveSpeed: src.moveSpeed ?? DEFAULT_UNIT_MOVE_SPEED,
+    attackRangeMax: src.attackRangeMax ?? 1,
+    attackRangeFullDamage: src.attackRangeFullDamage ?? (src.attackRangeMax ?? 1),
+    abilityType: src.abilityType ?? 'none',
+    abilityKey: src.abilityKey ?? null,
   };
 }
 
@@ -842,6 +872,8 @@ function spawnBotArmy() {
       team: 'enemy',
       type: base.type,
       powerType: base.powerType,
+      abilityType: base.abilityType ?? 'none',
+      abilityKey: base.abilityKey ?? null,
       rank,
       zone: 'board',
       benchSlot: null,
@@ -884,6 +916,8 @@ function buildBotBoardUnitsForSim(botId, team, nextIdRef) {
       team,
       type: base.type,
       powerType: base.powerType,
+      abilityType: base.abilityType ?? 'none',
+      abilityKey: base.abilityKey ?? null,
       rank,
       zone: 'board',
       benchSlot: null,
@@ -894,6 +928,7 @@ function buildBotBoardUnitsForSim(botId, team, nextIdRef) {
       dead: false,
       nextAttackAt: 0,
       nextMoveAt: 0,
+      nextActionAt: 0,
       attackSeq: 0,
     });
   }
@@ -1077,6 +1112,9 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
       const moveIntervalMs = 1000 / moveSpeed;
       me.nextAttackAt = Math.max(0, Number(me.nextAttackAt ?? 0));
       me.nextMoveAt = Math.max(0, Number(me.nextMoveAt ?? 0));
+      // Unified action gate:
+      // after movement, unit cannot start attack/ability until it "arrives" to destination hex.
+      me.nextActionAt = Math.max(0, Number(me.nextActionAt ?? 0));
 
       let unitActions = 0;
       while (unitActions < MAX_ACTIONS_PER_UNIT_PER_TICK) {
@@ -1087,6 +1125,7 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
         const attackRangeMax = Math.max(1, Number(me.attackRangeMax ?? 1));
 
         if (dist <= attackRangeMax) {
+          if (tickTimeMs + 1e-6 < me.nextActionAt) break;
           if (tickTimeMs + 1e-6 < me.nextAttackAt) break;
 
           const targetBefore = { hp: Number(liveTarget.hp ?? 0), maxHp: Number(liveTarget.maxHp ?? liveTarget.hp ?? 0) };
@@ -1126,7 +1165,9 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
 
         const from = { q: me.q, r: me.r };
         const moved = moveUnit(simState, me.id, step.q, step.r);
-        me.nextMoveAt = Math.max(me.nextMoveAt, tickTimeMs) + moveIntervalMs;
+        const moveReadyAt = Math.max(me.nextMoveAt, tickTimeMs) + moveIntervalMs;
+        me.nextMoveAt = moveReadyAt;
+        me.nextActionAt = Math.max(me.nextActionAt, moveReadyAt);
         unitActions += 1;
         if (!moved) break;
 
@@ -1204,6 +1245,7 @@ function sanitizeUnitForBattleStart(unit) {
   if (!unit) return;
   unit.nextAttackAt = 0;
   unit.nextMoveAt = 0;
+  unit.nextActionAt = 0;
   unit.attackSeq = 0;
 }
 
@@ -1211,6 +1253,7 @@ function clonePlayerUnitForPrep(unit) {
   const clone = { ...unit };
   clone.nextAttackAt = 0;
   clone.nextMoveAt = 0;
+  clone.nextActionAt = 0;
   clone.attackSeq = 0;
   clone.dead = false;
   if (Number(clone.hp ?? 0) <= 0) {
@@ -1393,7 +1436,7 @@ function handleIntent(clientId, msg, ws) {
   if (!clientToUnits.get(clientId)) clientToUnits.set(clientId, owned);
 
   // DEV ONLY: BELOW INTENTS INCLUDE DEBUG/RESET ACTIONS AND MUST BE RESTRICTED BEFORE SHARED LOBBIES.
-  const ALLOW_WITHOUT_UNITS = new Set(['shopBuy', 'shopRefresh', 'startGame', 'startBattle', 'buyXp', 'resetGame', 'debugAddGold100', 'debugAddLevel']);
+  const ALLOW_WITHOUT_UNITS = new Set(['shopBuy', 'shopRefresh', 'startGame', 'startBattle', 'buyXp', 'resetGame', 'debugAddGold100', 'debugAddLevel', 'debugSetShopUnit']);
   if (!ALLOW_WITHOUT_UNITS.has(msg.action) && owned.size === 0) {
     ws.send(JSON.stringify(makeErrorMessage('NO_UNIT', 'No unit assigned to this client')));
     return;
@@ -1670,6 +1713,31 @@ function handleIntent(clientId, msg, ws) {
     return;
   }
 
+  if (msg.action === 'debugSetShopUnit') {
+    // DEV ONLY: DEBUG SHOP OVERRIDE. MUST BE DISABLED/PROTECTED IN PRODUCTION.
+    if (state.phase !== 'prep' && state.phase !== 'battle') {
+      ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'debugSetShopUnit allowed only in prep/battle')));
+      return;
+    }
+    const unitType = String(msg.unitType ?? '').trim();
+    if (!unitType) {
+      ws.send(JSON.stringify(makeErrorMessage('BAD_ARGS', 'unitType required')));
+      return;
+    }
+    const base = UNIT_CATALOG.find((u) => String(u.type) === unitType);
+    if (!base) {
+      ws.send(JSON.stringify(makeErrorMessage('BAD_ARGS', `Unknown unitType: ${unitType}`)));
+      return;
+    }
+    state.shop = state.shop ?? { offers: [] };
+    state.shop.offers = [];
+    for (let i = 0; i < SHOP_OFFER_COUNT; i++) {
+      state.shop.offers.push(makeOfferFromCatalogUnit(base));
+    }
+    broadcast(makeStateMessage(state));
+    return;
+  }
+
   if (msg.action === 'shopRefresh') {
     const canRefreshShop = canManageShopInPhase(state.phase);
     if (!canRefreshShop) {
@@ -1740,6 +1808,8 @@ function handleIntent(clientId, msg, ws) {
       team: 'player',
       type: offer.type,
       powerType: offer.powerType,
+      abilityType: offer.abilityType ?? 'none',
+      abilityKey: offer.abilityKey ?? null,
       rank: 1,
       zone: freeBoardCell ? 'board' : 'bench',
       benchSlot: freeBoardCell ? null : freeSlot,
