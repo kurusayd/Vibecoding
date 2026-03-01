@@ -1,5 +1,5 @@
 import { updateHpBar } from '../../game/hpbar.js';
-import { getUnitArtOffsetXPx, getUnitGroundLiftPx } from '../../game/unitVisualConfig.js';
+import { getUnitArtOffsetXPx, getUnitFootShadowConfig, getUnitGroundLiftPx } from '../../game/unitVisualConfig.js';
 
 export function installBattleSceneDrag(BattleScene) {
   Object.assign(BattleScene.prototype, {
@@ -59,6 +59,7 @@ export function installBattleSceneDrag(BattleScene) {
             ease: 'Quad.Out',
           });
         }
+        if (vu?.footShadow) vu.footShadow.setVisible(false);
         if (vu?.hpBar) vu.hpBar.setVisible(false);
         if (vu?.rankIcon) vu.rankIcon.setVisible(false);
         this.drawGrid();
@@ -147,13 +148,16 @@ export function installBattleSceneDrag(BattleScene) {
         if (!this.testSceneActive && Number.isInteger(dropBenchSlot)) {
           if (core.zone === 'bench' && Number(core.benchSlot) === Number(dropBenchSlot)) {
             const vu = this.unitSys.findUnit(uid);
-            if (vu) {
+          if (vu) {
               const p = this.benchSlotToScreen(dropBenchSlot);
               const lift = getUnitGroundLiftPx(core.type);
+              const shadowCfg = getUnitFootShadowConfig(core.type);
               vu.sprite?.setPosition(p.x, p.y);
               vu.dragHandle?.setPosition(p.x, p.y);
               vu.label?.setPosition(p.x, p.y);
               vu.art?.setPosition(p.x + getUnitArtOffsetXPx(core.type, core.team), p.y + this.hexSize - lift);
+              vu.footShadow?.setPosition(p.x + shadowCfg.offsetXPx, p.y + shadowCfg.offsetYPx);
+              if (!core.dead) vu.footShadow?.setVisible(true);
               if (vu.hpBar) vu.hpBar.setVisible(false);
               if (vu.rankIcon) vu.rankIcon.setVisible(!core.dead);
               updateHpBar(this, vu);
@@ -196,10 +200,13 @@ export function installBattleSceneDrag(BattleScene) {
               const p = this.hexToPixel(hit.q, hit.r);
               const lift = getUnitGroundLiftPx(core.type);
               const g = this.hexToGroundPixel(hit.q, hit.r, lift);
+              const shadowCfg = getUnitFootShadowConfig(core.type);
               vu.sprite?.setPosition(p.x, p.y);
               vu.dragHandle?.setPosition(p.x, p.y);
               vu.label?.setPosition(p.x, p.y);
               vu.art?.setPosition(g.x + getUnitArtOffsetXPx(core.type, core.team), g.y);
+              vu.footShadow?.setPosition(p.x + shadowCfg.offsetXPx, p.y + shadowCfg.offsetYPx);
+              if (!core.dead) vu.footShadow?.setVisible(true);
               if (vu.hpBar) vu.hpBar.setVisible(false);
               if (vu.rankIcon) vu.rankIcon.setVisible(!core.dead);
               updateHpBar(this, vu);

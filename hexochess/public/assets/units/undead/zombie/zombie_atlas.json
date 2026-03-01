@@ -1,6 +1,6 @@
 {
   "frames": {
-    "psd_animation/attack0001.png": {
+    "psd_anim/attack0001.png": {
       "frame": {
         "x": 3,
         "y": 3,
@@ -24,7 +24,7 @@
         "y": 0.5
       }
     },
-    "psd_animation/attack0002.png": {
+    "psd_anim/attack0002.png": {
       "frame": {
         "x": 3,
         "y": 265,
@@ -48,7 +48,7 @@
         "y": 0.5
       }
     },
-    "psd_animation/attack0003.png": {
+    "psd_anim/dead.png": {
       "frame": {
         "x": 3,
         "y": 527,
@@ -72,7 +72,7 @@
         "y": 0.5
       }
     },
-    "psd_animation/dead.png": {
+    "psd_anim/idle.png": {
       "frame": {
         "x": 3,
         "y": 789,
@@ -96,7 +96,7 @@
         "y": 0.5
       }
     },
-    "psd_animation/idle.png": {
+    "psd_anim/walk0001.png": {
       "frame": {
         "x": 3,
         "y": 1051,
@@ -120,7 +120,7 @@
         "y": 0.5
       }
     },
-    "psd_animation/walk0001.png": {
+    "psd_anim/walk0002.png": {
       "frame": {
         "x": 3,
         "y": 1313,
@@ -144,10 +144,10 @@
         "y": 0.5
       }
     },
-    "psd_animation/walk0002.png": {
+    "psd_anim/attack0003.png": {
       "frame": {
         "x": 3,
-        "y": 1575,
+        "y": 3,
         "w": 256,
         "h": 256
       },
@@ -176,7 +176,7 @@
     "format": "RGBA8888",
     "size": {
       "w": 262,
-      "h": 1834
+      "h": 1572
     },
     "scale": 1
   }

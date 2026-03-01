@@ -46,6 +46,7 @@ export function installBattleSceneDebugUi(BattleScene) {
       this.testSceneBattleStartSnapshot = null;
       this.testSceneSavedLiveState = null;
       this.testSceneQueuedLiveState = null;
+      this.debugShowHexShadowDuringBattle = false;
 
       this.debugBtn = this.add.text(this.scale.width - 14, 19, 'Debug', {
         fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
@@ -142,7 +143,7 @@ export function installBattleSceneDebugUi(BattleScene) {
         .setScrollFactor(0)
         .setVisible(false);
 
-      this.debugModalBg = this.add.rectangle(0, 0, 180, 336, 0x111111, 0.94)
+      this.debugModalBg = this.add.rectangle(0, 0, 180, 380, 0x111111, 0.94)
         .setOrigin(0, 0)
         .setStrokeStyle(2, 0x666666, 0.95);
 
@@ -219,6 +220,17 @@ export function installBattleSceneDebugUi(BattleScene) {
         .setDepth(10031)
         .setInteractive({ useHandCursor: true });
 
+      this.debugHexShadowBtn = this.add.text(90, 272, '[ ] HEX SHADOW', {
+        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+        fontSize: '15px',
+        color: '#ffffff',
+        backgroundColor: 'rgba(40,40,40,0.70)',
+        padding: { left: 10, right: 10, top: 7, bottom: 7 },
+      })
+        .setOrigin(0.5, 0)
+        .setDepth(10031)
+        .setInteractive({ useHandCursor: true });
+
       this.debugKingBtn = this.add.text(90, 82, DEBUG_UI_TEXT.KING, {
         fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
         fontSize: '18px',
@@ -230,7 +242,7 @@ export function installBattleSceneDebugUi(BattleScene) {
         .setDepth(10031)
         .setInteractive({ useHandCursor: true });
 
-      this.debugModalHit = this.add.zone(0, 0, 180, 336)
+      this.debugModalHit = this.add.zone(0, 0, 180, 380)
         .setOrigin(0, 0)
         .setInteractive();
       this.debugModalHit.on('pointerdown', (pointer) => {
@@ -251,6 +263,7 @@ export function installBattleSceneDebugUi(BattleScene) {
         this.debugLevelBtn,
         this.debugExitBtn,
         this.debugTestSceneBtn,
+        this.debugHexShadowBtn,
       ];
       debugMenuBtns.forEach((btn, idx) => {
         if (!btn) return;
@@ -270,6 +283,7 @@ export function installBattleSceneDebugUi(BattleScene) {
         this.debugLevelBtn,
         this.debugExitBtn,
         this.debugTestSceneBtn,
+        this.debugHexShadowBtn,
       ]);
 
       this.debugBotsModal = this.add.container(0, 0)
@@ -432,6 +446,12 @@ export function installBattleSceneDebugUi(BattleScene) {
         pointer?.event?.stopPropagation?.();
         this.ws?.sendIntentDebugAddLevel?.();
       });
+      this.debugHexShadowBtn.on('pointerdown', (pointer) => {
+        pointer?.event?.stopPropagation?.();
+        this.debugShowHexShadowDuringBattle = !this.debugShowHexShadowDuringBattle;
+        this.drawGrid?.();
+        this.syncDebugUI?.();
+      });
       this.debugExitBtn.on('pointerdown', () => {
         if (this.testSceneActive) {
           this.exitTestScene?.();
@@ -455,6 +475,7 @@ export function installBattleSceneDebugUi(BattleScene) {
             this.debugLevelBtn,
             this.debugExitBtn,
             this.debugTestSceneBtn,
+            this.debugHexShadowBtn,
           ].filter(Boolean);
           const tappedDebugButton = debugButtons.some((obj) => over.includes(obj));
           if (!tappedDebugButton) {
@@ -904,6 +925,12 @@ export function installBattleSceneDebugUi(BattleScene) {
       if (this.debugTestSceneBtn) {
         this.debugTestSceneBtn.setVisible(!!this.debugMenuOpen);
         this.debugTestSceneBtn.setAlpha(this.testSceneActive ? 0.7 : 1);
+      }
+      if (this.debugHexShadowBtn) {
+        this.debugHexShadowBtn.setVisible(!!this.debugMenuOpen);
+        const active = !!this.debugShowHexShadowDuringBattle;
+        this.debugHexShadowBtn.setAlpha(active ? 1 : 0.9);
+        this.debugHexShadowBtn.setText(`${active ? '[x]' : '[ ]'} HEX SHADOW`);
       }
 
       if (this.debugKingBtn) {

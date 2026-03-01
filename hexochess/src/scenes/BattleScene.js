@@ -1,7 +1,7 @@
 ﻿import Phaser from 'phaser';
 import { hexToPixel, pixelToHex, hexCorners, hexToGroundPixel } from '../game/hex.js';
 import { createUnitSystem } from '../game/units.js';
-import { getUnitArtOffsetXPx, getUnitGroundLiftPx } from '../game/unitVisualConfig.js';
+import { getUnitArtOffsetXPx, getUnitFootShadowConfig, getUnitGroundLiftPx } from '../game/unitVisualConfig.js';
 import {
   atlasIdleFrame,
   atlasDeadFrame,
@@ -1980,10 +1980,15 @@ export default class BattleScene extends Phaser.Scene {
           created.dragHandle?.setPosition(p.x, p.y);
           const lift = getUnitGroundLiftPx(u.type);
           created.art?.setPosition(p.x + getUnitArtOffsetXPx(u.type, u.team), p.y + this.hexSize - lift);
+          if (created.footShadow) {
+            const shadowCfg = getUnitFootShadowConfig(u.type);
+            created.footShadow.setPosition(p.x + shadowCfg.offsetXPx, p.y + shadowCfg.offsetYPx);
+          }
 
           // на скамейке hpBar не показываем
           if (created.hpBar) created.hpBar.setVisible(false);
           if (created.rankIcon) created.rankIcon.setVisible(!u.dead);
+          if (created.footShadow) created.footShadow.setVisible(!u.dead);
           if (created) updateHpBar(this, created);
         } else {
           created.zone = 'board';
@@ -2030,6 +2035,7 @@ export default class BattleScene extends Phaser.Scene {
         if (vu?.dragHandle) vu.dragHandle.setPosition(p.x, p.y);
         const lift = getUnitGroundLiftPx(u.type);
         if (vu?.art) vu.art.setPosition(p.x + getUnitArtOffsetXPx(u.type, u.team), p.y + this.hexSize - lift);
+        if (vu?.footShadow) vu.footShadow.setPosition(p.x, p.y + 6);
         if (vu?.label) vu.label.setPosition(p.x, p.y);
 
         if (vu?.hpBar) vu.hpBar.setVisible(false);
@@ -2304,6 +2310,15 @@ export default class BattleScene extends Phaser.Scene {
   drawGridDynamic() {
     const g = this.gDynamic ?? this.g;
     g.clear();
+    const isBattlePhase = !this.testSceneActive && this.battleState?.phase === 'battle';
+    const isReplayBattle =
+      isBattlePhase &&
+      !this.battleState?.result &&
+      !!this.serverReplayPlayback?.active;
+    const isBattleResultPhase = isBattlePhase && !!this.battleState?.result;
+    const showBoardOccupancyShadow = isBattleResultPhase
+      ? !!this.debugShowHexShadowDuringBattle
+      : (!isReplayBattle || !!this.debugShowHexShadowDuringBattle);
 
     // затемнение занятых гексов (доска + скамейка)
     for (const u of (this.battleState?.units ?? [])) {
@@ -2312,6 +2327,7 @@ export default class BattleScene extends Phaser.Scene {
       if (u.dead) continue;
 
       if (u.zone === 'board') {
+        if (!showBoardOccupancyShadow) continue;
         // ? в prep не рисуем тени в скрытых колонках
         if (!this.testSceneActive && this.battleState?.phase === 'prep') {
           const col = u.q + Math.floor(u.r / 2);
@@ -2336,7 +2352,7 @@ export default class BattleScene extends Phaser.Scene {
       this.drawHexFilledOn(g, p.x, p.y, 0x000000, 0.55);
       this.drawHexOn(g, p.x, p.y, 0xffffff, 0.85);
     }
-    if (Number.isInteger(this.dragBenchHoverSlot) && this.battleState?.phase === 'prep' && !this.battleState?.result) {
+    if (Number.isInteger(this.dragBenchHoverSlot)) {
       const p = this.benchSlotToScreen(this.dragBenchHoverSlot);
       this.drawHexFilledOn(g, p.x, p.y, 0x000000, 0.55);
       this.drawHexOn(g, p.x, p.y, 0xffcc66, 0.95);

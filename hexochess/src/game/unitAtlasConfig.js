@@ -88,7 +88,7 @@ export const UNIT_ATLAS_DEFS = [
     walkAnim: 'skeleton_walk',
     attackAnim: 'skeleton_attack',
     deadAnim: 'skeleton_dead',
-    framePrefix: 'psd_anim4',
+    framePrefix: 'psd_anim',
   },
   {
     type: 'BonesGolem',
@@ -108,7 +108,7 @@ export const UNIT_ATLAS_DEFS = [
     walkAnim: 'ghost_walk',
     attackAnim: 'ghost_attack',
     deadAnim: 'ghost_dead',
-    framePrefix: 'psd_animation',
+    framePrefix: 'psd_anim',
   },
   {
     type: 'Lich',
@@ -122,13 +122,13 @@ export const UNIT_ATLAS_DEFS = [
   },
   {
     type: 'SkeletonArcher',
-    atlasKey: 'skeleton_archer_atlas',
-    atlasPath: '/assets/units/undead/skeleton_archer/skeleton_archer_atlas',
+    atlasKey: 'sarcher_atlas',
+    atlasPath: '/assets/units/undead/skeleton_archer/sarcher_atlas',
     idleAnim: 'skeleton_archer_idle',
     walkAnim: 'skeleton_archer_walk',
     attackAnim: 'skeleton_archer_attack',
     deadAnim: 'skeleton_archer_dead',
-    framePrefix: 'psd_animation',
+    framePrefix: 'psd_anim',
   },
   {
     type: 'Vampire',
@@ -148,7 +148,7 @@ export const UNIT_ATLAS_DEFS = [
     walkAnim: 'zombie_walk',
     attackAnim: 'zombie_attack',
     deadAnim: 'zombie_dead',
-    framePrefix: 'psd_animation',
+    framePrefix: 'psd_anim',
   },
   {
     type: 'Angel',

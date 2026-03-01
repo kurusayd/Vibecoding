@@ -1,6 +1,6 @@
 ﻿import { updateHpBar } from './hpbar.js';
 import Phaser from 'phaser';
-import { getUnitArtOffsetXPx, getUnitArtTargetPx, getUnitGroundLiftPx } from './unitVisualConfig.js';
+import { getUnitArtOffsetXPx, getUnitArtTargetPx, getUnitFootShadowConfig, getUnitGroundLiftPx } from './unitVisualConfig.js';
 import { atlasIdleFrame, atlasDeadFrame, UNIT_ATLAS_DEF_BY_TYPE } from './unitAtlasConfig.js';
 import { boardDepth, hasBoardCoords } from './depthOrder.js';
 
@@ -14,6 +14,11 @@ const UNIT_ART_DEPTH_LIVE = 1040;
 const UNIT_ART_DEPTH_DEAD = 990;
 const UNIT_ART_DEPTH_Y_FACTOR = 0.01;
 const UNIT_ART_DEPTH_X_FACTOR = 0.0002;
+const FOOT_SHADOW_COLOR = 0x000000;
+const FOOT_SHADOW_ALPHA = 0.48;
+const FOOT_SHADOW_STROKE_COLOR = 0x000000;
+const FOOT_SHADOW_STROKE_ALPHA = 0.22;
+const FOOT_SHADOW_STROKE_WIDTH_PX = 1;
 
 function makeHexHitArea(scene, w, h) {
   const s = scene.hexSize;
@@ -72,6 +77,37 @@ function updateArtDepth(unit) {
   unit.art.setDepth(base + y * UNIT_ART_DEPTH_Y_FACTOR + x * UNIT_ART_DEPTH_X_FACTOR);
 }
 
+function updateFootShadowDepth(unit) {
+  if (!unit?.footShadow) return;
+  if (unit.dead) {
+    unit.footShadow.setVisible(false);
+    return;
+  }
+  unit.footShadow.setVisible(true);
+  const base = UNIT_ART_DEPTH_LIVE - 6;
+  if (hasBoardCoords(unit) && unit.zone !== 'bench') {
+    unit.footShadow.setDepth(boardDepth(base, unit.q, unit.r));
+    return;
+  }
+  const y = Number(unit.footShadow.y ?? unit.art?.y ?? unit.sprite?.y ?? 0);
+  const x = Number(unit.footShadow.x ?? unit.art?.x ?? unit.sprite?.x ?? 0);
+  unit.footShadow.setDepth(base + y * UNIT_ART_DEPTH_Y_FACTOR + x * UNIT_ART_DEPTH_X_FACTOR);
+}
+
+function createFootShadow(scene, x, y, type) {
+  const shadowCfg = getUnitFootShadowConfig(type);
+  return scene.add.ellipse(
+    x + shadowCfg.offsetXPx,
+    y + shadowCfg.offsetYPx,
+    shadowCfg.widthPx,
+    shadowCfg.heightPx,
+    FOOT_SHADOW_COLOR,
+    FOOT_SHADOW_ALPHA
+  )
+    .setStrokeStyle(FOOT_SHADOW_STROKE_WIDTH_PX, FOOT_SHADOW_STROKE_COLOR, FOOT_SHADOW_STROKE_ALPHA)
+    .setDepth(UNIT_ART_DEPTH_LIVE - 6);
+}
+
 export function createUnitSystem(scene) {
   const state = {
     units: [],
@@ -119,6 +155,7 @@ export function createUnitSystem(scene) {
     scene.input.setDraggable(dragHandle, true);
 
     let art = null;
+    let footShadow = null;
 
     const atlasCfg = UNIT_ATLAS_DEF_BY_TYPE[opts.type] ?? null;
     const atlasKey = atlasCfg?.atlasKey;
@@ -126,6 +163,8 @@ export function createUnitSystem(scene) {
 
     if (atlasCfg && scene.textures.exists(atlasKey)) {
       const g = scene.hexToGroundPixel(q, r, getUnitGroundLiftPx(opts.type));
+      const p = scene.hexToPixel(q, r);
+      footShadow = createFootShadow(scene, p.x, p.y, opts.type);
       art = scene.add.sprite(g.x + getUnitArtOffsetXPx(opts.type, opts.team), g.y, atlasKey, idleFrame)
         .setDepth(UNIT_ART_DEPTH_LIVE)
         .setOrigin(0.5, 1);
@@ -134,6 +173,8 @@ export function createUnitSystem(scene) {
       if (art.texture?.key === '__MISSING' || art.frame?.name == null) {
         art.destroy();
         art = null;
+        footShadow?.destroy?.();
+        footShadow = null;
         sprite.setVisible(true);
       } else {
         const frameW = art.frame?.realWidth ?? art.frame?.width ?? 256;
@@ -187,6 +228,7 @@ export function createUnitSystem(scene) {
       sprite,
       dragHandle,
       art,
+      footShadow,
       label,
       hpBar,
     };
@@ -199,6 +241,7 @@ export function createUnitSystem(scene) {
 
     updateHpBar(scene, unit);
     updateArtDepth(unit);
+    updateFootShadowDepth(unit);
     updateRankStroke(unit);
     return unit;
   }
@@ -221,6 +264,7 @@ export function createUnitSystem(scene) {
     scene.input.setDraggable(dragHandle, true);
 
     let art = null;
+    let footShadow = null;
 
     const atlasCfg = UNIT_ATLAS_DEF_BY_TYPE[opts.type] ?? null;
     const atlasKey = atlasCfg?.atlasKey;
@@ -228,6 +272,7 @@ export function createUnitSystem(scene) {
 
     if (atlasCfg && scene.textures.exists(atlasKey)) {
       const lift = getUnitGroundLiftPx(opts.type);
+      footShadow = createFootShadow(scene, x, y, opts.type);
       art = scene.add.sprite(x + getUnitArtOffsetXPx(opts.type, opts.team), y + scene.hexSize - lift, atlasKey, idleFrame)
         .setDepth(UNIT_ART_DEPTH_LIVE)
         .setOrigin(0.5, 1);
@@ -235,6 +280,8 @@ export function createUnitSystem(scene) {
       if (art.texture?.key === '__MISSING' || art.frame?.name == null) {
         art.destroy();
         art = null;
+        footShadow?.destroy?.();
+        footShadow = null;
         sprite.setVisible(true);
       } else {
         const frameW = art.frame?.realWidth ?? art.frame?.width ?? 256;
@@ -290,6 +337,7 @@ export function createUnitSystem(scene) {
       sprite,
       dragHandle,
       art,
+      footShadow,
       label,
       hpBar,
     };
@@ -302,6 +350,7 @@ export function createUnitSystem(scene) {
 
     updateHpBar(scene, unit);
     updateArtDepth(unit);
+    updateFootShadowDepth(unit);
     updateRankStroke(unit);
     return unit;
   }
@@ -319,6 +368,7 @@ export function createUnitSystem(scene) {
     u.label.destroy();
     u.hpBar.destroy();
     u.art?.destroy();
+    u.footShadow?.destroy();
     u.dragHandle?.destroy();
     u.rankIcon?.destroy(); 
 
@@ -334,6 +384,9 @@ export function createUnitSystem(scene) {
     const lift = getUnitGroundLiftPx(u.type);
     const g = scene.hexToGroundPixel(q, r, lift);
     const artX = g.x + getUnitArtOffsetXPx(u.type, u.team);
+    const shadowCfg = getUnitFootShadowConfig(u.type);
+    const shadowX = p.x + shadowCfg.offsetXPx;
+    const shadowY = p.y + shadowCfg.offsetYPx;
 
 
 
@@ -346,7 +399,9 @@ export function createUnitSystem(scene) {
       Math.abs((u.label?.x ?? p.x) - p.x) < 0.5 &&
       Math.abs((u.label?.y ?? p.y) - p.y) < 0.5 &&
       Math.abs((u.art?.x ?? artX) - artX) < 0.5 &&
-      Math.abs((u.art?.y ?? g.y) - g.y) < 0.5;
+      Math.abs((u.art?.y ?? g.y) - g.y) < 0.5 &&
+      Math.abs((u.footShadow?.x ?? shadowX) - shadowX) < 0.5 &&
+      Math.abs((u.footShadow?.y ?? shadowY) - shadowY) < 0.5;
 
     if (sameCell && isAtTarget) {
       updateHpBar(scene, u);
@@ -380,11 +435,17 @@ export function createUnitSystem(scene) {
         try { u._artMoveTween.stop(); } catch {}
         u._artMoveTween = null;
       }
+      if (u._shadowMoveTween) {
+        try { u._shadowMoveTween.stop(); } catch {}
+        u._shadowMoveTween = null;
+      }
       u.sprite.setPosition(p.x, p.y);
       u.dragHandle?.setPosition(p.x, p.y);
       if (u.art) u.art.setPosition(artX, g.y);
+      if (u.footShadow) u.footShadow.setPosition(shadowX, shadowY);
       u.label.setPosition(p.x, p.y);
       updateArtDepth(u);
+      updateFootShadowDepth(u);
       updateHpBar(scene, u);
       return;
     }
@@ -397,6 +458,10 @@ export function createUnitSystem(scene) {
     if (u._artMoveTween) {
       try { u._artMoveTween.stop(); } catch {}
       u._artMoveTween = null;
+    }
+    if (u._shadowMoveTween) {
+      try { u._shadowMoveTween.stop(); } catch {}
+      u._shadowMoveTween = null;
     }
 
 
@@ -422,6 +487,17 @@ export function createUnitSystem(scene) {
         ease: 'Linear',
         onUpdate: () => updateArtDepth(u),
         onComplete: () => { u._artMoveTween = null; updateArtDepth(u); },
+      });
+    }
+    if (u.footShadow) {
+      u._shadowMoveTween = scene.tweens.add({
+        targets: u.footShadow,
+        x: shadowX,
+        y: shadowY,
+        duration: tweenMs,
+        ease: 'Linear',
+        onUpdate: () => updateFootShadowDepth(u),
+        onComplete: () => { u._shadowMoveTween = null; updateFootShadowDepth(u); },
       });
     }
   }
@@ -455,11 +531,13 @@ export function createUnitSystem(scene) {
       if (u.hpBar) u.hpBar.setVisible(false);
       if (u.rankIcon) u.rankIcon.setVisible(false);
       if (u.label) u.label.setVisible(false);
+      if (u.footShadow) u.footShadow.setVisible(false);
       if (u.dragHandle?.input) u.dragHandle.input.enabled = false;
     } else {
 
 
       if (u.label) u.label.setVisible(!u.art);
+      if (u.footShadow) u.footShadow.setVisible(true);
       if (u.dragHandle?.input) u.dragHandle.input.enabled = true;
     }
 
@@ -476,6 +554,10 @@ export function createUnitSystem(scene) {
           try { u._artMoveTween.stop(); } catch {}
           u._artMoveTween = null;
         }
+        if (u._shadowMoveTween) {
+          try { u._shadowMoveTween.stop(); } catch {}
+          u._shadowMoveTween = null;
+        }
         if (deadAnim && scene.anims.exists(deadAnim) && u.art.anims?.getName?.() !== deadAnim) {
           u.art.play(deadAnim);
         } else if (u.art.frame?.name !== atlasDeadFrame(atlasCfg)) {
@@ -483,6 +565,7 @@ export function createUnitSystem(scene) {
         }
       }
       updateArtDepth(u);
+      updateFootShadowDepth(u);
     }
   }
 
@@ -501,13 +584,18 @@ export function createUnitSystem(scene) {
     const lift = getUnitGroundLiftPx(unit.type);
     const g = scene.hexToGroundPixel(newQ, newR, lift);
     const artX = g.x + getUnitArtOffsetXPx(unit.type, unit.team);
+    const shadowCfg = getUnitFootShadowConfig(unit.type);
+    const shadowX = p.x + shadowCfg.offsetXPx;
+    const shadowY = p.y + shadowCfg.offsetYPx;
 
     unit.sprite.setPosition(p.x, p.y);
     unit.dragHandle?.setPosition(p.x, p.y);
     if (unit.art) unit.art.setPosition(artX, g.y);
+    if (unit.footShadow) unit.footShadow.setPosition(shadowX, shadowY);
     unit.label.setPosition(p.x, p.y);
 
     updateArtDepth(unit);
+    updateFootShadowDepth(unit);
     updateHpBar(scene, unit);
     updateRankStroke(unit);
     return true;
@@ -523,12 +611,17 @@ export function createUnitSystem(scene) {
       const lift = getUnitGroundLiftPx(u.type);
       const g = scene.hexToGroundPixel(u.q, u.r, lift);
       const artX = g.x + getUnitArtOffsetXPx(u.type, u.team);
+      const shadowCfg = getUnitFootShadowConfig(u.type);
+      const shadowX = p.x + shadowCfg.offsetXPx;
+      const shadowY = p.y + shadowCfg.offsetYPx;
 
       u.sprite.setPosition(p.x, p.y);
       u.dragHandle?.setPosition(p.x, p.y);
       if (u.art) u.art.setPosition(artX, g.y);
+      if (u.footShadow) u.footShadow.setPosition(shadowX, shadowY);
       u.label.setPosition(p.x, p.y);
       updateArtDepth(u);
+      updateFootShadowDepth(u);
       updateHpBar(scene, u);
       updateRankStroke(u);
     }

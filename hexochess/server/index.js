@@ -914,8 +914,10 @@ function simulateHiddenBotBattleReplay(botAId, botBId) {
   simState.kings.enemy.visible = true;
 
   return simulateBattleReplayFromState(simState, {
-    tickMs: 450,
+    tickMs: SNAPSHOT_STEP_MS,
     maxBattleMs: BATTLE_DURATION_SECONDS * 1000,
+    collectTimeline: false,
+    collectSnapshots: false,
   });
 }
 
@@ -1045,6 +1047,8 @@ function sumAliveBoardRanksIn(simState, team) {
 function simulateBattleReplayFromState(sourceState, opts = {}) {
   const tickMs = Number(opts.tickMs ?? SNAPSHOT_STEP_MS);
   const maxBattleMs = Number(opts.maxBattleMs ?? (BATTLE_DURATION_SECONDS * 1000));
+  const collectTimeline = opts.collectTimeline !== false;
+  const collectSnapshots = opts.collectSnapshots !== false;
   const simState = cloneStateForBattleReplay(sourceState);
   const events = [];
   const snapshots = [];
@@ -1094,18 +1098,20 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
             didSomething = true;
             me.attackSeq = Number(me.attackSeq ?? 0) + 1;
             const targetAfter = findUnitByIdIn(simState, liveTarget.id);
-            events.push({
-              t: tickTimeMs,
-              type: 'attack',
-              attackerId: me.id,
-              targetId: liveTarget.id,
-              attackerTeam: me.team,
-              attackSeq: Number(me.attackSeq ?? 0),
-              damage: Math.max(0, targetBefore.hp - Number(targetAfter?.hp ?? 0)),
-              targetHp: Number(targetAfter?.hp ?? 0),
-              targetMaxHp: Number(targetAfter?.maxHp ?? targetBefore.maxHp),
-              killed: Boolean(res.killed),
-            });
+            if (collectTimeline) {
+              events.push({
+                t: tickTimeMs,
+                type: 'attack',
+                attackerId: me.id,
+                targetId: liveTarget.id,
+                attackerTeam: me.team,
+                attackSeq: Number(me.attackSeq ?? 0),
+                damage: Math.max(0, targetBefore.hp - Number(targetAfter?.hp ?? 0)),
+                targetHp: Number(targetAfter?.hp ?? 0),
+                targetMaxHp: Number(targetAfter?.maxHp ?? targetBefore.maxHp),
+                killed: Boolean(res.killed),
+              });
+            }
           }
           break;
         }
@@ -1122,18 +1128,20 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
         if (!moved) break;
 
         didSomething = true;
-        events.push({
-          tStart: tickTimeMs,
-          t: tickTimeMs + moveIntervalMs,
-          durationMs: moveIntervalMs,
-          type: 'move',
-          unitId: me.id,
-          team: me.team,
-          fromQ: from.q,
-          fromR: from.r,
-          q: step.q,
-          r: step.r,
-        });
+        if (collectTimeline) {
+          events.push({
+            tStart: tickTimeMs,
+            t: tickTimeMs + moveIntervalMs,
+            durationMs: moveIntervalMs,
+            type: 'move',
+            unitId: me.id,
+            team: me.team,
+            fromQ: from.q,
+            fromR: from.r,
+            q: step.q,
+            r: step.r,
+          });
+        }
       }
 
       result = computeResultIn(simState);
@@ -1143,21 +1151,23 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
     result = computeResultIn(simState);
     if (result) break;
 
-    snapshots.push({
-      t: tickTimeMs,
-      units: (simState.units ?? []).map((u) => ({
-        id: u.id,
-        q: u.q,
-        r: u.r,
-        zone: u.zone,
-        team: u.team,
-        type: u.type,
-        hp: u.hp,
-        maxHp: u.maxHp,
-        dead: Boolean(u.dead),
-        attackSeq: Number(u.attackSeq ?? 0),
-      })),
-    });
+    if (collectSnapshots) {
+      snapshots.push({
+        t: tickTimeMs,
+        units: (simState.units ?? []).map((u) => ({
+          id: u.id,
+          q: u.q,
+          r: u.r,
+          zone: u.zone,
+          team: u.team,
+          type: u.type,
+          hp: u.hp,
+          maxHp: u.maxHp,
+          dead: Boolean(u.dead),
+          attackSeq: Number(u.attackSeq ?? 0),
+        })),
+      });
+    }
 
     elapsedMs += tickMs;
   }
@@ -1182,8 +1192,8 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
       defeat: survivorRankSum.enemy,
       draw: 0,
     },
-    events,
-    snapshots,
+    events: collectTimeline ? events : [],
+    snapshots: collectSnapshots ? snapshots : [],
   };
 }
 
@@ -1225,16 +1235,19 @@ function resetToPrep() {
   // enemy king СЃРєСЂС‹С‚ РІ prep
   if (state.kings?.enemy) state.kings.enemy.visible = false;
 
-  // РЎРѕС…СЂР°РЅСЏРµРј РїРѕРєСѓРїРєРё РІРѕ РІСЂРµРјСЏ result-screen: РѕРЅРё РїРѕСЏРІР»СЏСЋС‚СЃСЏ РЅР° bench Рё РґРѕР»Р¶РЅС‹ РїРµСЂРµР¶РёС‚СЊ resetToPrep().
+  // Bench is live during battle/result replay.
+  // Restore board/non-bench from prep snapshot, but keep current player bench as-is.
   const snapshotUnits = Array.isArray(prepSnapshot) ? prepSnapshot : [];
-  const snapshotIds = new Set(snapshotUnits.map(u => u.id));
-  const extraBenchBoughtDuringResult = (state.units ?? [])
-    .filter(u => u.team === 'player' && u.zone === 'bench' && !snapshotIds.has(u.id))
+  const restoredFromSnapshot = snapshotUnits
+    .filter((u) => !(u.team === 'player' && u.zone === 'bench'))
+    .map((u) => clonePlayerUnitForPrep(u));
+  const livePlayerBench = (state.units ?? [])
+    .filter((u) => u.team === 'player' && u.zone === 'bench')
     .map((u) => clonePlayerUnitForPrep(u));
 
   state.units = [
-    ...snapshotUnits.map((u) => clonePlayerUnitForPrep(u)),
-    ...extraBenchBoughtDuringResult,
+    ...restoredFromSnapshot,
+    ...livePlayerBench,
   ];
 
   // РЎСЂР°Р·Сѓ РїРѕСЃР»Рµ РІРѕР·РІСЂР°С‚Р° РІ prep РїРµСЂРµСЃС‡РёС‚С‹РІР°РµРј merge РґР»СЏ РІСЃРµС… РёРіСЂРѕРєРѕРІ:
