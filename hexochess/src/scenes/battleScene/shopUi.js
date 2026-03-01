@@ -19,6 +19,13 @@
     ROOK: 'figure_rook',
     QUEEN: 'figure_queen',
   };
+  const SHOP_RACE_LABEL_BY_KEY = {
+    HUMAN: 'Люди',
+    UNDEAD: 'Нежить',
+    LIZARD: 'Ящеры',
+    GOD: 'Боги',
+    DEMON: 'Демоны',
+  };
   const SHOP_CARD_FIGURE_ICON_SIZE = 35;
   const SHOP_CARD_FIGURE_OFFSET_X = 15;
   const SHOP_CARD_FIGURE_OFFSET_Y = -5;
@@ -28,7 +35,26 @@
   const SHOP_CARD_COST_GROUP_OFFSET_X = 0;
   const SHOP_CARD_COST_GROUP_OFFSET_Y = -2;
   const SHOP_CARD_COST_GAP_PX = 6;
-  const SHOP_CARD_COST_COIN_SIZE = 28;
+  const SHOP_CARD_COST_COIN_SIZE = 28;  // Shop art mask tuning (debug-visible black panel for now).
+  const SHOP_CARD_ART_MASK_OFFSET_X = 0;
+  const SHOP_CARD_ART_MASK_OFFSET_Y = 0;
+  const SHOP_CARD_ART_MASK_WIDTH_DELTA = 0;
+  const SHOP_CARD_ART_MASK_HEIGHT_DELTA = 0;
+  // Per-side clip masks (shared for all shop tiles):
+  // WIDTH/HEIGHT_*: shrink visible art area from this side.
+  // OFFSET_X/OFFSET_Y_*: shift visible crop window.
+  const SHOP_CARD_ART_CLIP_LEFT_WIDTH_DELTA = 200;
+  const SHOP_CARD_ART_CLIP_LEFT_OFFSET_X = -200;
+  const SHOP_CARD_ART_CLIP_LEFT_OFFSET_Y = 0;
+  const SHOP_CARD_ART_CLIP_RIGHT_WIDTH_DELTA = 200;
+  const SHOP_CARD_ART_CLIP_RIGHT_OFFSET_X = 200;
+  const SHOP_CARD_ART_CLIP_RIGHT_OFFSET_Y = 0;
+  const SHOP_CARD_ART_CLIP_TOP_HEIGHT_DELTA = 10;
+  const SHOP_CARD_ART_CLIP_TOP_OFFSET_X = 0;
+  const SHOP_CARD_ART_CLIP_TOP_OFFSET_Y = 0;
+  const SHOP_CARD_ART_CLIP_BOTTOM_HEIGHT_DELTA = 0;
+  const SHOP_CARD_ART_CLIP_BOTTOM_OFFSET_X = 0;
+  const SHOP_CARD_ART_CLIP_BOTTOM_OFFSET_Y = 0;
   const unitTypeToPortraitName = (type) => {
     const raw = String(type ?? '').trim();
     if (!raw) return '';
@@ -238,6 +264,18 @@
       const artPanel = this.add.rectangle(0, top + 55, w - 14, 86, 0x1b1b1b, 0.92)
         .setOrigin(0.5, 0.5)
         .setStrokeStyle(1, 0x6f5d3a, 0.85);
+      const maskW = Math.max(1, artPanel.width + SHOP_CARD_ART_MASK_WIDTH_DELTA);
+      const maskH = Math.max(1, artPanel.height + SHOP_CARD_ART_MASK_HEIGHT_DELTA);
+      const maskCx = artPanel.x + SHOP_CARD_ART_MASK_OFFSET_X;
+      const maskCy = artPanel.y + SHOP_CARD_ART_MASK_OFFSET_Y;
+      const panelLeft = maskCx - (maskW / 2);
+      const panelRight = maskCx + (maskW / 2);
+      const panelTop = maskCy - (maskH / 2);
+      const panelBottom = maskCy + (maskH / 2);
+      const cardLeft = -w / 2;
+      const cardRight = w / 2;
+      const cardTop = -h / 2;
+      const cardBottom = h / 2;
 
       const divider1 = this.add.rectangle(0, top + 98, w - 16, 1, 0x6f5d3a, 0.55).setOrigin(0.5, 0.5);
       const divider2 = this.add.rectangle(0, top + 126, w - 16, 1, 0x6f5d3a, 0.40).setOrigin(0.5, 0.5);
@@ -305,6 +343,16 @@
       card.bg = bg;
       card.border = border;
       card.artPanel = artPanel;
+      card._artPanelLeft = panelLeft;
+      card._artPanelRight = panelRight;
+      card._artPanelTop = panelTop;
+      card._artPanelBottom = panelBottom;
+      card._cardLeft = cardLeft;
+      card._cardRight = cardRight;
+      card._cardTop = cardTop;
+      card._cardBottom = cardBottom;
+      card._artMaskCy = maskCy;
+      card._artMaskH = maskH;
       card.previewSprite = previewSprite;
       card.previewUnitY = previewSprite.y;
       card.previewPortraitY = artPanel.y;
@@ -326,6 +374,53 @@
         card.figureIcon.setPosition(figureX, figureY);
         card.costText.setPosition(textX, y);
         card.costCoin.setPosition(textX - textW - SHOP_CARD_COST_GAP_PX - (coinW / 2), y);
+      };
+
+      card.applyArtCrop = () => {
+        const s = card.previewSprite;
+        if (!s?.active || !s.visible) {
+          s?.setCrop?.();
+          return;
+        }
+        const fw = Number(s.frame?.realWidth ?? s.frame?.width ?? 0);
+        const fh = Number(s.frame?.realHeight ?? s.frame?.height ?? 0);
+        const dw = Number(s.displayWidth ?? 0);
+        const dh = Number(s.displayHeight ?? 0);
+        if (fw <= 0 || fh <= 0 || dw <= 0 || dh <= 0) {
+          s.setCrop();
+          return;
+        }
+
+        const rawLeft = Number(card._artPanelLeft ?? 0) + Number(SHOP_CARD_ART_CLIP_LEFT_WIDTH_DELTA ?? 0) + Number(SHOP_CARD_ART_CLIP_LEFT_OFFSET_X ?? 0);
+        const rawRight = Number(card._artPanelRight ?? 0) - Number(SHOP_CARD_ART_CLIP_RIGHT_WIDTH_DELTA ?? 0) + Number(SHOP_CARD_ART_CLIP_RIGHT_OFFSET_X ?? 0);
+        const rawTop = Number(card._artPanelTop ?? 0) + Number(SHOP_CARD_ART_CLIP_TOP_HEIGHT_DELTA ?? 0) + Number(SHOP_CARD_ART_CLIP_TOP_OFFSET_Y ?? 0);
+        const rawBottom = Number(card._artPanelBottom ?? 0) - Number(SHOP_CARD_ART_CLIP_BOTTOM_HEIGHT_DELTA ?? 0) + Number(SHOP_CARD_ART_CLIP_BOTTOM_OFFSET_Y ?? 0);
+
+        const clipLeft = Math.max(Number(card._cardLeft ?? -Infinity), rawLeft);
+        const clipRight = Math.min(Number(card._cardRight ?? Infinity), rawRight);
+        const clipTop = Math.max(Number(card._cardTop ?? -Infinity), rawTop);
+        const clipBottom = Math.min(Number(card._cardBottom ?? Infinity), rawBottom);
+
+        const sx = Number(s.x ?? 0) - dw * Number(s.originX ?? 0.5);
+        const sy = Number(s.y ?? 0) - dh * Number(s.originY ?? 1);
+        const sRight = sx + dw;
+        const sBottom = sy + dh;
+
+        const interLeft = Math.max(clipLeft, sx);
+        const interRight = Math.min(clipRight, sRight);
+        const interTop = Math.max(clipTop, sy);
+        const interBottom = Math.min(clipBottom, sBottom);
+
+        if (interRight <= interLeft || interBottom <= interTop) {
+          s.setCrop(0, 0, 0, 0);
+          return;
+        }
+
+        const cropX = ((interLeft - sx) / dw) * fw;
+        const cropY = ((interTop - sy) / dh) * fh;
+        const cropW = ((interRight - interLeft) / dw) * fw;
+        const cropH = ((interBottom - interTop) / dh) * fh;
+        s.setCrop(cropX, cropY, cropW, cropH);
       };
 
       card.refreshVisual = () => {
@@ -730,8 +825,6 @@
       }
 
       const offers = this.battleState?.shop?.offers ?? [];
-      const atlasByType = this.shopUnitAtlasDefByType ?? {};
-      const getIdleFrame = this.shopAtlasIdleFrame ?? ((def) => `${String(def?.framePrefix ?? 'psd_animation')}/idle.png`);
       const portraitsTexture = this.textures?.exists?.(SHOP_PORTRAIT_ATLAS_KEY)
         ? this.textures.get(SHOP_PORTRAIT_ATLAS_KEY)
         : null;
@@ -749,6 +842,7 @@
           card.costText.setText('');
           card.figureIcon?.setVisible(false);
           card.costCoin?.setVisible(false);
+          card.previewSprite.setCrop();
           card.previewSprite.setVisible(false);
           card.previewFallback.setText('\u2026').setVisible(true);
           card.updateCostLayout?.();
@@ -760,7 +854,9 @@
         card.pressed = false;
         card.nameText.setText(String(o.type ?? 'Unknown'));
         const powerTypeText = String(o.powerType ?? '\u2014');
-        card.typeText.setText(powerTypeText);
+        const raceKey = String(o.race ?? '').toUpperCase();
+        const raceText = SHOP_RACE_LABEL_BY_KEY[raceKey] ?? String(o.race ?? '\u2014');
+        card.typeText.setText(raceText);
         const figureIconKey = SHOP_FIGURE_ICON_BY_POWER_TYPE[powerTypeText] ?? null;
         const hasFigureIcon = !!(figureIconKey && this.textures?.exists?.(figureIconKey));
         if (card.figureIcon) {
@@ -777,11 +873,11 @@
 
         const portraitFrame = portraitFrameForUnitType(o.type);
         const hasPortrait = !!(portraitsTexture && portraitFrame && portraitsTexture.has?.(portraitFrame));
-        const atlasDef = atlasByType[o.type] ?? null;
         if (hasPortrait) {
           card.previewSprite.setVisible(true);
           card.previewFallback.setVisible(false);
           card.previewSprite.anims?.stop?.();
+          card.previewSprite.setCrop();
           card.previewSprite.setOrigin(0.5, 0.5);
           card.previewSprite.setPosition(0, Number(card.previewPortraitY ?? card.artPanel?.y ?? 0));
           card.previewSprite.setTexture(SHOP_PORTRAIT_ATLAS_KEY, portraitFrame);
@@ -794,27 +890,8 @@
           const coverScale = Math.max(panelW / fw, panelH / fh);
           const scale = Math.max(0.12, coverScale * SHOP_PORTRAIT_SCALE);
           card.previewSprite.setScale(scale);
-        } else if (atlasDef && this.textures.exists(atlasDef.atlasKey)) {
-          card.previewSprite.setVisible(true);
-          card.previewFallback.setVisible(false);
-          card.previewSprite.setOrigin(0.5, 1);
-          card.previewSprite.setPosition(0, Number(card.previewUnitY ?? 0));
-          card.previewSprite.setTexture(atlasDef.atlasKey, getIdleFrame(atlasDef));
-
-          const frame = card.previewSprite.frame;
-          const fw = frame?.realWidth ?? frame?.width ?? 256;
-          const fh = frame?.realHeight ?? frame?.height ?? 256;
-          const panelW = card.artPanel?.width ?? (card.width - 14);
-          const panelH = card.artPanel?.height ?? 86;
-          const targetW = (panelW - 10) * 1.84;
-          const targetH = (panelH - 6) * 1.96;
-          const scale = Math.max(0.12, Math.min(targetW / fw, targetH / fh));
-          card.previewSprite.setScale(scale);
-
-          if (this.anims.exists(atlasDef.idleAnim)) {
-            card.previewSprite.play(atlasDef.idleAnim, true);
-          }
         } else {
+          card.previewSprite.setCrop();
           card.previewSprite.setVisible(false);
           card.previewFallback.setText(String(o.type ?? '?').slice(0, 1).toUpperCase()).setVisible(true);
         }
@@ -824,3 +901,6 @@
     },
   });
 }
+
+
+

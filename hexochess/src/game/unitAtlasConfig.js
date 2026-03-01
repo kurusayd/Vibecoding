@@ -91,6 +91,16 @@ export const UNIT_ATLAS_DEFS = [
     framePrefix: 'psd_anim',
   },
   {
+    type: 'SimpleSkeleton',
+    atlasKey: 'simple_skeleton_atlas',
+    atlasPath: '/assets/units/undead/simple_skeleton/simple_skeleton_atlas',
+    idleAnim: 'simple_skeleton_idle',
+    walkAnim: 'simple_skeleton_walk',
+    attackAnim: 'simple_skeleton_attack',
+    deadAnim: 'simple_skeleton_dead',
+    framePrefix: 'psd_anim',
+  },
+  {
     type: 'BonesGolem',
     atlasKey: 'bones_golem_atlas',
     atlasPath: '/assets/units/undead/bones_golem/bones_golem_atlas',
@@ -98,7 +108,7 @@ export const UNIT_ATLAS_DEFS = [
     walkAnim: 'bones_golem_walk',
     attackAnim: 'bones_golem_attack',
     deadAnim: 'bones_golem_dead',
-    framePrefix: 'psd_animation',
+    framePrefix: 'psd_anim',
   },
   {
     type: 'Ghost',

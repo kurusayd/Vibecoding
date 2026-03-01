@@ -15,6 +15,7 @@ export const UNIT_CATALOG = [
   { race: 'HUMAN',  type: 'Priest',         label: 'PRIEST',          powerType: POWER_TYPE_PAWN,   hp: 60,  atk: 20, attackSpeed: 1.3, moveSpeed: 0.9, attackRangeMax: 20, attackRangeFullDamage: 5 },
   { race: 'LIZARD', type: 'Monk',           label: 'MONK',            powerType: POWER_TYPE_PAWN,   hp: 60,  atk: 20, attackSpeed: 1.1, moveSpeed: 1.9, attackRangeMax: 1,  attackRangeFullDamage: 1 },
   { race: 'UNDEAD', type: 'Skeleton',       label: 'SKELETON',        powerType: POWER_TYPE_PAWN,   hp: 60,  atk: 20, attackSpeed: 1.0, moveSpeed: 1.3, attackRangeMax: 1,  attackRangeFullDamage: 1 },
+  { race: 'UNDEAD', type: 'SimpleSkeleton', label: 'SIMPLE SKELETON', powerType: POWER_TYPE_PAWN,   hp: 60,  atk: 20, attackSpeed: 1.0, moveSpeed: 1.4, attackRangeMax: 1,  attackRangeFullDamage: 1 },
   { race: 'HUMAN',  type: 'Crossbowman',    label: 'CROSSBOW',        powerType: POWER_TYPE_KNIGHT, hp: 40,  atk: 25, attackSpeed: 1.6, moveSpeed: 1.0, attackRangeMax: 20, attackRangeFullDamage: 5 },
   { race: 'HUMAN',  type: 'Crusader',       label: 'CRUSADER',        powerType: POWER_TYPE_ROOK,   hp: 120, atk: 12, attackSpeed: 0.9, moveSpeed: 1.1, attackRangeMax: 1,  attackRangeFullDamage: 1 },
   { race: 'UNDEAD', type: 'BonesGolem',     label: 'BONES GOLEM',     powerType: POWER_TYPE_ROOK,   hp: 240, atk: 12, attackSpeed: 0.7, moveSpeed: 0.8, attackRangeMax: 1,  attackRangeFullDamage: 1 },

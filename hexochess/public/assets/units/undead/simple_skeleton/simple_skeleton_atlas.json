@@ -148,7 +148,7 @@
   "meta": {
     "app": "http://free-tex-packer.com",
     "version": "0.6.7",
-    "image": "bones_golem_atlas.png",
+    "image": "simple_skeleton_atlas.png",
     "format": "RGBA8888",
     "size": {
       "w": 262,

@@ -755,6 +755,7 @@ function makeRandomOffer() {
   const cost = COST_BY_POWER_TYPE[base.powerType] ?? 1;
 
   return {
+    race: base.race ?? null,
     type: base.type,
     powerType: base.powerType,
     cost,
@@ -783,6 +784,7 @@ function makeOfferFromCatalogUnit(base) {
   };
   const cost = COST_BY_POWER_TYPE[src.powerType] ?? 1;
   return {
+    race: src.race ?? null,
     type: src.type,
     powerType: src.powerType,
     cost,

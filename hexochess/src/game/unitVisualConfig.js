@@ -18,26 +18,30 @@ const DEFAULT_FOOT_SHADOW_OFFSET_Y_PX = 10;
 // - footShadowWidthPx/footShadowHeightPx: per-unit ellipse shadow size.
 // - footShadowOffsetXPx/footShadowOffsetYPx: per-unit shadow anchor shift relative to unit hex center.
 export const UNIT_VISUAL_CONFIG_BY_TYPE = {
-  Swordsman: {
-    // Baseline example config. Use this as reference when tuning other units.
-    groundLiftPx: 100,
-    artTargetPx: 160,
-    artOffsetXPx: 15,
-    hpUiLiftPx: 20,
-    footShadowWidthPx: 65,
-    footShadowHeightPx: 17,
+  Angel: {
+    groundLiftPx: 130,
+    artTargetPx: 220,
+    artOffsetXPx: 6,
+    hpUiLiftPx: 75,
+    footShadowWidthPx: 76,
+    footShadowHeightPx: 24,
     footShadowOffsetXPx: 0,
-    footShadowOffsetYPx: 10,
+    footShadowOffsetYPx: 13,
   },
-  Priest: {
-    groundLiftPx: 100,
-    artTargetPx: 150,
-    artOffsetXPx: 5,
-    hpUiLiftPx: 45,
-    footShadowWidthPx: 56,
-    footShadowHeightPx: 16,
+  BonesGolem: {
+    // Tune BonesGolem here:
+    // - raise/lower the unit art: change groundLiftPx
+    // - make art bigger/smaller: change artTargetPx
+    // - move art left/right: change artOffsetXPx
+    // - move HP bar/rank icon: change hpUiLiftPx
+    groundLiftPx: 110,
+    artTargetPx: 180,
+    artOffsetXPx: 10,
+    hpUiLiftPx: 78,
+    footShadowWidthPx: 70,
+    footShadowHeightPx: 22,
     footShadowOffsetXPx: 0,
-    footShadowOffsetYPx: 15,
+    footShadowOffsetYPx: 12,
   },
   Crossbowman: {
     groundLiftPx: 90,
@@ -59,40 +63,15 @@ export const UNIT_VISUAL_CONFIG_BY_TYPE = {
     footShadowOffsetXPx: 0,
     footShadowOffsetYPx: 11,
   },
-  Monk: {
-    groundLiftPx: 95,
-    artTargetPx: 140,
-    artOffsetXPx: 5,
-    hpUiLiftPx: 35,
-    footShadowWidthPx: 57,
-    footShadowHeightPx: 16,
-    footShadowOffsetXPx: 0,
-    footShadowOffsetYPx: 12,
-  },
-  Skeleton: {
-    groundLiftPx: 80,
-    artTargetPx: 130,
-    artOffsetXPx: 5,
-    hpUiLiftPx: 20,
-    footShadowWidthPx: 50,
-    footShadowHeightPx: 15,
-    footShadowOffsetXPx: 0,
-    footShadowOffsetYPx: 15,
-  },
-  BonesGolem: {
-    // Tune BonesGolem here:
-    // - raise/lower the unit art: change groundLiftPx
-    // - make art bigger/smaller: change artTargetPx
-    // - move art left/right: change artOffsetXPx
-    // - move HP bar/rank icon: change hpUiLiftPx
+  Devil: {
     groundLiftPx: 110,
-    artTargetPx: 187,
-    artOffsetXPx: 6,
+    artTargetPx: 180,
+    artOffsetXPx: -5,
     hpUiLiftPx: 75,
-    footShadowWidthPx: 70,
-    footShadowHeightPx: 22,
+    footShadowWidthPx: 76,
+    footShadowHeightPx: 24,
     footShadowOffsetXPx: 0,
-    footShadowOffsetYPx: 12,
+    footShadowOffsetYPx: 13,
   },
   Ghost: {
     groundLiftPx: 95,
@@ -114,6 +93,26 @@ export const UNIT_VISUAL_CONFIG_BY_TYPE = {
     footShadowOffsetXPx: 0,
     footShadowOffsetYPx: 18,
   },
+  Monk: {
+    groundLiftPx: 95,
+    artTargetPx: 140,
+    artOffsetXPx: 5,
+    hpUiLiftPx: 35,
+    footShadowWidthPx: 57,
+    footShadowHeightPx: 16,
+    footShadowOffsetXPx: 0,
+    footShadowOffsetYPx: 12,
+  },
+  Priest: {
+    groundLiftPx: 100,
+    artTargetPx: 150,
+    artOffsetXPx: 5,
+    hpUiLiftPx: 45,
+    footShadowWidthPx: 56,
+    footShadowHeightPx: 16,
+    footShadowOffsetXPx: 0,
+    footShadowOffsetYPx: 15,
+  },
   SkeletonArcher: {
     groundLiftPx: 80,
     artTargetPx: 120,
@@ -121,6 +120,39 @@ export const UNIT_VISUAL_CONFIG_BY_TYPE = {
     hpUiLiftPx: 18,
     footShadowWidthPx: 50,
     footShadowHeightPx: 15,
+    footShadowOffsetXPx: 0,
+    footShadowOffsetYPx: 15,
+  },
+  SimpleSkeleton: {
+    // Temporary: reuse Skeleton visual profile.
+    groundLiftPx: 90,
+    artTargetPx: 130,
+    artOffsetXPx: 0,
+    hpUiLiftPx: 20,
+    footShadowWidthPx: 50,
+    footShadowHeightPx: 15,
+    footShadowOffsetXPx: 0,
+    footShadowOffsetYPx: 15,
+  },
+  Swordsman: {
+    // Baseline example config. Use this as reference when tuning other units.
+    groundLiftPx: 100,
+    artTargetPx: 160,
+    artOffsetXPx: 15,
+    hpUiLiftPx: 20,
+    footShadowWidthPx: 65,
+    footShadowHeightPx: 17,
+    footShadowOffsetXPx: 0,
+    footShadowOffsetYPx: 10,
+  },
+  Undertaker: {
+    // Same visual profile as Crusader for now.
+    groundLiftPx: 100,
+    artTargetPx: 160,
+    artOffsetXPx: 5,
+    hpUiLiftPx: 40,
+    footShadowWidthPx: 65,
+    footShadowHeightPx: 18,
     footShadowOffsetXPx: 0,
     footShadowOffsetYPx: 15,
   },
@@ -143,37 +175,6 @@ export const UNIT_VISUAL_CONFIG_BY_TYPE = {
     footShadowHeightPx: 20,
     footShadowOffsetXPx: 0,
     footShadowOffsetYPx: 11,
-  },
-  Undertaker: {
-    // Same visual profile as Crusader for now.
-    groundLiftPx: 100,
-    artTargetPx: 160,
-    artOffsetXPx: 5,
-    hpUiLiftPx: 40,
-    footShadowWidthPx: 65,
-    footShadowHeightPx: 18,
-    footShadowOffsetXPx: 0,
-    footShadowOffsetYPx: 15,
-  },
-  Angel: {
-    groundLiftPx: 130,
-    artTargetPx: 220,
-    artOffsetXPx: 6,
-    hpUiLiftPx: 75,
-    footShadowWidthPx: 76,
-    footShadowHeightPx: 24,
-    footShadowOffsetXPx: 0,
-    footShadowOffsetYPx: 13,
-  },
-  Devil: {
-    groundLiftPx: 110,
-    artTargetPx: 180,
-    artOffsetXPx: -5,
-    hpUiLiftPx: 75,
-    footShadowWidthPx: 76,
-    footShadowHeightPx: 24,
-    footShadowOffsetXPx: 0,
-    footShadowOffsetYPx: 13,
   },
 };
 
