@@ -127,12 +127,12 @@ export const UNIT_VISUAL_CONFIG_BY_TYPE = {
   Vampire: {
     groundLiftPx: 90,
     artTargetPx: 150,
-    artOffsetXPx: 0,
-    hpUiLiftPx: 30,
+    artOffsetXPx: 5,
+    hpUiLiftPx: 38,
     footShadowWidthPx: 56,
     footShadowHeightPx: 17,
     footShadowOffsetXPx: 0,
-    footShadowOffsetYPx: 17,
+    footShadowOffsetYPx: 19,
   },
   Zombie: {
     groundLiftPx: 90,

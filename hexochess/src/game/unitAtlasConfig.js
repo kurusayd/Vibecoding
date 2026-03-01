@@ -138,7 +138,7 @@ export const UNIT_ATLAS_DEFS = [
     walkAnim: 'vampire_walk',
     attackAnim: 'vampire_attack',
     deadAnim: 'vampire_dead',
-    framePrefix: 'psd_animation',
+    framePrefix: 'psd_anim',
   },
   {
     type: 'Zombie',

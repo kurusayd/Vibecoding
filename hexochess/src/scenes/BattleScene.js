@@ -16,12 +16,14 @@ import { createFullscreenButton, positionFullscreenButton } from '../game/ui.js'
 import { updateHpBar } from '../game/hpbar.js';
 
 import { createBattleState, KING_XP_COST, KING_MAX_LEVEL, hexDistance } from '../../shared/battleCore.js';
-import { baseIncomeForRound, interestIncome, streakBonus } from '../../shared/economy.js';
 import { installBattleSceneDrag } from './battleScene/dragController.js';
 import { installBattleSceneShopUi } from './battleScene/shopUi.js';
 import { installBattleSceneTestScene } from './battleScene/testScene.js';
 import { installBattleSceneDebugUi } from './battleScene/debugUi.js';
 import { installBattleSceneKingDamageFx } from './battleScene/kingDamageFx.js';
+import { installBattleSceneKingHudUi } from './battleScene/kingHudUi.js';
+import { installBattleSceneStateSync } from './battleScene/stateSync.js';
+import { installBattleSceneLifecycle } from './battleScene/lifecycle.js';
 
 const PLAYER_KING_DISPLAY_NAME = 'Devis J. Jones';
 const ENEMY_KING_DISPLAY_NAME = 'Enemy King';
@@ -107,87 +109,6 @@ function getUnitShortLabel(type) {
   return '?';
 }
 
-function areKingsEqual(a, b) {
-  if (a === b) return true;
-  if (!a || !b) return false;
-  const ap = a.player ?? {};
-  const bp = b.player ?? {};
-  const ae = a.enemy ?? {};
-  const be = b.enemy ?? {};
-  return (
-    ap.hp === bp.hp &&
-    ap.maxHp === bp.maxHp &&
-    ap.coins === bp.coins &&
-    ap.level === bp.level &&
-    ap.xp === bp.xp &&
-    ae.hp === be.hp &&
-    ae.maxHp === be.maxHp &&
-    ae.coins === be.coins &&
-    ae.visible === be.visible &&
-    ae.level === be.level &&
-    ae.xp === be.xp
-  );
-}
-
-function areShopOffersEqual(a, b) {
-  if (a === b) return true;
-  const aa = a?.offers ?? [];
-  const bb = b?.offers ?? [];
-  if (aa.length !== bb.length) return false;
-  for (let i = 0; i < aa.length; i++) {
-    const x = aa[i];
-    const y = bb[i];
-    if (x === y) continue;
-    if (!x || !y) {
-      if (x !== y) return false;
-      continue;
-    }
-    if (
-      x.type !== y.type ||
-      x.powerType !== y.powerType ||
-      x.cost !== y.cost ||
-      x.hp !== y.hp ||
-      (x.maxHp ?? x.hp) !== (y.maxHp ?? y.hp) ||
-      x.atk !== y.atk ||
-      Number(x.attackSpeed ?? 1) !== Number(y.attackSpeed ?? 1) ||
-      Number(x.moveSpeed ?? 1) !== Number(y.moveSpeed ?? 1) ||
-      Number(x.attackRangeMax ?? 1) !== Number(y.attackRangeMax ?? 1) ||
-      Number(x.attackRangeFullDamage ?? (x.attackRangeMax ?? 1)) !== Number(y.attackRangeFullDamage ?? (y.attackRangeMax ?? 1))
-    ) return false;
-  }
-  return true;
-}
-
-function areUnitsEqual(a, b) {
-  if (a === b) return true;
-  const aa = a ?? [];
-  const bb = b ?? [];
-  if (aa.length !== bb.length) return false;
-  for (let i = 0; i < aa.length; i++) {
-    const x = aa[i];
-    const y = bb[i];
-    if (!x || !y) return false;
-    if (
-      x.id !== y.id ||
-      x.q !== y.q || x.r !== y.r ||
-      x.zone !== y.zone ||
-      x.benchSlot !== y.benchSlot ||
-      x.team !== y.team ||
-      x.type !== y.type ||
-      x.rank !== y.rank ||
-      Number(x.attackSpeed ?? 1) !== Number(y.attackSpeed ?? 1) ||
-      Number(x.moveSpeed ?? 1) !== Number(y.moveSpeed ?? 1) ||
-      Number(x.attackRangeMax ?? 1) !== Number(y.attackRangeMax ?? 1) ||
-      Number(x.attackRangeFullDamage ?? (x.attackRangeMax ?? 1)) !== Number(y.attackRangeFullDamage ?? (y.attackRangeMax ?? 1)) ||
-      x.hp !== y.hp ||
-      (x.maxHp ?? x.hp) !== (y.maxHp ?? y.hp) ||
-      Number(x.attackSeq ?? 0) !== Number(y.attackSeq ?? 0) ||
-      x.dead !== y.dead
-    ) return false;
-  }
-  return true;
-}
-
 export default class BattleScene extends Phaser.Scene {
   constructor() {
     super('BattleScene');
@@ -247,6 +168,12 @@ export default class BattleScene extends Phaser.Scene {
     this.coreUnitsById = new Map();
     this.kingXpCost = KING_XP_COST;
     this.kingMaxLevel = KING_MAX_LEVEL;
+    this.kingUi = KING_UI;
+    this.kingXpBarUi = KING_XP_BAR_UI;
+    this.kingXpBuyCost = KING_XP_BUY_COST;
+    this.enemyKingDisplayName = ENEMY_KING_DISPLAY_NAME;
+    this.uiText = UI_TEXT;
+    this.useServerBattleReplay = USE_SERVER_BATTLE_REPLAY;
 
     // фон
     this.bg = this.add.image(0, 0, 'battleBg')
@@ -726,174 +653,14 @@ export default class BattleScene extends Phaser.Scene {
       }
     };
 
-    this.ws.onState = (state) => {
-      if (this.testSceneActive) {
-        this.testSceneQueuedLiveState = state;
-        return;
-      }
-      // сервер прислал обновлённый state после чьего-то хода
-      const prevState = this.battleState;
-      const prevPhase = this.battleState?.phase ?? null;
-      const prevResult = this.battleState?.result ?? null;
-
-      let nextState = state;
-      const replayIsRunning =
-        USE_SERVER_BATTLE_REPLAY &&
-        !this.testSceneActive &&
-        !!this.serverReplayPlayback?.active;
-
-      // During replay playback we keep local unit timeline authoritative for visuals.
-      // Server snapshots still update phase/result/kings/shop/debug state.
-      if (replayIsRunning && state?.phase === 'battle') {
-        const localUnits = (this.battleState?.units ?? []).map((u) => ({ ...u }));
-        const localBoardUnits = localUnits.filter((u) => u?.zone === 'board');
-        const serverNonBoardUnits = (state?.units ?? [])
-          .filter((u) => u?.zone !== 'board')
-          .map((u) => ({ ...u }));
-
-        // During replay: board units are driven by local replay timeline,
-        // while bench/non-board units remain server-authoritative (shop buys, bench management).
-        nextState = {
-          ...state,
-          units: [...localBoardUnits, ...serverNonBoardUnits],
-        };
-      }
-
-      this.battleState = nextState;
-
-      const phaseChanged = (nextState?.phase ?? null) !== prevPhase;
-      const resultChanged = (nextState?.result ?? null) !== prevResult;
-      const phaseUiChanged =
-        phaseChanged ||
-        resultChanged ||
-        Boolean(prevState?.gameStarted) !== Boolean(nextState?.gameStarted) ||
-        Number(prevState?.round ?? 0) !== Number(nextState?.round ?? 0) ||
-        Number(prevState?.prepSecondsLeft ?? 0) !== Number(nextState?.prepSecondsLeft ?? 0) ||
-        Number(prevState?.battleSecondsLeft ?? 0) !== Number(nextState?.battleSecondsLeft ?? 0);
-      const unitsChanged = !areUnitsEqual(prevState?.units, nextState?.units);
-      const pendingAttackAnimIds = new Set();
-      const prevUnitsById = new Map((prevState?.units ?? []).map((u) => [u.id, u]));
-      for (const u of (nextState?.units ?? [])) {
-        const prev = prevUnitsById.get(u.id);
-        if (!prev) continue;
-        const prevAttackSeq = Number(prev.attackSeq ?? 0);
-        const nextAttackSeq = Number(u.attackSeq ?? 0);
-        if (nextAttackSeq > prevAttackSeq) pendingAttackAnimIds.add(u.id);
-      }
-      this.pendingAttackAnimIds = pendingAttackAnimIds;
-      const kingsChanged = !areKingsEqual(prevState?.kings, nextState?.kings);
-      const shopChanged = !areShopOffersEqual(prevState?.shop, nextState?.shop);
-
-      // На смене только result (без смены фазы) не анимируем UI магазина,
-      // чтобы кнопки не "доезжали" как при ручном закрытии.
-      // На смене фазы prep<->battle анимацию оставляем.
-      if (!phaseChanged && resultChanged) {
-        this.shopUiSkipNextModeAnimation = true;
-      }
-
-      if (phaseChanged) {
-        if (nextState?.phase === 'battle' && !nextState?.result) this.shopCollapsed = true;
-        if (nextState?.phase === 'prep' && !nextState?.result) this.shopCollapsed = false;
-        if (nextState?.phase !== 'battle') {
-          this.kingDamageFxToken += 1;
-          this.kingHpLock.player = null;
-          this.kingHpLock.enemy = null;
-        }
-        this.gridStaticDirty = true;
-        if (nextState?.phase !== 'prep' || nextState?.result) {
-          this.draggingUnitId = null;
-          this.dragBoardHover = null;
-          this.dragBenchHoverSlot = null;
-          this.hoverPickupCell = null;
-        }
-      }
-
-      // Если атака была прервана сменой фазы/результата, animationcomplete может не прийти,
-      // и флаг атаки залипнет до следующего боя. Сбрасываем такие локальные флаги здесь.
-      if (phaseChanged || resultChanged) {
-        for (const vu of (this.unitSys?.state?.units ?? [])) {
-          vu._attackAnimPlaying = false;
-          vu._attackAnimForceReplay = false;
-        }
-        this.pendingAttackAnimIds?.clear?.();
-      }
-
-      let gridDynamicNeedsRedraw = false;
-
-      const needRender = (unitsChanged || phaseChanged || resultChanged);
-      const needGrid = (needRender || gridDynamicNeedsRedraw);
-      const needPhaseUi = phaseUiChanged;
-      const needKingsUi = phaseUiChanged || kingsChanged;
-      const needShopUi = phaseChanged || resultChanged || kingsChanged || shopChanged;
-      const needRefreshDraggable = (unitsChanged || phaseChanged || resultChanged);
-
-      if (needRender) this.renderFromState();
-      if (needGrid) this.drawGrid();
-      if (needPhaseUi) this.syncPhaseUI();
-      if (needKingsUi) this.syncKingsUI();
-      this.maybeStartKingDamageFx?.(prevState, nextState, { resultChanged });
-      if (needShopUi) this.syncShopUI();
-      if (needRefreshDraggable) this.refreshAllDraggable();
-      this.syncDebugUI?.();
-
-      this.maybeStartServerBattleReplayPlayback?.(state);
-      if (nextState?.phase !== 'battle') {
-        this.stopServerBattleReplayPlayback?.();
-      }
-    };
-
-    this.ws.onError = (err) => {
-      if (this.testSceneActive) return;
-      console.warn('Server error:', err?.code, err?.message || err);
-
-      if (err?.code === 'OCCUPIED' || err?.code === 'MOVE_DENIED' || err?.code === 'NOT_OWNER') {
-        this.renderFromState();
-        this.drawGrid();
-      }
-    };
+    this.ws.onState = (state) => this.handleServerState?.(state);
+    this.ws.onError = (err) => this.handleServerError?.(err);
 
 
     this.ws.connect();
 
-    this.events.once('shutdown', () => {
-      if (this._hudOutsideTapHandler) {
-        this.input?.off?.('pointerdown', this._hudOutsideTapHandler);
-        this._hudOutsideTapHandler = null;
-      }
-      this.stopServerBattleReplayPlayback?.();
-      this.ws?.close();
-    });
-
-    this.events.once('destroy', () => {
-      if (this._hudOutsideTapHandler) {
-        this.input?.off?.('pointerdown', this._hudOutsideTapHandler);
-        this._hudOutsideTapHandler = null;
-      }
-      this.stopServerBattleReplayPlayback?.();
-      this.ws?.close();
-    });
+    this.bindSceneLifecycleHandlers?.();
     this.bindDragHandlers();
-
-    // resize
-    this.scale.on('resize', () => {
-      this.draggingUnitId = null;
-      this.dragBoardHover = null;
-      this.dragBenchHoverSlot = null;
-      this.hoverPickupCell = null;
-      this.layout();
-      this.drawGrid();
-
-      if (this.roundText) this.roundText.setPosition(this.scale.width / 2, 10);
-      if (this.prepTimerText) this.prepTimerText.setPosition(this.scale.width / 2, 56);
-
-      if (this.resultText) this.resultText.setPosition(this.scale.width / 2, 56);
-      if (this.resultText) this.resultText.setWordWrapWidth(Math.min(520, this.scale.width - 40));
-
-      positionFullscreenButton(this);
-      this.positionDebugUI?.();
-      this.positionShop();
-      this.positionCoinsHUD();
-    });
 
     this.layout();
     this.drawGrid();
@@ -1038,47 +805,6 @@ export default class BattleScene extends Phaser.Scene {
     }
   }
 
-  positionCoinsHUD() {
-    if (!this.kingLeftCoinIcon || !this.kingLeftCoinText || !this.kingLevelContainer) return;
-
-    const view = this.scale.getViewPort();
-
-    // HUD left-side anchors to a fixed top line, not to debug buttons.
-    // Otherwise swapping/moving Debug/Rating buttons shifts XP/coins unexpectedly.
-    const btnTop = view.y + 14;
-
-    // базовый X — левый край поля
-    const p0 = this.hexToPixel(0, 0);
-    const baseX = Math.max(view.x + 8, p0.x - this.hexSize);
-
-    // 1) сначала ставим блок опыта (корона+бар) сверху
-    const xpY = btnTop + 14; // верхняя строка HUD (подбери если надо)
-    // выравниваем левый край XP-блока (левый край короны) по baseX,
-    // как и левый край иконки монет
-    const crownW = this.kingLevelIcon?.displayWidth ?? 30;
-    this.kingLevelContainer.setPosition(baseX + crownW / 2, xpY);
-
-    if (this.kingXpBuyBtn) {
-      // Right of XP bar block
-      this.kingXpBuyBtn.setPosition(baseX + 232, xpY);
-    }
-
-    // 2) монеты — слева от блока опыта короля
-    const iconW = this.kingLeftCoinIcon.displayWidth || this.coinSize;
-    // Держим иконку монет на фиксированном месте относительно XP-блока.
-    // Не используем текущую ширину текста (99/100), иначе иконка "ездит".
-    const coinTextReserveW = Number(this.coinHudTextReserveW ?? 42); // подкрути при желании
-    const coinGap = 8;
-    const coinBlockW = iconW + coinGap + coinTextReserveW;
-    const coinsToXpGap = 14;
-    const xpLeftX = baseX;
-    const coinLeftX = Math.max(view.x + 8, xpLeftX - coinsToXpGap - coinBlockW);
-    const coinY = xpY;
-
-    // coinContainer anchored by icon center
-    this.coinContainer.setPosition(Math.round(coinLeftX + iconW / 2), coinY);
-  }
-
   positionKings() {
     if (!this.kingLeft || !this.kingRight) return;
 
@@ -1133,73 +859,6 @@ export default class BattleScene extends Phaser.Scene {
 
     this.kingLeft.setPosition(leftX, midY);
     this.kingRight.setPosition(rightX, midY);
-  }
-
-  syncKingsUI() {
-    const kings = this.battleState?.kings;
-
-    const p = kings?.player ?? { hp: 100, maxHp: 100, coins: 0 };
-
-    const rawCoins = Number(p.coins ?? 0);
-
-    this.syncCoinHudCompact?.(rawCoins);
-
-    const lvl = Number(p.level ?? 1);
-    const xp = Number(p.xp ?? 0);
-
-    // сколько нужно до следующего уровня (берём с shared через импорт)
-    const need = (lvl >= this.kingMaxLevel) ? 0 : (this.kingXpCost?.[lvl] ?? 0); // см. пункт 6 ниже
-
-    if (this.kingLevelText) this.kingLevelText.setText(`${lvl}`);
-
-    if (this.kingLevelXpText) {
-      this.kingLevelXpText.setText(need > 0 ? `Exp: ${xp} / ${need}` : 'Max');
-      this.kingLevelXpText.setVisible(this.kingLevelExpanded);
-    }
-
-    this.drawKingXpBar?.(lvl, xp, need);
-    this.positionCoinsHUD();
-
-    if (this.kingXpBuyBtn) {
-      const phase = this.battleState?.phase ?? 'prep';
-      const result = this.battleState?.result ?? null;
-      const canBuyXp =
-        !this.testSceneActive &&
-        phase === 'prep' &&
-        !result &&
-        Number(rawCoins) >= KING_XP_BUY_COST &&
-        Number(lvl) < Number(this.kingMaxLevel ?? KING_MAX_LEVEL);
-      this.kingXpBuyBtn.setVisible(!this.testSceneActive);
-      this.kingXpBuyBtn.setAlpha(canBuyXp ? 1 : 0.62);
-      if (this.kingXpBuyBtnHit?.input) this.kingXpBuyBtnHit.input.enabled = canBuyXp;
-      this.kingXpBuyBtnIcon?.setTint(canBuyXp ? 0xffffff : 0xb0b0b0);
-      this.kingXpBuyBtnCoin?.setAlpha(canBuyXp ? 1 : 0.72);
-      this.kingXpBuyBtnCostText?.setColor(canBuyXp ? '#ffd85a' : '#c8c8c8');
-      this.kingXpBuyBtnCostText?.setStroke(canBuyXp ? '#b35a00' : '#6e6e6e', 2);
-      this.kingXpBuyBtnTopText?.setColor(canBuyXp ? '#fff0cf' : '#d8d8d8');
-    }
-
-    const phase = this.battleState?.phase ?? 'prep';
-    const result = this.battleState?.result ?? null;
-
-    const e = kings?.enemy ?? { hp: 100, maxHp: 100, coins: 0, visible: false };
-    const enemyVisualKey = String(e.visualKey ?? 'king');
-    if (this.kingRight && this.textures?.exists?.(enemyVisualKey) && this.kingRight.texture?.key !== enemyVisualKey) {
-      this.kingRight.setTexture(enemyVisualKey);
-      this.kingRight.setDisplaySize(this.kingWidth, this.kingHeight);
-    }
-    const enemyDisplayName = String(e.name ?? ENEMY_KING_DISPLAY_NAME);
-    this.kingRightNameText?.setText(enemyDisplayName);
-
-    // считаем "всё ещё battle", пока показывается результат
-    const isBattleView = (phase === 'battle') || (result != null);
-
-    const showEnemy = isBattleView && (e.visible !== false);
-
-
-    this.kingRight?.setVisible(showEnemy);
-    this.syncRoundUI();
-    this.drawKingHpBars();
   }
 
   syncRoundUI() {
@@ -1364,144 +1023,6 @@ export default class BattleScene extends Phaser.Scene {
       this.kingRightHpFill.clear();
       this.kingRightHpText?.setVisible(false);
       this.kingRightNameText?.setVisible(false);
-    }
-  }
-
-  drawKingXpBar(level, xp, need) {
-    if (!this.kingLevelBarBg || !this.kingLevelBarFill) return;
-
-    const w = Number(KING_XP_BAR_UI.width ?? 156);
-    const h = Number(KING_XP_BAR_UI.height ?? 14);
-    const r = Number(KING_XP_BAR_UI.radius ?? 6);
-
-    const iconW = this.kingLevelIcon?.displayWidth ?? 30;
-
-    // хотим, чтобы корона чуть налезала на бар
-    const overlap = 10; // насколько бар заходит под корону
-    const gap = 2;
-
-    // старт бара: немного "под" корону
-    const barDx = Number(KING_XP_BAR_UI.xOffset ?? -8);
-    const x = (iconW / 2) - overlap + gap + barDx;
-    const y = -h / 2;
-
-    this.kingLevelBarBg.clear();
-    this.kingLevelBarFill.clear();
-
-    // Same visual language as king HP bar: dark rounded background + thin frame + soft highlight.
-    this.kingLevelBarBg.fillStyle(KING_UI.hpBar.bgColor, KING_UI.hpBar.bgAlpha);
-    this.kingLevelBarBg.fillRoundedRect(x, y, w, h, r);
-
-    const ratio = (need > 0) ? Phaser.Math.Clamp(xp / need, 0, 1) : 1;
-    const fillW = Math.max(0, w * ratio);
-    this.kingLevelBarFill.fillStyle(KING_XP_BAR_UI.fillColor, KING_XP_BAR_UI.fillAlpha);
-    this.kingLevelBarFill.fillRoundedRect(x, y, fillW, h, r);
-    if (fillW > 3) {
-      this.kingLevelBarFill.fillStyle(KING_UI.hpBar.highlightColor, KING_UI.hpBar.highlightAlpha);
-      this.kingLevelBarFill.fillRect(x + 1, y + 1, fillW - 2, 1);
-    }
-    this.kingLevelBarBg.lineStyle(1, KING_UI.hpBar.frameColor, KING_UI.hpBar.frameAlpha);
-    this.kingLevelBarBg.strokeRoundedRect(x, y, w, h, r);
-
-    // центр бара (нужен для exp-текста и hitbox)
-    const cx = x + w / 2;
-    const cy = y + h / 2;
-    const doubleDigitOffsetX = Number(level > 9 ? (this.kingLevelTextDoubleDigitOffsetX ?? 0) : 0);
-    const crownTextX = Number(this.kingLevelIcon?.x ?? 0) + Number(this.kingLevelTextOffsetX ?? 0) + doubleDigitOffsetX;
-    const crownTextY = Number(this.kingLevelIcon?.y ?? 0) + Number(this.kingLevelTextOffsetY ?? 0);
-    this.kingLevelText.setPosition(crownTextX, crownTextY);
-
-    // Exp рисуем ПОВЕРХ полоски (в центре), когда блок раскрыт
-    this.kingLevelXpText.setOrigin(0.5, 0.5);
-    this.kingLevelXpText.setPosition(cx, cy);
-
-    const hitH = 44;
-
-    // ширина: иконка (половина слева) + бар + запас
-    const hitW = (iconW / 2) + w + 16;
-
-    // Exp теперь поверх бара, поэтому центр hit-зоны не смещаем
-    const hitCx = cx;
-    const hitCy = 0;
-
-    this.kingLevelHit.setPosition(hitCx, hitCy);
-    this.kingLevelHit.setSize(hitW, hitH);
-  }
-
-  drawCoinBar(coins, maxCoins) {
-    if (!this.coinBarBg || !this.coinBarFill) return;
-
-    // ? идентичные размеры как у XP-бара
-    const w = 170;
-    const h = 18;
-
-    const iconW = this.kingLeftCoinIcon?.displayWidth ?? 28;
-
-    // такие же параметры "налезания"
-    const overlap = 10;
-    const gap = 2;
-
-    // старт бара: немного под иконку
-    const x = (iconW / 2) - overlap + gap;
-    const y = -h / 2;
-
-    this.coinBarBg.clear();
-    this.coinBarFill.clear();
-
-    // --- Стильная обводка (оранжево-коричневая) ---
-    this.coinBarBg.lineStyle(1, 0x9a5a00, 1);
-    this.coinBarBg.strokeRoundedRect(x, y, w, h, 6);
-
-    // --- Фон ---
-    this.coinBarBg.fillStyle(0x2a2a2a, 1);
-    this.coinBarBg.fillRoundedRect(x + 1, y + 1, w - 2, h - 2, 5);
-
-    // --- Fill (жёлто-оранжевый) ---
-    const ratio = (maxCoins > 0) ? Phaser.Math.Clamp(coins / maxCoins, 0, 1) : 1;
-    this.coinBarFill.fillStyle(0xffb000, 0.95); // ближе к оранжевому под монету
-    this.coinBarFill.fillRoundedRect(x + 1, y + 1, (w - 2) * ratio, h - 2, 5);
-
-    // текст по центру бара (как lv. у XP)
-    const cx = x + w / 2;
-    const cy = y + h / 2;
-    this.kingLeftCoinText.setPosition(cx, cy);
-
-    // обновим hit-зону под фактическую ширину блока
-    if (this.coinHit) {
-      const hitH = 44;
-      const hitW = (iconW / 2) + w + 16; // иконка + бар + запас
-      const cx = x + w / 2;
-      this.coinHit.setPosition(cx, 0);
-      this.coinHit.setSize(hitW, hitH);
-    }
-  }
-
-  syncCoinHudCompact(coins) {
-    if (!this.kingLeftCoinIcon || !this.kingLeftCoinText) return;
-
-    const rawCoins = Math.max(0, Number(coins ?? 0));
-    this.kingLeftCoinText.setText(`${rawCoins}`);
-
-    const iconW = this.kingLeftCoinIcon?.displayWidth ?? this.coinSize ?? 28;
-    const textGap = 8;
-    const textX = (iconW / 2) + textGap;
-    const isAtCoinMax = rawCoins >= Number(this.coinMax ?? 100);
-    const textW = Number(this.kingLeftCoinText.width ?? 0);
-    this.kingLeftCoinText.setPosition(textX, 0);
-    if (this.kingLeftCoinMaxText) {
-      this.kingLeftCoinMaxText.setVisible(isAtCoinMax);
-      this.kingLeftCoinMaxText.setPosition(textX + (textW / 2), 14);
-    }
-
-    if (this.coinHit) {
-      const left = -(iconW / 2);
-      const right = textX + textW;
-      const padX = 8;
-      const hitW = Math.max(64, Math.ceil((right - left) + padX * 2));
-      const hitH = isAtCoinMax ? 52 : 44;
-      const hitCx = Math.round((left + right) / 2);
-      this.coinHit.setPosition(hitCx, isAtCoinMax ? 4 : 0);
-      this.coinHit.setSize(hitW, hitH);
     }
   }
 
@@ -2614,131 +2135,6 @@ export default class BattleScene extends Phaser.Scene {
     return { x: p.x - dx, y: p.y };
   }
 
-  showCoinInfoPopup() {
-    if (this.coinInfoOpen) return;
-    this.coinInfoOpen = true;
-
-    // --- математика (как на сервере) ---
-    const round = Number(this.battleState?.round ?? 1);
-    const winStreak = Number(this.battleState?.winStreak ?? 0);
-    const loseStreak = Number(this.battleState?.loseStreak ?? 0);
-
-    const coinsNow = Number(this.battleState?.kings?.player?.coins ?? 0);
-
-    const base = baseIncomeForRound(round);
-    const interest = interestIncome(coinsNow);
-    const winBonus = 1; // показываем всегда
-
-    // если сейчас уже идёт серия побед — бонус по текущей длине
-    // если серии ещё нет, но следующая победа начнёт бонус (со следующей 3-й) — покажем "будет +1"
-    const willWinStreakCount = (winStreak > 0) ? winStreak : 0;
-    const nextWinStreakCount = willWinStreakCount + 1;
-    const winStreakShown =
-      (winStreak >= 3) ? streakBonus(winStreak)
-      : (winStreak === 2) ? streakBonus(3) // следующая победа даст бонус
-      : 0;
-
-    // аналогично для поражений
-    const willLoseStreakCount = (loseStreak > 0) ? loseStreak : 0;
-    const nextLoseStreakCount = willLoseStreakCount + 1;
-    const loseStreakShown =
-      (loseStreak >= 3) ? streakBonus(loseStreak)
-      : (loseStreak === 2) ? streakBonus(3)
-      : 0;
-
-    // "ожидаемый" итог: если сейчас идёт win-streak или мы на пороге win-streak (2 подряд),
-    // считаем по победному сценарию. Если идёт lose-streak/порог — по поражению.
-    // Иначе — просто base+interest+winBonus.
-    let expected = base + interest + winBonus;
-
-    if (winStreak >= 2) {
-      // ожидаем победу и учёт win streak (текущий или начнётся)
-      const effectiveWinStreak = (winStreak >= 3) ? streakBonus(winStreak) : streakBonus(3);
-      expected = base + interest + winBonus + effectiveWinStreak;
-    } else if (loseStreak >= 2) {
-      // ожидаем поражение и учёт lose streak (текущий или начнётся)
-      const effectiveLoseStreak = (loseStreak >= 3) ? streakBonus(loseStreak) : streakBonus(3);
-      expected = base + interest + effectiveLoseStreak;
-    }
-
-    // --- позиционирование тултипа под блоком золота ---
-    // coinContainer стоит в HUD (scrollFactor 0), поэтому bounds корректны
-    const b = this.coinContainer.getBounds();
-    const padding = 10;
-    const popupW = 320;
-    const lineH = 18;
-
-    const lines = [];
-    lines.push(`${UI_TEXT.COIN_INCOME}: +${base + interest}`);
-    lines.push(`${UI_TEXT.WIN_BONUS}: +${winBonus}`);
-
-    // показываем win streak, если он начнётся со следующей победой (2 подряд) ИЛИ уже идёт (>=3)
-    if (winStreak >= 2) {
-      const txt = (winStreak >= 3)
-        ? `${UI_TEXT.WIN_STREAK_BONUS}: +${streakBonus(winStreak)}`
-        : `${UI_TEXT.WIN_STREAK_BONUS}: +${streakBonus(3)} ${UI_TEXT.FROM_NEXT_WIN}`;
-      lines.push(txt);
-    }
-
-    // показываем lose streak аналогично
-    if (loseStreak >= 2) {
-      const txt = (loseStreak >= 3)
-        ? `${UI_TEXT.LOSE_STREAK_BONUS}: +${streakBonus(loseStreak)}`
-        : `${UI_TEXT.LOSE_STREAK_BONUS}: +${streakBonus(3)} ${UI_TEXT.FROM_NEXT_LOSS}`;
-      lines.push(txt);
-    }
-
-    lines.push(`${UI_TEXT.EXPECTED_ROUND_INCOME}: +${expected}`);
-
-    const popupH = padding * 2 + lines.length * lineH + 8;
-
-    // контейнер (без затемнения экрана)
-    this.coinPopup = this.add.container(0, 0).setDepth(20000).setScrollFactor(0);
-
-    // фон тултипа
-    const bg = this.add.rectangle(0, 0, popupW, popupH, 0x0b0b0b, 0.88)
-      .setOrigin(0, 0)
-      .setStrokeStyle(2, 0xffb000, 0.95);
-
-    // текст
-    const text = this.add.text(0, 0, lines.join('\n'), {
-      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-      fontSize: '14px',
-      color: '#ffffff',
-      lineSpacing: 6,
-      wordWrap: { width: popupW - padding * 2 },
-    }).setOrigin(0, 0);
-
-    text.setPosition(padding, padding);
-
-    // хит-зона тултипа, чтобы клик по нему не закрывал сразу (будем учитывать в currentlyOver)
-    this.coinPopupHit = this.add.zone(0, 0, popupW, popupH)
-      .setOrigin(0, 0)
-      .setInteractive();
-
-    this.coinPopup.add([bg, text, this.coinPopupHit]);
-
-    // позиция: под золотом, выровнять по левому краю блока золота
-    let px = b.left;
-    let py = b.bottom + 6;
-
-    // чтобы не вылезало за экран справа
-    const viewW = this.scale.width;
-    if (px + popupW > viewW - 8) px = Math.max(8, viewW - 8 - popupW);
-
-    this.coinPopup.setPosition(px, py);
-  }
-
-  hideCoinInfoPopup() {
-    if (!this.coinInfoOpen) return;
-    this.coinInfoOpen = false;
-
-    if (this.coinPopup) {
-      this.coinPopup.destroy(true);
-      this.coinPopup = null;
-    }
-    this.coinPopupHit = null;
-  }
 
   update(time, delta) {
     this.unitSys.update(delta / 1000);
@@ -2766,6 +2162,9 @@ installBattleSceneShopUi(BattleScene);
 installBattleSceneTestScene(BattleScene);
 installBattleSceneDebugUi(BattleScene);
 installBattleSceneKingDamageFx(BattleScene);
+installBattleSceneKingHudUi(BattleScene);
+installBattleSceneStateSync(BattleScene);
+installBattleSceneLifecycle(BattleScene);
 
 
 

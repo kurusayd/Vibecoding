@@ -1,6 +1,6 @@
 {
   "frames": {
-    "psd_animation/attack0001.png": {
+    "psd_anim/attack0001.png": {
       "frame": {
         "x": 3,
         "y": 3,
@@ -24,7 +24,7 @@
         "y": 0.5
       }
     },
-    "psd_animation/attack0002.png": {
+    "psd_anim/attack0002.png": {
       "frame": {
         "x": 3,
         "y": 265,
@@ -48,7 +48,7 @@
         "y": 0.5
       }
     },
-    "psd_animation/attack0003.png": {
+    "psd_anim/dead.png": {
       "frame": {
         "x": 3,
         "y": 527,
@@ -72,7 +72,7 @@
         "y": 0.5
       }
     },
-    "psd_animation/attack0004.png": {
+    "psd_anim/idle.png": {
       "frame": {
         "x": 3,
         "y": 789,
@@ -96,7 +96,7 @@
         "y": 0.5
       }
     },
-    "psd_animation/attack0005.png": {
+    "psd_anim/walk0001.png": {
       "frame": {
         "x": 3,
         "y": 1051,
@@ -120,7 +120,7 @@
         "y": 0.5
       }
     },
-    "psd_animation/attack0006.png": {
+    "psd_anim/walk0002.png": {
       "frame": {
         "x": 3,
         "y": 1313,
@@ -144,105 +144,9 @@
         "y": 0.5
       }
     },
-    "psd_animation/attack0007.png": {
+    "psd_anim/attack0003.png": {
       "frame": {
         "x": 3,
-        "y": 1575,
-        "w": 256,
-        "h": 256
-      },
-      "rotated": false,
-      "trimmed": false,
-      "spriteSourceSize": {
-        "x": 0,
-        "y": 0,
-        "w": 256,
-        "h": 256
-      },
-      "sourceSize": {
-        "w": 256,
-        "h": 256
-      },
-      "pivot": {
-        "x": 0.5,
-        "y": 0.5
-      }
-    },
-    "psd_animation/dead.png": {
-      "frame": {
-        "x": 265,
-        "y": 3,
-        "w": 256,
-        "h": 256
-      },
-      "rotated": false,
-      "trimmed": false,
-      "spriteSourceSize": {
-        "x": 0,
-        "y": 0,
-        "w": 256,
-        "h": 256
-      },
-      "sourceSize": {
-        "w": 256,
-        "h": 256
-      },
-      "pivot": {
-        "x": 0.5,
-        "y": 0.5
-      }
-    },
-    "psd_animation/idle.png": {
-      "frame": {
-        "x": 527,
-        "y": 3,
-        "w": 256,
-        "h": 256
-      },
-      "rotated": false,
-      "trimmed": false,
-      "spriteSourceSize": {
-        "x": 0,
-        "y": 0,
-        "w": 256,
-        "h": 256
-      },
-      "sourceSize": {
-        "w": 256,
-        "h": 256
-      },
-      "pivot": {
-        "x": 0.5,
-        "y": 0.5
-      }
-    },
-    "psd_animation/walk0001.png": {
-      "frame": {
-        "x": 789,
-        "y": 3,
-        "w": 256,
-        "h": 256
-      },
-      "rotated": false,
-      "trimmed": false,
-      "spriteSourceSize": {
-        "x": 0,
-        "y": 0,
-        "w": 256,
-        "h": 256
-      },
-      "sourceSize": {
-        "w": 256,
-        "h": 256
-      },
-      "pivot": {
-        "x": 0.5,
-        "y": 0.5
-      }
-    },
-    "psd_animation/walk0002.png": {
-      "frame": {
-        "x": 1051,
         "y": 3,
         "w": 256,
         "h": 256
@@ -271,8 +175,8 @@
     "image": "vampire_atlas.png",
     "format": "RGBA8888",
     "size": {
-      "w": 1310,
-      "h": 1834
+      "w": 262,
+      "h": 1572
     },
     "scale": 1
   }
