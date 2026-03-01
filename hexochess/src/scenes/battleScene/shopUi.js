@@ -7,6 +7,28 @@
   const SHOP_PORTRAIT_TYPE_ALIASES = {
     Swordsman: 'swordman',
   };
+  const SHOP_FIGURE_ICON_BY_POWER_TYPE = {
+    'Пешка': 'figure_pawn',
+    'Конь': 'figure_knight',
+    'Слон': 'figure_bishop',
+    'Ладья': 'figure_rook',
+    'Ферзь': 'figure_queen',
+    PAWN: 'figure_pawn',
+    KNIGHT: 'figure_knight',
+    BISHOP: 'figure_bishop',
+    ROOK: 'figure_rook',
+    QUEEN: 'figure_queen',
+  };
+  const SHOP_CARD_FIGURE_ICON_SIZE = 35;
+  const SHOP_CARD_FIGURE_OFFSET_X = 15;
+  const SHOP_CARD_FIGURE_OFFSET_Y = -5;
+  const SHOP_CARD_BOTTOM_ROW_Y = 172;
+  const SHOP_CARD_FIGURE_ICON_X = -52;
+  const SHOP_CARD_COST_TEXT_RIGHT_X = 55;
+  const SHOP_CARD_COST_GROUP_OFFSET_X = 0;
+  const SHOP_CARD_COST_GROUP_OFFSET_Y = -2;
+  const SHOP_CARD_COST_GAP_PX = 6;
+  const SHOP_CARD_COST_COIN_SIZE = 28;
   const unitTypeToPortraitName = (type) => {
     const raw = String(type ?? '').trim();
     if (!raw) return '';
@@ -253,17 +275,26 @@
         wordWrap: { width: w - 16, useAdvancedWrap: true },
       }).setOrigin(0.5, 0);
 
-      const costCoin = this.add.image(-10, top + 167, 'coin')
+      const figureIcon = this.add.image(
+        SHOP_CARD_FIGURE_ICON_X + SHOP_CARD_FIGURE_OFFSET_X,
+        top + SHOP_CARD_BOTTOM_ROW_Y + SHOP_CARD_FIGURE_OFFSET_Y,
+        'figure_pawn'
+      )
         .setOrigin(0.5, 0.5)
-        .setDisplaySize(18, 18);
+        .setDisplaySize(SHOP_CARD_FIGURE_ICON_SIZE, SHOP_CARD_FIGURE_ICON_SIZE)
+        .setVisible(false);
 
-      const costText = this.add.text(4, top + 167, '', {
+      const costCoin = this.add.image(0, top + SHOP_CARD_BOTTOM_ROW_Y, 'coin')
+        .setOrigin(0.5, 0.5)
+        .setDisplaySize(SHOP_CARD_COST_COIN_SIZE, SHOP_CARD_COST_COIN_SIZE);
+
+      const costText = this.add.text(SHOP_CARD_COST_TEXT_RIGHT_X, top + SHOP_CARD_BOTTOM_ROW_Y, '', {
         fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-        fontSize: '17px',
+        fontSize: '20px',
         color: '#7c5b00',
         fontStyle: 'bold',
-        align: 'left',
-      }).setOrigin(0, 0.5);
+        align: 'right',
+      }).setOrigin(1, 0.5);
 
       const hit = this.add.zone(0, 0, w, h)
         .setOrigin(0.5, 0.5)
@@ -280,9 +311,22 @@
       card.previewFallback = previewFallback;
       card.nameText = nameText;
       card.typeText = typeText;
+      card.figureIcon = figureIcon;
       card.costCoin = costCoin;
       card.costText = costText;
       card.hit = hit;
+
+      card.updateCostLayout = () => {
+        const textX = SHOP_CARD_COST_TEXT_RIGHT_X + SHOP_CARD_COST_GROUP_OFFSET_X;
+        const y = top + SHOP_CARD_BOTTOM_ROW_Y + SHOP_CARD_COST_GROUP_OFFSET_Y;
+        const textW = Number(card.costText.width ?? 0);
+        const coinW = Number(card.costCoin.displayWidth ?? SHOP_CARD_COST_COIN_SIZE);
+        const figureX = SHOP_CARD_FIGURE_ICON_X + SHOP_CARD_FIGURE_OFFSET_X;
+        const figureY = top + SHOP_CARD_BOTTOM_ROW_Y + SHOP_CARD_FIGURE_OFFSET_Y;
+        card.figureIcon.setPosition(figureX, figureY);
+        card.costText.setPosition(textX, y);
+        card.costCoin.setPosition(textX - textW - SHOP_CARD_COST_GAP_PX - (coinW / 2), y);
+      };
 
       card.refreshVisual = () => {
         const enabled = !!card.enabled;
@@ -303,6 +347,7 @@
         card.previewFallback.setAlpha(enabled ? 1 : 0.55);
         card.nameText.setAlpha(enabled ? 1 : 0.75);
         card.typeText.setAlpha(enabled ? 1 : 0.75);
+        card.figureIcon.setAlpha(enabled ? 1 : 0.75);
         card.costCoin.setAlpha(enabled ? 1 : 0.75);
         card.costText.setAlpha(enabled ? 1 : 0.75);
 
@@ -347,12 +392,14 @@
         divider2,
         typeText,
         divider3,
+        figureIcon,
         costCoin,
         costText,
         border,
         hit,
       ]);
 
+      card.updateCostLayout();
       card.refreshVisual();
       return card;
     },
@@ -700,9 +747,11 @@
           card.nameText.setText('\u041f\u0443\u0441\u0442\u043e');
           card.typeText.setText('\u2014');
           card.costText.setText('');
+          card.figureIcon?.setVisible(false);
           card.costCoin?.setVisible(false);
           card.previewSprite.setVisible(false);
           card.previewFallback.setText('\u2026').setVisible(true);
+          card.updateCostLayout?.();
           card.refreshVisual();
           continue;
         }
@@ -710,9 +759,21 @@
         card.enabled = true;
         card.pressed = false;
         card.nameText.setText(String(o.type ?? 'Unknown'));
-        card.typeText.setText(String(o.powerType ?? '\u2014'));
+        const powerTypeText = String(o.powerType ?? '\u2014');
+        card.typeText.setText(powerTypeText);
+        const figureIconKey = SHOP_FIGURE_ICON_BY_POWER_TYPE[powerTypeText] ?? null;
+        const hasFigureIcon = !!(figureIconKey && this.textures?.exists?.(figureIconKey));
+        if (card.figureIcon) {
+          if (hasFigureIcon) {
+            card.figureIcon.setTexture(figureIconKey);
+            card.figureIcon.setVisible(true);
+          } else {
+            card.figureIcon.setVisible(false);
+          }
+        }
         card.costCoin?.setVisible(true);
         card.costText.setText(`${Number(o.cost ?? 0)}`);
+        card.updateCostLayout?.();
 
         const portraitFrame = portraitFrameForUnitType(o.type);
         const hasPortrait = !!(portraitsTexture && portraitFrame && portraitsTexture.has?.(portraitFrame));

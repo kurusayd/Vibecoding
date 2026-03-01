@@ -11,7 +11,6 @@ import {
   addUnit,
   getUnitAt,
   moveUnit,
-  attack,
   hexDistance,
   applyKingXp,
   kingXpToNext,
@@ -1017,13 +1016,32 @@ function findUnitByIdIn(simState, id) {
   return simState.units.find((u) => u.id === id) ?? null;
 }
 
-function getUnitAtIn(simState, q, r) {
-  return simState.units.find((u) => u.zone === 'board' && !u.dead && u.q === q && u.r === r) ?? null;
+function getCombatHexAtIn(simState, unit, timeMs) {
+  if (!unit) return null;
+  const startAt = Number(unit.moveStartAt ?? -1);
+  const endAt = Number(unit.moveEndAt ?? -1);
+  const fromQ = Number(unit.moveFromQ ?? unit.q);
+  const fromR = Number(unit.moveFromR ?? unit.r);
+  const toQ = Number(unit.q);
+  const toR = Number(unit.r);
+  if (endAt <= startAt || timeMs + 1e-6 >= endAt) {
+    return { q: toQ, r: toR };
+  }
+  if (timeMs + 1e-6 < startAt) {
+    return { q: fromQ, r: fromR };
+  }
+  const progress = (timeMs - startAt) / Math.max(1, endAt - startAt);
+  if (progress < 0.5) {
+    return { q: fromQ, r: fromR };
+  }
+  return { q: toQ, r: toR };
 }
 
-function findClosestOpponentIn(simState, attacker) {
+function findClosestOpponentIn(simState, attacker, timeMs) {
   if (!attacker || attacker.dead) return null;
   const opponentTeam = attacker.team === 'player' ? 'enemy' : 'player';
+  const mePos = getCombatHexAtIn(simState, attacker, timeMs);
+  if (!mePos) return null;
 
   let best = null;
   let bestDist = Infinity;
@@ -1031,7 +1049,9 @@ function findClosestOpponentIn(simState, attacker) {
     if (u.zone !== 'board') continue;
     if (u.dead) continue;
     if (u.team !== opponentTeam) continue;
-    const d = hexDistance(attacker.q, attacker.r, u.q, u.r);
+    const targetPos = getCombatHexAtIn(simState, u, timeMs);
+    if (!targetPos) continue;
+    const d = hexDistance(mePos.q, mePos.r, targetPos.q, targetPos.r);
     if (d < bestDist) {
       bestDist = d;
       best = u;
@@ -1040,16 +1060,52 @@ function findClosestOpponentIn(simState, attacker) {
   return best;
 }
 
-function pickBestStepTowardIn(simState, attacker, target) {
+function performAttackIn(simState, attackerId, targetId, timeMs) {
+  const attacker = findUnitByIdIn(simState, attackerId);
+  const target = findUnitByIdIn(simState, targetId);
+  if (!attacker || !target) return { success: false, reason: 'NO_UNIT' };
+  if (attacker.zone !== 'board') return { success: false, reason: 'ATTACKER_NOT_ON_BOARD' };
+  if (target.zone !== 'board') return { success: false, reason: 'TARGET_NOT_ON_BOARD' };
+  if (attacker.dead) return { success: false, reason: 'ATTACKER_DEAD' };
+  if (target.dead) return { success: false, reason: 'TARGET_DEAD' };
+  if (attacker.team === target.team) return { success: false, reason: 'SAME_TEAM' };
+
+  const attackerPos = getCombatHexAtIn(simState, attacker, timeMs);
+  const targetPos = getCombatHexAtIn(simState, target, timeMs);
+  if (!attackerPos || !targetPos) return { success: false, reason: 'NO_POSITION' };
+
+  const dist = hexDistance(attackerPos.q, attackerPos.r, targetPos.q, targetPos.r);
+  const attackRangeMax = Math.max(1, Number(attacker.attackRangeMax ?? 1));
+  const attackRangeFullDamage = Math.max(1, Number(attacker.attackRangeFullDamage ?? attackRangeMax));
+  if (dist > attackRangeMax) return { success: false, reason: 'OUT_OF_RANGE', dist, attackRangeMax };
+
+  const baseDamage = Math.max(0, Number(attacker.atk ?? 0));
+  const damageMultiplier = dist > attackRangeFullDamage ? 0.5 : 1;
+  const damage = Math.max(1, Math.round(baseDamage * damageMultiplier));
+  target.hp = Math.max(0, Number(target.hp ?? 0) - damage);
+  const killed = Number(target.hp ?? 0) <= 0;
+  if (killed) target.dead = true;
+  return { success: true, killed, damage, dist, attackRangeMax, attackRangeFullDamage };
+}
+
+function getUnitAtIn(simState, q, r) {
+  return simState.units.find((u) => u.zone === 'board' && !u.dead && u.q === q && u.r === r) ?? null;
+}
+
+function pickBestStepTowardIn(simState, attacker, target, timeMs) {
+  const attackerPos = getCombatHexAtIn(simState, attacker, timeMs);
+  const targetPos = getCombatHexAtIn(simState, target, timeMs);
+  if (!attackerPos || !targetPos) return null;
+
   let best = null;
   let bestDist = Infinity;
 
   for (const n of NEIGHBORS) {
-    const nq = attacker.q + n.dq;
-    const nr = attacker.r + n.dr;
+    const nq = attackerPos.q + n.dq;
+    const nr = attackerPos.r + n.dr;
     if (!isInsideBoard(nq, nr)) continue;
     if (getUnitAtIn(simState, nq, nr)) continue;
-    const d = hexDistance(nq, nr, target.q, target.r);
+    const d = hexDistance(nq, nr, targetPos.q, targetPos.r);
     if (d < bestDist) {
       bestDist = d;
       best = { q: nq, r: nr };
@@ -1103,7 +1159,7 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
       const me = findUnitByIdIn(simState, a.id);
       if (!me || me.dead || me.zone !== 'board') continue;
 
-      const target = findClosestOpponentIn(simState, me);
+      const target = findClosestOpponentIn(simState, me, tickTimeMs);
       if (!target) continue;
 
       const attackSpeed = Math.max(0.1, Number(me.attackSpeed ?? DEFAULT_UNIT_ATTACK_SPEED));
@@ -1118,10 +1174,13 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
 
       let unitActions = 0;
       while (unitActions < MAX_ACTIONS_PER_UNIT_PER_TICK) {
-        const liveTarget = findClosestOpponentIn(simState, me);
+        const liveTarget = findClosestOpponentIn(simState, me, tickTimeMs);
         if (!liveTarget) break;
 
-        const dist = hexDistance(me.q, me.r, liveTarget.q, liveTarget.r);
+        const mePos = getCombatHexAtIn(simState, me, tickTimeMs);
+        const targetPos = getCombatHexAtIn(simState, liveTarget, tickTimeMs);
+        if (!mePos || !targetPos) break;
+        const dist = hexDistance(mePos.q, mePos.r, targetPos.q, targetPos.r);
         const attackRangeMax = Math.max(1, Number(me.attackRangeMax ?? 1));
 
         if (dist <= attackRangeMax) {
@@ -1129,7 +1188,7 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
           if (tickTimeMs + 1e-6 < me.nextAttackAt) break;
 
           const targetBefore = { hp: Number(liveTarget.hp ?? 0), maxHp: Number(liveTarget.maxHp ?? liveTarget.hp ?? 0) };
-          const res = attack(simState, me.id, liveTarget.id);
+          const res = performAttackIn(simState, me.id, liveTarget.id, tickTimeMs);
           me.nextAttackAt = Math.max(me.nextAttackAt, tickTimeMs) + attackIntervalMs;
           unitActions += 1;
 
@@ -1160,7 +1219,7 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
         if (tickTimeMs + 1e-6 < me.nextAttackAt) break;
         if (tickTimeMs + 1e-6 < me.nextMoveAt) break;
 
-        const step = pickBestStepTowardIn(simState, me, liveTarget);
+        const step = pickBestStepTowardIn(simState, me, liveTarget, tickTimeMs);
         if (!step) break;
 
         const from = { q: me.q, r: me.r };
@@ -1168,6 +1227,10 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
         const moveReadyAt = Math.max(me.nextMoveAt, tickTimeMs) + moveIntervalMs;
         me.nextMoveAt = moveReadyAt;
         me.nextActionAt = Math.max(me.nextActionAt, moveReadyAt);
+        me.moveFromQ = from.q;
+        me.moveFromR = from.r;
+        me.moveStartAt = tickTimeMs;
+        me.moveEndAt = moveReadyAt;
         unitActions += 1;
         if (!moved) break;
 
@@ -1247,6 +1310,10 @@ function sanitizeUnitForBattleStart(unit) {
   unit.nextMoveAt = 0;
   unit.nextActionAt = 0;
   unit.attackSeq = 0;
+  unit.moveStartAt = -1;
+  unit.moveEndAt = -1;
+  unit.moveFromQ = unit.q;
+  unit.moveFromR = unit.r;
 }
 
 function clonePlayerUnitForPrep(unit) {
@@ -1255,6 +1322,10 @@ function clonePlayerUnitForPrep(unit) {
   clone.nextMoveAt = 0;
   clone.nextActionAt = 0;
   clone.attackSeq = 0;
+  clone.moveStartAt = -1;
+  clone.moveEndAt = -1;
+  clone.moveFromQ = clone.q;
+  clone.moveFromR = clone.r;
   clone.dead = false;
   if (Number(clone.hp ?? 0) <= 0) {
     clone.hp = Number(clone.maxHp ?? clone.hp ?? 1);

@@ -127,6 +127,11 @@ export default class BattleScene extends Phaser.Scene {
     this.load.image('king', '/assets/kings/king_princess.png');
     this.load.image('coin', '/assets/icons/Coin.png');
     this.load.image('bookExp', '/assets/icons/BookExp.png');
+    this.load.image('figure_pawn', '/assets/icons/figures/pawn.png');
+    this.load.image('figure_knight', '/assets/icons/figures/knight.png');
+    this.load.image('figure_bishop', '/assets/icons/figures/bishop.png');
+    this.load.image('figure_rook', '/assets/icons/figures/rook.png');
+    this.load.image('figure_queen', '/assets/icons/figures/queen.png');
     this.load.image('rank1', '/assets/icons/rank1.png');
     this.load.image('rank2', '/assets/icons/rank2.png');
     this.load.image('rank3', '/assets/icons/rank3.png');
@@ -1087,7 +1092,7 @@ export default class BattleScene extends Phaser.Scene {
 
     this.stopServerBattleReplayPlayback();
     const token = Number(this.serverReplayPlayback?.token ?? 0) + 1;
-    this.serverReplayPlayback = { active: true, token, timers: [] };
+    this.serverReplayPlayback = { active: true, token, timers: [], startTimeMs: Number(this.time?.now ?? 0) };
 
     // Start from the server-provided battle snapshot and animate locally by replay events.
     this.battleState = {
@@ -1171,9 +1176,17 @@ export default class BattleScene extends Phaser.Scene {
     if (ev.type === 'move') {
       const u = byId.get(ev.unitId);
       if (!u || u.dead) return;
+      const fromQ = Number.isFinite(Number(ev.fromQ)) ? Number(ev.fromQ) : Number(u.q);
+      const fromR = Number.isFinite(Number(ev.fromR)) ? Number(ev.fromR) : Number(u.r);
+      const moveStartRelMs = Math.max(0, Number(ev?.tStart ?? ev?.t ?? 0));
       const tweenMs = Number(ev.durationMs ?? NaN);
       if (Number.isFinite(tweenMs) && tweenMs > 0) {
         u._replayMoveTweenMs = tweenMs;
+        const replayStartMs = Number(this.serverReplayPlayback?.startTimeMs ?? this.time?.now ?? 0);
+        u._replayMoveFromQ = fromQ;
+        u._replayMoveFromR = fromR;
+        u._replayMoveStartAtMs = replayStartMs + moveStartRelMs;
+        u._replayMoveEndAtMs = replayStartMs + moveStartRelMs + tweenMs;
       }
       u.q = Number(ev.q ?? u.q);
       u.r = Number(ev.r ?? u.r);
@@ -1198,6 +1211,33 @@ export default class BattleScene extends Phaser.Scene {
       }
       return;
     }
+  }
+
+  getReplayCombatHexForUnit(coreUnitLike, nowMs = Number(this.time?.now ?? 0)) {
+    if (!coreUnitLike || coreUnitLike.zone !== 'board') return null;
+
+    const toQ = Number(coreUnitLike.q);
+    const toR = Number(coreUnitLike.r);
+    const startAt = Number(coreUnitLike._replayMoveStartAtMs ?? NaN);
+    const endAt = Number(coreUnitLike._replayMoveEndAtMs ?? NaN);
+    const fromQ = Number(coreUnitLike._replayMoveFromQ ?? toQ);
+    const fromR = Number(coreUnitLike._replayMoveFromR ?? toR);
+
+    if (!Number.isFinite(startAt) || !Number.isFinite(endAt) || endAt <= startAt) {
+      return { q: toQ, r: toR };
+    }
+    if (nowMs + 1e-6 < startAt) {
+      return { q: fromQ, r: fromR };
+    }
+    if (nowMs + 1e-6 >= endAt) {
+      return { q: toQ, r: toR };
+    }
+
+    const progress = (nowMs - startAt) / Math.max(1, endAt - startAt);
+    if (progress < 0.5) {
+      return { q: fromQ, r: fromR };
+    }
+    return { q: toQ, r: toR };
   }
 
   getUnitScreenAnchor(coreUnitLike, fallbackVu = null) {
@@ -2166,6 +2206,29 @@ export default class BattleScene extends Phaser.Scene {
       const { x, y } = this.selected.screen;
       this.drawHexOn(g, x, y, 0xffcc66, 1.0);
     }
+
+    const showCombatHexOverlay =
+      !!this.debugShowCombatHexOverlay &&
+      !!this.serverReplayPlayback?.active &&
+      !this.testSceneActive &&
+      this.battleState?.phase === 'battle' &&
+      !this.battleState?.result;
+    if (showCombatHexOverlay) {
+      const nowMs = Number(this.time?.now ?? 0);
+      for (const u of (this.battleState?.units ?? [])) {
+        if (!u || u.zone !== 'board' || u.dead) continue;
+
+        // Reserved hex: where unit already occupies logically.
+        const reserved = this.hexToPixel(u.q, u.r);
+        this.drawHexOn(g, reserved.x, reserved.y, 0x57c7ff, 0.95);
+
+        // Combat hex: first half of move = previous cell, second half = target cell.
+        const combatHex = this.getReplayCombatHexForUnit(u, nowMs);
+        if (!combatHex) continue;
+        const combat = this.hexToPixel(combatHex.q, combatHex.r);
+        this.drawHexOn(g, combat.x, combat.y, 0xffa954, 0.95);
+      }
+    }
   }
 
   drawGrid() {
@@ -2203,6 +2266,9 @@ export default class BattleScene extends Phaser.Scene {
       kingLagChanged = true;
     }
     if (kingLagChanged) this.drawKingHpBars();
+    if (this.debugShowCombatHexOverlay && this.serverReplayPlayback?.active) {
+      this.drawGrid();
+    }
   }
 
 }
