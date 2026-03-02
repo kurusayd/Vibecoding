@@ -1289,9 +1289,7 @@ export default class BattleScene extends Phaser.Scene {
     const sprite = this.add.image(start.x, start.y, textureKey).setDepth(1605);
     sprite.setScale(0.48);
     const spinClockwise = Boolean(fx?.spinClockwise);
-    const distHex = Number(fx?.dist ?? NaN);
-    const fullDamageRange = Number(fx?.attackRangeFullDamage ?? NaN);
-    const shouldFlyStraight = Boolean(fx?.forceStraight) || (Number.isFinite(distHex) && Number.isFinite(fullDamageRange) && distHex <= fullDamageRange);
+    const shouldFlyStraight = Boolean(fx?.forceStraight);
     if (spinClockwise) {
       const rotationsPerSecond = 4.5;
       const deltaAngle = 360 * rotationsPerSecond * (durationMs / 1000);

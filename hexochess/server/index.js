@@ -1110,12 +1110,8 @@ function performAttackIn(simState, attackerId, targetId, timeMs) {
   const baseDamage = Math.max(0, Number(attacker.atk ?? 0));
   const damageMultiplier = dist > attackRangeFullDamage ? 0.5 : 1;
   const damage = Math.max(1, Math.round(baseDamage * damageMultiplier));
-  const projectileSpeedBase = Math.max(0, Number(attacker.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED));
+  const projectileSpeed = Math.max(0, Number(attacker.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED));
   const isRanged = attackRangeMax > 1;
-  const inFullDamageZone = dist <= attackRangeFullDamage;
-  const projectileSpeed = isRanged && inFullDamageZone
-    ? projectileSpeedBase * 1.4
-    : projectileSpeedBase;
   const projectileTravelMs = isRanged && projectileSpeed > 0
     ? ((dist / projectileSpeed) * 1000)
     : 0;
