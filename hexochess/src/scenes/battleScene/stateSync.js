@@ -42,6 +42,7 @@ const areShopOffersEqual = (a, b) => {
       x.atk !== y.atk ||
       Number(x.attackSpeed ?? 1) !== Number(y.attackSpeed ?? 1) ||
       Number(x.moveSpeed ?? 1) !== Number(y.moveSpeed ?? 1) ||
+      Number(x.projectileSpeed ?? 0) !== Number(y.projectileSpeed ?? 0) ||
       Number(x.attackRangeMax ?? 1) !== Number(y.attackRangeMax ?? 1) ||
       Number(x.attackRangeFullDamage ?? (x.attackRangeMax ?? 1)) !== Number(y.attackRangeFullDamage ?? (y.attackRangeMax ?? 1))
     ) return false;
@@ -68,6 +69,7 @@ const areUnitsEqual = (a, b) => {
       x.rank !== y.rank ||
       Number(x.attackSpeed ?? 1) !== Number(y.attackSpeed ?? 1) ||
       Number(x.moveSpeed ?? 1) !== Number(y.moveSpeed ?? 1) ||
+      Number(x.projectileSpeed ?? 0) !== Number(y.projectileSpeed ?? 0) ||
       Number(x.attackRangeMax ?? 1) !== Number(y.attackRangeMax ?? 1) ||
       Number(x.attackRangeFullDamage ?? (x.attackRangeMax ?? 1)) !== Number(y.attackRangeFullDamage ?? (y.attackRangeMax ?? 1)) ||
       x.hp !== y.hp ||
@@ -197,4 +199,3 @@ export function installBattleSceneStateSync(BattleScene) {
     },
   });
 }
-

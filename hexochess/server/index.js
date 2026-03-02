@@ -735,6 +735,7 @@ const COST_BY_POWER_TYPE = {
 const SHOP_OFFER_COUNT = 5;
 const DEFAULT_UNIT_ATTACK_SPEED = 1;
 const DEFAULT_UNIT_MOVE_SPEED = 1;
+const DEFAULT_UNIT_PROJECTILE_SPEED = 0;
 const MAX_ACTIONS_PER_UNIT_PER_TICK = 8;
 const SNAPSHOT_STEP_MS = 100;
 
@@ -748,6 +749,7 @@ function makeRandomOffer() {
       atk: 20,
       attackSpeed: DEFAULT_UNIT_ATTACK_SPEED,
       moveSpeed: DEFAULT_UNIT_MOVE_SPEED,
+      projectileSpeed: DEFAULT_UNIT_PROJECTILE_SPEED,
       attackRangeMax: 1,
       attackRangeFullDamage: 1,
     };
@@ -764,6 +766,7 @@ function makeRandomOffer() {
     atk: base.atk,
     attackSpeed: base.attackSpeed ?? DEFAULT_UNIT_ATTACK_SPEED,
     moveSpeed: base.moveSpeed ?? DEFAULT_UNIT_MOVE_SPEED,
+    projectileSpeed: base.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED,
     attackRangeMax: base.attackRangeMax ?? 1,
     attackRangeFullDamage: base.attackRangeFullDamage ?? (base.attackRangeMax ?? 1),
     abilityType: base.abilityType ?? 'none',
@@ -779,6 +782,7 @@ function makeOfferFromCatalogUnit(base) {
     atk: 20,
     attackSpeed: DEFAULT_UNIT_ATTACK_SPEED,
     moveSpeed: DEFAULT_UNIT_MOVE_SPEED,
+    projectileSpeed: DEFAULT_UNIT_PROJECTILE_SPEED,
     attackRangeMax: 1,
     attackRangeFullDamage: 1,
   };
@@ -793,6 +797,7 @@ function makeOfferFromCatalogUnit(base) {
     atk: src.atk,
     attackSpeed: src.attackSpeed ?? DEFAULT_UNIT_ATTACK_SPEED,
     moveSpeed: src.moveSpeed ?? DEFAULT_UNIT_MOVE_SPEED,
+    projectileSpeed: src.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED,
     attackRangeMax: src.attackRangeMax ?? 1,
     attackRangeFullDamage: src.attackRangeFullDamage ?? (src.attackRangeMax ?? 1),
     abilityType: src.abilityType ?? 'none',
@@ -880,6 +885,7 @@ function spawnBotArmy() {
       benchSlot: null,
       attackSpeed: base.attackSpeed ?? DEFAULT_UNIT_ATTACK_SPEED,
       moveSpeed: base.moveSpeed ?? DEFAULT_UNIT_MOVE_SPEED,
+      projectileSpeed: base.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED,
       attackRangeMax: base.attackRangeMax ?? 1,
       attackRangeFullDamage: base.attackRangeFullDamage ?? (base.attackRangeMax ?? 1),
     });
@@ -924,6 +930,7 @@ function buildBotBoardUnitsForSim(botId, team, nextIdRef) {
       benchSlot: null,
       attackSpeed: base.attackSpeed ?? DEFAULT_UNIT_ATTACK_SPEED,
       moveSpeed: base.moveSpeed ?? DEFAULT_UNIT_MOVE_SPEED,
+      projectileSpeed: base.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED,
       attackRangeMax: base.attackRangeMax ?? 1,
       attackRangeFullDamage: base.attackRangeFullDamage ?? (base.attackRangeMax ?? 1),
       dead: false,
@@ -1062,6 +1069,25 @@ function findClosestOpponentIn(simState, attacker, timeMs) {
   return best;
 }
 
+function applyDamageToUnitIn(simState, targetId, damageRaw) {
+  const target = findUnitByIdIn(simState, targetId);
+  if (!target) return { success: false, reason: 'NO_TARGET' };
+  if (target.zone !== 'board') return { success: false, reason: 'TARGET_NOT_ON_BOARD' };
+  if (target.dead) return { success: false, reason: 'TARGET_DEAD' };
+
+  const damage = Math.max(1, Number(damageRaw ?? 0));
+  target.hp = Math.max(0, Number(target.hp ?? 0) - damage);
+  const killed = Number(target.hp ?? 0) <= 0;
+  if (killed) target.dead = true;
+  return {
+    success: true,
+    damage,
+    killed,
+    targetHp: Number(target.hp ?? 0),
+    targetMaxHp: Number(target.maxHp ?? target.hp ?? 0),
+  };
+}
+
 function performAttackIn(simState, attackerId, targetId, timeMs) {
   const attacker = findUnitByIdIn(simState, attackerId);
   const target = findUnitByIdIn(simState, targetId);
@@ -1084,14 +1110,48 @@ function performAttackIn(simState, attackerId, targetId, timeMs) {
   const baseDamage = Math.max(0, Number(attacker.atk ?? 0));
   const damageMultiplier = dist > attackRangeFullDamage ? 0.5 : 1;
   const damage = Math.max(1, Math.round(baseDamage * damageMultiplier));
-  target.hp = Math.max(0, Number(target.hp ?? 0) - damage);
-  const killed = Number(target.hp ?? 0) <= 0;
-  if (killed) target.dead = true;
-  return { success: true, killed, damage, dist, attackRangeMax, attackRangeFullDamage };
+  const projectileSpeedBase = Math.max(0, Number(attacker.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED));
+  const isRanged = attackRangeMax > 1;
+  const inFullDamageZone = dist <= attackRangeFullDamage;
+  const projectileSpeed = isRanged && inFullDamageZone
+    ? projectileSpeedBase * 1.4
+    : projectileSpeedBase;
+  const projectileTravelMs = isRanged && projectileSpeed > 0
+    ? ((dist / projectileSpeed) * 1000)
+    : 0;
+  return {
+    success: true,
+    damage,
+    dist,
+    attackRangeMax,
+    attackRangeFullDamage,
+    isRanged,
+    projectileSpeed,
+    projectileTravelMs,
+  };
 }
 
 function getUnitAtIn(simState, q, r) {
   return simState.units.find((u) => u.zone === 'board' && !u.dead && u.q === q && u.r === r) ?? null;
+}
+
+function findBounceTargetIn(simState, fromQ, fromR, attackerTeam, excludedIds = []) {
+  const enemyTeam = attackerTeam === 'player' ? 'enemy' : 'player';
+  const blocked = new Set((excludedIds ?? []).map((x) => Number(x)));
+  let best = null;
+  let bestDist = Infinity;
+  for (const u of (simState.units ?? [])) {
+    if (!u || u.zone !== 'board' || u.dead) continue;
+    if (u.team !== enemyTeam) continue;
+    if (blocked.has(Number(u.id))) continue;
+    const d = hexDistance(fromQ, fromR, Number(u.q), Number(u.r));
+    if (d > 2) continue;
+    if (d < bestDist || (d === bestDist && Number(u.id) < Number(best?.id ?? Infinity))) {
+      bestDist = d;
+      best = u;
+    }
+  }
+  return best;
 }
 
 function pickBestStepTowardIn(simState, attacker, target, timeMs) {
@@ -1145,6 +1205,7 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
   const simState = cloneStateForBattleReplay(sourceState);
   const events = [];
   const snapshots = [];
+  const pendingDamageEvents = [];
 
   let elapsedMs = 0;
   let result = computeResultIn(simState);
@@ -1152,6 +1213,74 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
   while (!result && elapsedMs < maxBattleMs) {
     const tickTimeMs = elapsedMs;
     let didSomething = false;
+
+    if (pendingDamageEvents.length > 0) {
+      pendingDamageEvents.sort((a, b) => Number(a?.t ?? 0) - Number(b?.t ?? 0));
+      while (pendingDamageEvents.length > 0) {
+        const next = pendingDamageEvents[0];
+        const dueAt = Number(next?.t ?? Infinity);
+        if (!Number.isFinite(dueAt) || dueAt > tickTimeMs + 1e-6) break;
+        pendingDamageEvents.shift();
+
+        const dmgRes = applyDamageToUnitIn(simState, next.targetId, next.damage);
+        if (!dmgRes.success) continue;
+
+        didSomething = true;
+        let chainMeta = null;
+        const canBounce = next.enableSkeletonArcherBounce === true;
+        if (canBounce) {
+          const primaryTarget = findUnitByIdIn(simState, next.targetId);
+          const fromQ = Number(primaryTarget?.q ?? NaN);
+          const fromR = Number(primaryTarget?.r ?? NaN);
+          const projectileSpeed = Math.max(0, Number(next.projectileSpeed ?? 0));
+          if (Number.isFinite(fromQ) && Number.isFinite(fromR) && projectileSpeed > 0) {
+            const bounceTarget = findBounceTargetIn(simState, fromQ, fromR, next.attackerTeam, [next.targetId]);
+            if (bounceTarget) {
+              const bounceDist = hexDistance(fromQ, fromR, Number(bounceTarget.q), Number(bounceTarget.r));
+              const bounceTravelMs = (bounceDist / projectileSpeed) * 1000;
+              const bounceDamage = Math.max(1, Math.round(Number(dmgRes.damage ?? 1) * 0.5));
+              const bounceT = dueAt + Math.max(0, Number(bounceTravelMs ?? 0));
+              pendingDamageEvents.push({
+                t: bounceT,
+                attackerId: next.attackerId,
+                targetId: bounceTarget.id,
+                attackerTeam: next.attackerTeam,
+                attackSeq: Number(next.attackSeq ?? 0),
+                damage: bounceDamage,
+                damageSource: 'projectile_bounce',
+                projectileSpeed,
+                enableSkeletonArcherBounce: false,
+              });
+              chainMeta = {
+                chainFromTargetId: Number(next.targetId),
+                chainTargetId: Number(bounceTarget.id),
+                chainTravelMs: Math.max(0, Number(bounceTravelMs ?? 0)),
+              };
+            }
+          }
+        }
+        if (collectTimeline) {
+          events.push({
+            t: dueAt,
+            type: 'damage',
+            attackerId: next.attackerId,
+            targetId: next.targetId,
+            attackerTeam: next.attackerTeam,
+            attackSeq: Number(next.attackSeq ?? 0),
+            damage: Number(dmgRes.damage ?? 0),
+            targetHp: Number(dmgRes.targetHp ?? 0),
+            targetMaxHp: Number(dmgRes.targetMaxHp ?? 0),
+            killed: Boolean(dmgRes.killed),
+            damageSource: next.damageSource ?? 'attack',
+            ...(chainMeta ?? {}),
+          });
+        }
+      }
+    }
+
+    result = computeResultIn(simState);
+    if (result) break;
+
     const actors = simState.units
       .filter((u) => u.zone === 'board' && !u.dead && (u.team === 'player' || u.team === 'enemy'))
       .slice()
@@ -1189,7 +1318,6 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
           if (tickTimeMs + 1e-6 < me.nextActionAt) break;
           if (tickTimeMs + 1e-6 < me.nextAttackAt) break;
 
-          const targetBefore = { hp: Number(liveTarget.hp ?? 0), maxHp: Number(liveTarget.maxHp ?? liveTarget.hp ?? 0) };
           const res = performAttackIn(simState, me.id, liveTarget.id, tickTimeMs);
           me.nextAttackAt = Math.max(me.nextAttackAt, tickTimeMs) + attackIntervalMs;
           unitActions += 1;
@@ -1197,7 +1325,7 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
           if (res.success) {
             didSomething = true;
             me.attackSeq = Number(me.attackSeq ?? 0) + 1;
-            const targetAfter = findUnitByIdIn(simState, liveTarget.id);
+            const attackSeq = Number(me.attackSeq ?? 0);
             if (collectTimeline) {
               events.push({
                 t: tickTimeMs,
@@ -1205,12 +1333,49 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
                 attackerId: me.id,
                 targetId: liveTarget.id,
                 attackerTeam: me.team,
-                attackSeq: Number(me.attackSeq ?? 0),
-                damage: Math.max(0, targetBefore.hp - Number(targetAfter?.hp ?? 0)),
-                targetHp: Number(targetAfter?.hp ?? 0),
-                targetMaxHp: Number(targetAfter?.maxHp ?? targetBefore.maxHp),
-                killed: Boolean(res.killed),
+                attackSeq,
+                dist: Number(res.dist ?? dist),
+                attackRangeMax: Number(res.attackRangeMax ?? attackRangeMax),
+                attackRangeFullDamage: Number(res.attackRangeFullDamage ?? attackRangeMax),
+                isRanged: Boolean(res.isRanged),
+                projectileSpeed: Number(res.projectileSpeed ?? 0),
+                projectileTravelMs: Number(res.projectileTravelMs ?? 0),
               });
+            }
+
+            const isRanged = Boolean(res.isRanged) && Number(res.projectileTravelMs ?? 0) > 0;
+            const hasSkeletonArcherBounce =
+              String(me.abilityType ?? 'none') === 'passive' &&
+              String(me.abilityKey ?? '') === 'skeleton_archer_bounce';
+            if (isRanged) {
+              pendingDamageEvents.push({
+                t: tickTimeMs + Number(res.projectileTravelMs ?? 0),
+                attackerId: me.id,
+                targetId: liveTarget.id,
+                attackerTeam: me.team,
+                attackSeq,
+                damage: Number(res.damage ?? 1),
+                damageSource: 'projectile',
+                projectileSpeed: Number(res.projectileSpeed ?? 0),
+                enableSkeletonArcherBounce: hasSkeletonArcherBounce,
+              });
+            } else {
+              const dmgRes = applyDamageToUnitIn(simState, liveTarget.id, res.damage);
+              if (dmgRes.success && collectTimeline) {
+                events.push({
+                  t: tickTimeMs,
+                  type: 'damage',
+                  attackerId: me.id,
+                  targetId: liveTarget.id,
+                  attackerTeam: me.team,
+                  attackSeq,
+                  damage: Number(dmgRes.damage ?? 0),
+                  targetHp: Number(dmgRes.targetHp ?? 0),
+                  targetMaxHp: Number(dmgRes.targetMaxHp ?? 0),
+                  killed: Boolean(dmgRes.killed),
+                  damageSource: 'attack',
+                });
+              }
             }
           }
           break;
@@ -1888,6 +2053,7 @@ function handleIntent(clientId, msg, ws) {
       benchSlot: freeBoardCell ? null : freeSlot,
       attackSpeed: offer.attackSpeed ?? DEFAULT_UNIT_ATTACK_SPEED,
       moveSpeed: offer.moveSpeed ?? DEFAULT_UNIT_MOVE_SPEED,
+      projectileSpeed: offer.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED,
       attackRangeMax: offer.attackRangeMax ?? 1,
       attackRangeFullDamage: offer.attackRangeFullDamage ?? (offer.attackRangeMax ?? 1),
     });

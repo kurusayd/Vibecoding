@@ -5,6 +5,7 @@ const DEFAULT_ATTACK_RANGE_MAX = 1;
 const DEFAULT_ATTACK_RANGE_FULL_DAMAGE = 1;
 const DEFAULT_ATTACK_SPEED = 1;
 const DEFAULT_MOVE_SPEED = 1;
+const DEFAULT_PROJECTILE_SPEED = 0;
 const DEFAULT_ABILITY_TYPE = 'none';
 
 export function createBattleState() {
@@ -29,6 +30,7 @@ export function addUnit(state, unit) {
   const attackRangeFullDamage = Math.max(1, Number(unit.attackRangeFullDamage ?? attackRangeMax));
   const attackSpeed = Math.max(0.1, Number(unit.attackSpeed ?? DEFAULT_ATTACK_SPEED));
   const moveSpeed = Math.max(1, Number(unit.moveSpeed ?? DEFAULT_MOVE_SPEED));
+  const projectileSpeed = Math.max(0, Number(unit.projectileSpeed ?? DEFAULT_PROJECTILE_SPEED));
 
   state.units.push({
     id: unit.id,
@@ -45,6 +47,7 @@ export function addUnit(state, unit) {
     benchSlot: unit.benchSlot ?? null,
     attackSpeed,
     moveSpeed,
+    projectileSpeed,
     attackRangeMax,
     attackRangeFullDamage,
     abilityType: String(unit.abilityType ?? DEFAULT_ABILITY_TYPE),

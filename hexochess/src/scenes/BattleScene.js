@@ -139,6 +139,7 @@ export default class BattleScene extends Phaser.Scene {
     this.load.image('particleStar', '/assets/particles/particle_star.png');
     this.load.image('crownexp', '/assets/icons/crownexp.png');
     this.load.image('updateMarketIcon', '/assets/icons/update_market.png');
+    this.load.image('projectile_bone', '/assets/projectiles/bone.png');
 
     for (const asset of EXTRA_PORTRAIT_ASSETS) {
       this.load.image(asset.key, asset.path);
@@ -1212,9 +1213,17 @@ export default class BattleScene extends Phaser.Scene {
           this.pendingRangedBeamFx.push({
             attackerId: attacker.id,
             targetId: target.id,
+            projectileTravelMs: Number(ev.projectileTravelMs ?? 0),
+            dist: Number(ev.dist ?? NaN),
+            attackRangeFullDamage: Number(ev.attackRangeFullDamage ?? NaN),
           });
         }
       }
+      return;
+    }
+
+    if (ev.type === 'damage') {
+      const target = byId.get(ev.targetId);
       if (target) {
         if (Number.isFinite(Number(ev.targetMaxHp))) target.maxHp = Number(ev.targetMaxHp);
         if (Number.isFinite(Number(ev.targetHp))) target.hp = Number(ev.targetHp);
@@ -1222,6 +1231,21 @@ export default class BattleScene extends Phaser.Scene {
           target.hp = 0;
           target.dead = true;
         }
+      }
+      const chainTargetId = Number(ev?.chainTargetId ?? NaN);
+      const chainFromTargetId = Number(ev?.chainFromTargetId ?? ev?.targetId ?? NaN);
+      if (Number.isFinite(chainTargetId) && Number.isFinite(chainFromTargetId)) {
+        this.pendingRangedBeamFx = this.pendingRangedBeamFx ?? [];
+        this.pendingRangedBeamFx.push({
+          attackerId: chainFromTargetId,
+          targetId: chainTargetId,
+          projectileTravelMs: Number(ev?.chainTravelMs ?? 0),
+          forceStraight: true,
+          spinClockwise: true,
+          textureKey: 'projectile_bone',
+          dist: 1,
+          attackRangeFullDamage: 1,
+        });
       }
       return;
     }
@@ -1243,12 +1267,91 @@ export default class BattleScene extends Phaser.Scene {
     return null;
   }
 
-  playRangedBeamFx(attackerCore, targetCore) {
+  getRangedProjectileTextureKey(attackerCore, fx = null) {
+    if (fx?.textureKey) return String(fx.textureKey);
+    const t = String(attackerCore?.type ?? '').toLowerCase();
+    if (t === 'skeletonarcher' || t === 'skeleton_archer') return 'projectile_bone';
+    return null;
+  }
+
+  playRangedProjectileFx(attackerCore, targetCore, fx = null) {
+    if (!attackerCore || !targetCore) return false;
+    const textureKey = this.getRangedProjectileTextureKey(attackerCore, fx);
+    if (!textureKey || !this.textures?.exists?.(textureKey)) return false;
+
+    const start = this.getUnitVisualCenter(attackerCore);
+    if (!start) return false;
+    const durationMs = Math.max(60, Number(fx?.projectileTravelMs ?? 0));
+
+    const sprite = this.add.image(start.x, start.y, textureKey).setDepth(1605);
+    sprite.setScale(0.48);
+    const spinClockwise = Boolean(fx?.spinClockwise);
+    const distHex = Number(fx?.dist ?? NaN);
+    const fullDamageRange = Number(fx?.attackRangeFullDamage ?? NaN);
+    const shouldFlyStraight = Boolean(fx?.forceStraight) || (Number.isFinite(distHex) && Number.isFinite(fullDamageRange) && distHex <= fullDamageRange);
+    if (spinClockwise) {
+      const rotationsPerSecond = 4.5;
+      const deltaAngle = 360 * rotationsPerSecond * (durationMs / 1000);
+      this.tweens.add({
+        targets: sprite,
+        angle: `+=${deltaAngle}`,
+        duration: durationMs,
+        ease: 'Linear',
+      });
+    }
+
+    const drive = { t: 0 };
+    this.tweens.add({
+      targets: drive,
+      t: 1,
+      duration: durationMs,
+      ease: 'Linear',
+      onUpdate: () => {
+        const liveTarget = (this.battleState?.units ?? []).find((u) => u.id === targetCore.id) ?? targetCore;
+        const to = this.getUnitVisualCenter(liveTarget) ?? this.getUnitVisualCenter(targetCore);
+        if (!to) return;
+
+        const t = Phaser.Math.Clamp(drive.t, 0, 1);
+        let nx = 0;
+        let ny = 0;
+        let dx = 0;
+        let dy = 0;
+
+        if (shouldFlyStraight) {
+          nx = Phaser.Math.Linear(start.x, to.x, t);
+          ny = Phaser.Math.Linear(start.y, to.y, t);
+          dx = to.x - start.x;
+          dy = to.y - start.y;
+        } else {
+          const distPx = Phaser.Math.Distance.Between(start.x, start.y, to.x, to.y);
+          const arcLift = Math.max(54, Math.min(270, distPx * 0.66));
+          const cx = (start.x + to.x) * 0.5;
+          const cy = ((start.y + to.y) * 0.5) - arcLift;
+          const omt = 1 - t;
+
+          nx = (omt * omt * start.x) + (2 * omt * t * cx) + (t * t * to.x);
+          ny = (omt * omt * start.y) + (2 * omt * t * cy) + (t * t * to.y);
+          dx = (2 * omt * (cx - start.x)) + (2 * t * (to.x - cx));
+          dy = (2 * omt * (cy - start.y)) + (2 * t * (to.y - cy));
+        }
+        sprite.setPosition(nx, ny);
+
+        if (!spinClockwise) {
+          sprite.setRotation(Math.atan2(dy, dx));
+        }
+      },
+      onComplete: () => sprite.destroy(),
+    });
+    return true;
+  }
+
+  playRangedBeamFx(attackerCore, targetCore, fx = null) {
     if (!attackerCore || !targetCore) return;
 
     const from = this.getUnitVisualCenter(attackerCore);
     const to = this.getUnitVisualCenter(targetCore);
     if (!from || !to) return;
+    const durationMs = Math.max(90, Number(fx?.projectileTravelMs ?? 0));
 
     const beam = this.add.graphics().setDepth(1600);
     beam.lineStyle(6, 0x6ecfff, 0.30);
@@ -1267,7 +1370,7 @@ export default class BattleScene extends Phaser.Scene {
     this.tweens.add({
       targets: beam,
       alpha: 0,
-      duration: 150,
+      duration: durationMs,
       ease: 'Quad.Out',
       onComplete: () => beam.destroy(),
     });
@@ -1275,7 +1378,7 @@ export default class BattleScene extends Phaser.Scene {
       targets: hit,
       alpha: 0,
       scale: 1.7,
-      duration: 140,
+      duration: Math.max(80, Math.min(180, Math.floor(durationMs * 0.8))),
       ease: 'Quad.Out',
       onComplete: () => hit.destroy(),
     });
@@ -1289,7 +1392,8 @@ export default class BattleScene extends Phaser.Scene {
       const attackerCore = (this.battleState?.units ?? []).find((u) => u.id === fx?.attackerId);
       const targetCore = (this.battleState?.units ?? []).find((u) => u.id === fx?.targetId);
       if (!attackerCore || !targetCore) continue;
-      this.playRangedBeamFx(attackerCore, targetCore);
+      const projectileRendered = this.playRangedProjectileFx(attackerCore, targetCore, fx);
+      if (!projectileRendered) this.playRangedBeamFx(attackerCore, targetCore, fx);
     }
     this.pendingRangedBeamFx = [];
   }
