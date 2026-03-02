@@ -104,6 +104,7 @@ const ABILITY_KIND_LABEL = {
 
 const ABILITY_DESC_BY_KEY = {
   skeleton_archer_bounce: 'Попадание отскакивает в еще одну цель в радиусе 2 клеток и наносит 50% урона.',
+  ghost_evasion: '50% шанс увернуться от любой успешно попавшей атаки.',
   undertaker_active: 'Пока в разработке: активная способность гробовщика.',
 };
 const MISS_HINT_TEXT = 'miss';
@@ -1303,7 +1304,12 @@ export default class BattleScene extends Phaser.Scene {
 
     if (ev.type === 'miss') {
       const target = byId.get(ev.targetId);
-      if (target) this.showCombatMissHint(target);
+      if (target) {
+        this.showCombatMissHint(target);
+        const targetType = String(target.type ?? '').toLowerCase();
+        const isGhostMiss = targetType === 'ghost' || String(target.abilityKey ?? '') === 'ghost_evasion';
+        if (isGhostMiss) this.playGhostMissFadeFx(target);
+      }
       return;
     }
   }
@@ -1475,6 +1481,27 @@ export default class BattleScene extends Phaser.Scene {
       duration: MISS_HINT_DURATION_MS,
       ease: 'Sine.In',
       onComplete: () => t.destroy(),
+    });
+  }
+
+  playGhostMissFadeFx(coreUnitLike) {
+    if (!coreUnitLike) return;
+    const vu = this.unitSys?.findUnit?.(coreUnitLike.id);
+    const targetVisual = vu?.art?.active ? vu.art : (vu?.sprite?.active ? vu.sprite : null);
+    if (!targetVisual) return;
+
+    // Visual-only ghost feel: keep unit animations running, only pulse atlas alpha.
+    this.tweens.killTweensOf(targetVisual);
+    targetVisual.setAlpha(1);
+    this.tweens.add({
+      targets: targetVisual,
+      alpha: 0.34,
+      duration: 120,
+      yoyo: true,
+      ease: 'Sine.Out',
+      onComplete: () => {
+        if (targetVisual?.scene?.sys) targetVisual.setAlpha(1);
+      },
     });
   }
 

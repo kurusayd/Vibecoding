@@ -737,6 +737,7 @@ const DEFAULT_UNIT_ATTACK_SPEED = 1;
 const DEFAULT_UNIT_MOVE_SPEED = 1;
 const DEFAULT_UNIT_PROJECTILE_SPEED = 0;
 const DEFAULT_UNIT_ACCURACY = 0.8;
+const GHOST_EVASION_DODGE_CHANCE = 0.5;
 const MAX_ACTIONS_PER_UNIT_PER_TICK = 8;
 const SNAPSHOT_STEP_MS = 100;
 
@@ -1161,6 +1162,17 @@ function findBounceTargetIn(simState, fromQ, fromR, attackerTeam, excludedIds = 
   return best;
 }
 
+function hasGhostEvasionPassive(unit) {
+  if (!unit) return false;
+  return String(unit.abilityType ?? 'none') === 'passive'
+    && String(unit.abilityKey ?? '') === 'ghost_evasion';
+}
+
+function isAttackDodgedByTarget(unit) {
+  if (!hasGhostEvasionPassive(unit)) return false;
+  return Math.random() < GHOST_EVASION_DODGE_CHANCE;
+}
+
 function pickBestStepTowardIn(simState, attacker, target, timeMs) {
   const attackerPos = getCombatHexAtIn(simState, attacker, timeMs);
   const targetPos = getCombatHexAtIn(simState, target, timeMs);
@@ -1240,6 +1252,24 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
               attackerTeam: next.attackerTeam,
               attackSeq: Number(next.attackSeq ?? 0),
               missSource: next.damageSource ?? 'attack',
+            });
+          }
+          continue;
+        }
+
+        const liveTarget = findUnitByIdIn(simState, next.targetId);
+        if (!liveTarget || liveTarget.dead || liveTarget.zone !== 'board') continue;
+        if (isAttackDodgedByTarget(liveTarget)) {
+          didSomething = true;
+          if (collectTimeline) {
+            events.push({
+              t: dueAt,
+              type: 'miss',
+              attackerId: next.attackerId,
+              targetId: next.targetId,
+              attackerTeam: next.attackerTeam,
+              attackSeq: Number(next.attackSeq ?? 0),
+              missSource: 'ghost_evasion',
             });
           }
           continue;
@@ -1397,6 +1427,20 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
                   });
                 }
               } else {
+                if (isAttackDodgedByTarget(liveTarget)) {
+                  if (collectTimeline) {
+                    events.push({
+                      t: tickTimeMs,
+                      type: 'miss',
+                      attackerId: me.id,
+                      targetId: liveTarget.id,
+                      attackerTeam: me.team,
+                      attackSeq,
+                      missSource: 'ghost_evasion',
+                    });
+                  }
+                  continue;
+                }
                 const dmgRes = applyDamageToUnitIn(simState, liveTarget.id, res.damage);
                 if (dmgRes.success && collectTimeline) {
                   events.push({
