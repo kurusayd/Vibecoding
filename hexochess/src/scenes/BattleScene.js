@@ -90,6 +90,50 @@ const UI_TEXT = {
   FROM_NEXT_LOSS: '(\u0441\u043e \u0441\u043b\u0435\u0434\u0443\u044e\u0449\u0435\u0433\u043e \u043f\u043e\u0440\u0430\u0436\u0435\u043d\u0438\u044f)',
 };
 
+const INFO_PORTRAIT_ATLAS_KEY = 'unitPortraitsAtlas';
+const INFO_PORTRAIT_FRAME_PREFIX = 'ALL PORTRAITS/PREPEARE for Atlas/';
+const INFO_PORTRAIT_TYPE_ALIASES = {
+  Swordsman: 'swordman',
+};
+
+const ABILITY_KIND_LABEL = {
+  active: 'АКТИВНАЯ',
+  passive: 'ПАССИВНАЯ',
+  none: 'БЕЗ СПОСОБНОСТИ',
+};
+
+const ABILITY_DESC_BY_KEY = {
+  skeleton_archer_bounce: 'Попадание отскакивает в еще одну цель в радиусе 2 клеток и наносит 50% урона.',
+  undertaker_active: 'Пока в разработке: активная способность гробовщика.',
+};
+const MISS_HINT_TEXT = 'miss';
+const MISS_HINT_RISE_PX = 34;
+const MISS_HINT_DURATION_MS = 520;
+
+const UNIT_FUN_LINES_BY_TYPE = {
+  SkeletonArcher: ['Нанимался "тихим", но гремит костями на весь ряд.', 'Стреляет метко, жалуется громко.'],
+  Vampire: ['Пьет кровь, но налоги не пьет.', 'Ночной KPI всегда выше дневного.'],
+  Angel: ['Летает быстро, но совесть все равно догоняет.', 'Баффает мораль одним присутствием.'],
+  Devil: ['Улыбается вежливо, планирует агрессивно.', 'Подписывает сделки огнем.'],
+  default: ['В бою серьезный, вне боя делает вид, что так и задумано.', 'Если победил, значит это был "план".'],
+};
+
+function unitTypeToInfoPortraitName(type) {
+  const raw = String(type ?? '').trim();
+  if (!raw) return '';
+  if (INFO_PORTRAIT_TYPE_ALIASES[raw]) return INFO_PORTRAIT_TYPE_ALIASES[raw];
+  return raw
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/[\s-]+/g, '_')
+    .toLowerCase();
+}
+
+function infoPortraitFrameForUnitType(type) {
+  const name = unitTypeToInfoPortraitName(type);
+  if (!name) return '';
+  return `${INFO_PORTRAIT_FRAME_PREFIX}${name}.png`;
+}
+
 function getUnitShortLabel(type) {
   const t = String(type ?? '').toLowerCase();
   if (t === 'bonesgolem' || t === 'bones_golem') return 'BG';
@@ -716,7 +760,11 @@ export default class BattleScene extends Phaser.Scene {
     this.ws.connect();
 
     this.bindSceneLifecycleHandlers?.();
+    this.initUnitInfoUi?.();
     this.bindDragHandlers();
+    // Important for tap-vs-drag UX:
+    // small pointer jitter should stay a click (open unit info), not start drag immediately.
+    this.input.dragDistanceThreshold = 14;
 
     this.layout();
     this.drawGrid();
@@ -1252,6 +1300,12 @@ export default class BattleScene extends Phaser.Scene {
       }
       return;
     }
+
+    if (ev.type === 'miss') {
+      const target = byId.get(ev.targetId);
+      if (target) this.showCombatMissHint(target);
+      return;
+    }
   }
 
   getUnitVisualCenter(coreUnitLike, fallbackVu = null) {
@@ -1397,6 +1451,31 @@ export default class BattleScene extends Phaser.Scene {
       if (!projectileRendered) this.playRangedBeamFx(attackerCore, targetCore, fx);
     }
     this.pendingRangedBeamFx = [];
+  }
+
+  showCombatMissHint(coreUnitLike) {
+    if (!coreUnitLike) return;
+    const pos = this.getUnitVisualCenter(coreUnitLike);
+    if (!pos) return;
+    const t = this.add.text(pos.x, pos.y - 46, MISS_HINT_TEXT, {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '16px',
+      color: '#fff8ea',
+      fontStyle: 'bold',
+    })
+      .setOrigin(0.5, 1)
+      .setDepth(2600)
+      .setAlpha(1)
+      .setShadow(0, 0, '#000000', 6, true, true);
+
+    this.tweens.add({
+      targets: t,
+      y: t.y - MISS_HINT_RISE_PX,
+      alpha: 0,
+      duration: MISS_HINT_DURATION_MS,
+      ease: 'Sine.In',
+      onComplete: () => t.destroy(),
+    });
   }
 
   getReplayCombatHexForUnit(coreUnitLike, nowMs = Number(this.time?.now ?? 0)) {
@@ -1785,6 +1864,7 @@ export default class BattleScene extends Phaser.Scene {
 
     handle.on('pointerover', () => {
       if (this.draggingUnitId != null) return;
+      if (this.battleState?.phase === 'battle') return;
       if (!handle.input?.enabled) return;
 
       const unitId = handle.data?.get?.('unitId');
@@ -1809,6 +1889,260 @@ export default class BattleScene extends Phaser.Scene {
       this.hoverPickupCell = null;
       this.drawGrid();
     });
+
+    handle.on('pointerup', (pointer) => {
+      if (!pointer) return;
+      if (this.draggingUnitId != null) return;
+      const suppressUntil = Number(this._unitInfoSuppressUntil ?? 0);
+      const nowMs = Number(this.time?.now ?? 0);
+      if (nowMs < suppressUntil) return;
+
+      const moved = Phaser.Math.Distance.Between(
+        Number(pointer.downX ?? pointer.worldX ?? 0),
+        Number(pointer.downY ?? pointer.worldY ?? 0),
+        Number(pointer.worldX ?? 0),
+        Number(pointer.worldY ?? 0)
+      );
+      if (moved > 8) return;
+
+      const unitId = handle.data?.get?.('unitId');
+      if (unitId == null) return;
+      const core = (this.battleState?.units ?? []).find((u) => String(u.id) === String(unitId));
+      if (!core || core.dead) return;
+      this.toggleUnitInfoForUnit?.(core);
+    });
+  }
+
+  initUnitInfoUi() {
+    this.unitInfoVisible = false;
+    this.unitInfoUnitId = null;
+
+    const modal = this.add.container(0, 0)
+      .setDepth(15020)
+      .setScrollFactor(0)
+      .setVisible(false);
+
+    const w = 280;
+    const h = 286;
+    const shadow = this.add.rectangle(4, 6, w, h, 0x000000, 0.38).setOrigin(0.5, 0.5);
+    const bg = this.add.rectangle(0, 0, w, h, 0x1f1410, 0.95).setOrigin(0.5, 0.5).setStrokeStyle(2, 0xc18a42, 0.95);
+    const portraitPanel = this.add.rectangle(-86, -82, 116, 116, 0x0f0f0f, 0.9).setOrigin(0.5, 0.5).setStrokeStyle(1, 0x6f5d3a, 0.9);
+    const portrait = this.add.image(-86, -82, INFO_PORTRAIT_ATLAS_KEY, '')
+      .setOrigin(0.5, 0.5)
+      .setDisplaySize(108, 108)
+      .setVisible(false);
+    const portraitFallback = this.add.text(-86, -82, '?', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '42px',
+      color: '#f3dba5',
+      fontStyle: 'bold',
+    }).setOrigin(0.5, 0.5);
+
+    const title = this.add.text(-18, -130, '', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '18px',
+      color: '#ffe7b6',
+      fontStyle: 'bold',
+      wordWrap: { width: 180, useAdvancedWrap: true },
+    }).setOrigin(0, 0);
+
+    const stats = this.add.text(-18, -106, '', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '14px',
+      color: '#f2efe9',
+      lineSpacing: 2,
+      wordWrap: { width: 190, useAdvancedWrap: true },
+    }).setOrigin(0, 0);
+
+    const raceUnderPortrait = this.add.text(-86, -14, '', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '12px',
+      color: '#d9c3a2',
+      fontStyle: 'bold',
+      align: 'center',
+      wordWrap: { width: 116, useAdvancedWrap: true },
+    }).setOrigin(0.5, 0.5);
+
+    const abilityKind = this.add.text(-132, 10, '', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '13px',
+      color: '#ffcf84',
+      fontStyle: 'bold',
+    }).setOrigin(0, 0);
+
+    const abilityDesc = this.add.text(-132, 30, '', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '13px',
+      color: '#f2efe9',
+      wordWrap: { width: 262, useAdvancedWrap: true },
+      lineSpacing: 1,
+    }).setOrigin(0, 0);
+
+    const funLine1 = this.add.text(-132, 210, '', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '12px',
+      color: '#d9c3a2',
+      fontStyle: 'italic',
+      wordWrap: { width: 262, useAdvancedWrap: true },
+    }).setOrigin(0, 0);
+
+    const funLine2 = this.add.text(-132, 228, '', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '12px',
+      color: '#cfb38a',
+      fontStyle: 'italic',
+      wordWrap: { width: 262, useAdvancedWrap: true },
+    }).setOrigin(0, 0);
+
+    const hit = this.add.zone(0, 0, w, h).setOrigin(0.5, 0.5).setInteractive();
+    modal.add([shadow, bg, portraitPanel, portrait, portraitFallback, raceUnderPortrait, title, stats, abilityKind, abilityDesc, funLine1, funLine2, hit]);
+
+    this.unitInfoModal = modal;
+    this.unitInfoHit = hit;
+    this.unitInfoPortrait = portrait;
+    this.unitInfoPortraitFallback = portraitFallback;
+    this.unitInfoTitle = title;
+    this.unitInfoStats = stats;
+    this.unitInfoRaceUnderPortrait = raceUnderPortrait;
+    this.unitInfoAbilityKind = abilityKind;
+    this.unitInfoAbilityDesc = abilityDesc;
+    this.unitInfoFunLine1 = funLine1;
+    this.unitInfoFunLine2 = funLine2;
+
+    this._unitInfoOutsideTapHandler = (_pointer, currentlyOver) => {
+      if (!this.unitInfoVisible) return;
+      const over = currentlyOver || [];
+      const overModal = this.unitInfoHit && over.includes(this.unitInfoHit);
+      if (!overModal) this.hideUnitInfoModal?.();
+    };
+    this.input.on('pointerdown', this._unitInfoOutsideTapHandler);
+  }
+
+  getUnitAbilityInfo(core) {
+    const abilityType = String(core?.abilityType ?? 'none');
+    const abilityKey = String(core?.abilityKey ?? '');
+    const kind = ABILITY_KIND_LABEL[abilityType] ?? ABILITY_KIND_LABEL.none;
+    const desc = ABILITY_DESC_BY_KEY[abilityKey] ?? (abilityType === 'none' ? 'У этого юнита пока нет способности.' : 'Описание способности пока не добавлено.');
+    return { kind, desc };
+  }
+
+  getUnitFunLines(type) {
+    const lines = UNIT_FUN_LINES_BY_TYPE[type] ?? UNIT_FUN_LINES_BY_TYPE.default;
+    return [String(lines?.[0] ?? ''), String(lines?.[1] ?? '')];
+  }
+
+  positionUnitInfoModalNearCore(core) {
+    if (!this.unitInfoModal || !core) return;
+    const vu = this.unitSys?.findUnit?.(core.id);
+    const bounds = vu?.art?.active
+      ? vu.art.getBounds?.()
+      : (vu?.sprite?.active ? vu.sprite.getBounds?.() : null);
+    const anchor = this.getUnitScreenAnchor(core) ?? { x: this.scale.width * 0.5, y: this.scale.height * 0.5 };
+    const halfW = 140;
+    const halfH = 143;
+    const margin = 14;
+    const rightEdge = Number(bounds?.right ?? (anchor.x ?? this.scale.width * 0.5) + this.hexSize);
+    const leftEdge = Number(bounds?.left ?? (anchor.x ?? this.scale.width * 0.5) - this.hexSize);
+    let x = rightEdge + halfW; // modal left edge touches unit right edge
+    let y = Number(bounds?.centerY ?? anchor.y ?? this.scale.height * 0.5) - 10;
+    const minX = halfW + margin;
+    const maxX = this.scale.width - halfW - margin;
+    const minY = halfH + margin;
+    const maxY = this.scale.height - halfH - margin;
+    // If it doesn't fit on the right, attach it to the unit's left edge.
+    if (x > maxX) {
+      x = leftEdge - halfW; // modal right edge touches unit left edge
+    }
+    x = Phaser.Math.Clamp(x, minX, maxX);
+    y = Phaser.Math.Clamp(y, minY, maxY);
+    this.unitInfoModal.setPosition(x, y);
+  }
+
+  showUnitInfoModal(core) {
+    if (!core || !this.unitInfoModal) return;
+    this.hoverPickupCell = null;
+    this.selected = null;
+    this.unitInfoUnitId = core.id;
+    this.unitInfoVisible = true;
+
+    const ability = this.getUnitAbilityInfo(core);
+    const [fun1, fun2] = this.getUnitFunLines(core.type);
+    const hp = Number(core.hp ?? 0);
+    const maxHp = Number(core.maxHp ?? hp);
+    const atk = Number(core.atk ?? 0);
+    const atkSpd = Number(core.attackSpeed ?? 1);
+    const moveSpd = Number(core.moveSpeed ?? 1);
+    const rangeMax = Number(core.attackRangeMax ?? 1);
+    const rangeFull = Number(core.attackRangeFullDamage ?? rangeMax);
+    const projectileSpeed = Number(core.projectileSpeed ?? 0);
+    const accuracy = Math.max(0, Math.min(1, Number(core.accuracy ?? 0.8)));
+    const isMelee = rangeMax <= 1;
+    const isLongRanged = rangeMax > 2;
+
+    this.unitInfoTitle?.setText(String(core.type ?? 'UNKNOWN').toUpperCase());
+    const statsLines = [
+      `HP: ${hp}/${maxHp}`,
+      `ATK: ${atk}`,
+      `ATK SPD: ${atkSpd.toFixed(2)}/s`,
+      `MOVE SPD: ${moveSpd.toFixed(2)} hex/s`,
+      `ACCURACY: ${Math.round(accuracy * 100)}%`,
+      isMelee ? 'RANGE: MELEE' : (isLongRanged ? `RANGE: ${rangeFull}` : `RANGE: ${rangeMax}`),
+    ];
+    if (!isMelee) {
+      if (!isLongRanged) {
+        statsLines.push(`FULL DMG RANGE: ${rangeFull}`);
+      }
+      statsLines.push(`PROJECTILE SPD: ${projectileSpeed.toFixed(2)}`);
+    }
+    this.unitInfoStats?.setText(statsLines.join('\n'));
+    this.unitInfoRaceUnderPortrait?.setText(String(core.race ?? '-').toUpperCase());
+    this.unitInfoAbilityKind?.setText(`[${ability.kind}]`);
+    this.unitInfoAbilityDesc?.setText(ability.desc);
+    this.unitInfoFunLine1?.setText(fun1);
+    this.unitInfoFunLine2?.setText(fun2);
+
+    // Dynamic vertical flow: stats -> ability -> fun lines.
+    const statsX = Number(this.unitInfoStats?.x ?? -18);
+    const statsY = Number(this.unitInfoStats?.y ?? -106);
+    const statsH = Number(this.unitInfoStats?.height ?? 0);
+    const abilityKindY = statsY + statsH + 10;
+    const abilityDescY = abilityKindY + Number(this.unitInfoAbilityKind?.height ?? 14) + 4;
+    const abilityDescH = Number(this.unitInfoAbilityDesc?.height ?? 0);
+    const fun1Y = abilityDescY + abilityDescH + 10;
+    const fun2Y = fun1Y + Number(this.unitInfoFunLine1?.height ?? 14) + 2;
+
+    this.unitInfoAbilityKind?.setPosition(-132, abilityKindY);
+    this.unitInfoAbilityDesc?.setPosition(-132, abilityDescY);
+    this.unitInfoFunLine1?.setPosition(-132, fun1Y);
+    this.unitInfoFunLine2?.setPosition(-132, fun2Y);
+
+    const frame = infoPortraitFrameForUnitType(core.type);
+    if (frame && this.textures?.exists?.(INFO_PORTRAIT_ATLAS_KEY) && this.textures.get(INFO_PORTRAIT_ATLAS_KEY)?.has?.(frame)) {
+      this.unitInfoPortrait?.setTexture(INFO_PORTRAIT_ATLAS_KEY, frame);
+      this.unitInfoPortrait?.setVisible(true);
+      this.unitInfoPortraitFallback?.setVisible(false);
+    } else {
+      this.unitInfoPortrait?.setVisible(false);
+      this.unitInfoPortraitFallback?.setVisible(true);
+    }
+
+    this.positionUnitInfoModalNearCore(core);
+    this.unitInfoModal.setVisible(true);
+  }
+
+  hideUnitInfoModal() {
+    this.unitInfoVisible = false;
+    this.unitInfoUnitId = null;
+    this.unitInfoModal?.setVisible(false);
+  }
+
+  toggleUnitInfoForUnit(core) {
+    if (!core) return;
+    if (this.unitInfoVisible && String(this.unitInfoUnitId) === String(core.id)) {
+      this.hideUnitInfoModal?.();
+      return;
+    }
+    this.showUnitInfoModal?.(core);
   }
 
   renderFromState() {
@@ -1825,6 +2159,19 @@ export default class BattleScene extends Phaser.Scene {
       if (!this.testSceneActive && phase === 'prep' && u.team === 'enemy') continue;
       visibleUnits.push(u);
       aliveIds.add(u.id);
+    }
+    if (this.unitInfoVisible) {
+      const infoUnit = visibleUnits.find((u) => String(u.id) === String(this.unitInfoUnitId));
+      if (!infoUnit || infoUnit.dead) {
+        this.hideUnitInfoModal?.();
+      } else {
+        const modalX = Number(this.unitInfoModal?.x ?? NaN);
+        const modalY = Number(this.unitInfoModal?.y ?? NaN);
+        this.showUnitInfoModal?.(infoUnit);
+        if (Number.isFinite(modalX) && Number.isFinite(modalY)) {
+          this.unitInfoModal?.setPosition(modalX, modalY);
+        }
+      }
     }
 
     // Visual-only merge effect: before deleting vanished units, animate 2 donors flying into upgraded unit.
@@ -2453,16 +2800,16 @@ export default class BattleScene extends Phaser.Scene {
       } else if (this.hoverPickupCell.area === 'bench' && Number.isInteger(this.hoverPickupCell.slot)) {
         p = this.benchSlotToScreen(this.hoverPickupCell.slot);
       }
-      if (p) this.drawHexGlowOn(g, p.x, p.y);
+      if (p && !this.unitInfoVisible && this.battleState?.phase !== 'battle') this.drawHexGlowOn(g, p.x, p.y);
     }
 
     // выделение
-    if (this.selected?.area === 'board') {
+    if (this.selected?.area === 'board' && !this.unitInfoVisible) {
       const p = this.hexToPixel(this.selected.q, this.selected.r);
       this.drawHexOn(g, p.x, p.y, 0x00ffcc, 1.0);
     }
 
-    if (this.selected?.area === 'bench') {
+    if (this.selected?.area === 'bench' && !this.unitInfoVisible) {
       const { x, y } = this.selected.screen;
       this.drawHexOn(g, x, y, 0xffcc66, 1.0);
     }

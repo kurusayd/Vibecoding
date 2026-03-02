@@ -146,6 +146,7 @@ export function installBattleSceneDrag(BattleScene) {
       this.input.on('dragend', (pointer, gameObject) => {
         const uid = gameObject?.data?.get?.('unitId');
         const draggedId = this.draggingUnitId;
+        this._unitInfoSuppressUntil = Number(this.time?.now ?? 0) + 180;
         this.draggingUnitId = null;
         this.dragBoardHover = null;
         const dropBenchSlot = this.dragBenchHoverSlot;

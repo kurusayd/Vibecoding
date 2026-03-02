@@ -10,6 +10,7 @@ const POWER_TYPE_QUEEN = '\u0424\u0435\u0440\u0437\u044c'; // Ферзь
 const ABILITY_NONE = 'none';
 const ABILITY_ACTIVE = 'active';
 const ABILITY_PASSIVE = 'passive';
+const DEFAULT_ACCURACY = 0.8;
 
 export const UNIT_CATALOG = [
   { race: 'HUMAN',  type: 'Swordsman',      label: 'SWORDSMAN',       powerType: POWER_TYPE_PAWN,   hp: 60,  atk: 20, attackSpeed: 1.0, moveSpeed: 1.4, attackRangeMax: 1,  attackRangeFullDamage: 1, projectileSpeed: 0 },
@@ -30,6 +31,7 @@ export const UNIT_CATALOG = [
   { race: 'DEMON',  type: 'Devil',          label: 'DEVIL',           powerType: POWER_TYPE_QUEEN,  hp: 480, atk: 24, attackSpeed: 1, moveSpeed: 3.0, attackRangeMax: 1,  attackRangeFullDamage: 1, projectileSpeed: 0 },
 ].map((u) => ({
   ...u,
+  accuracy: Math.max(0, Math.min(1, Number(u.accuracy ?? DEFAULT_ACCURACY))),
   abilityType: String(u.abilityType ?? ABILITY_NONE),
   abilityKey: u.abilityKey ?? null,
 }));

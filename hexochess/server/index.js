@@ -736,6 +736,7 @@ const SHOP_OFFER_COUNT = 5;
 const DEFAULT_UNIT_ATTACK_SPEED = 1;
 const DEFAULT_UNIT_MOVE_SPEED = 1;
 const DEFAULT_UNIT_PROJECTILE_SPEED = 0;
+const DEFAULT_UNIT_ACCURACY = 0.8;
 const MAX_ACTIONS_PER_UNIT_PER_TICK = 8;
 const SNAPSHOT_STEP_MS = 100;
 
@@ -752,6 +753,7 @@ function makeRandomOffer() {
       projectileSpeed: DEFAULT_UNIT_PROJECTILE_SPEED,
       attackRangeMax: 1,
       attackRangeFullDamage: 1,
+      accuracy: DEFAULT_UNIT_ACCURACY,
     };
 
   const cost = COST_BY_POWER_TYPE[base.powerType] ?? 1;
@@ -769,6 +771,7 @@ function makeRandomOffer() {
     projectileSpeed: base.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED,
     attackRangeMax: base.attackRangeMax ?? 1,
     attackRangeFullDamage: base.attackRangeFullDamage ?? (base.attackRangeMax ?? 1),
+    accuracy: base.accuracy ?? DEFAULT_UNIT_ACCURACY,
     abilityType: base.abilityType ?? 'none',
     abilityKey: base.abilityKey ?? null,
   };
@@ -785,6 +788,7 @@ function makeOfferFromCatalogUnit(base) {
     projectileSpeed: DEFAULT_UNIT_PROJECTILE_SPEED,
     attackRangeMax: 1,
     attackRangeFullDamage: 1,
+    accuracy: DEFAULT_UNIT_ACCURACY,
   };
   const cost = COST_BY_POWER_TYPE[src.powerType] ?? 1;
   return {
@@ -800,6 +804,7 @@ function makeOfferFromCatalogUnit(base) {
     projectileSpeed: src.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED,
     attackRangeMax: src.attackRangeMax ?? 1,
     attackRangeFullDamage: src.attackRangeFullDamage ?? (src.attackRangeMax ?? 1),
+    accuracy: src.accuracy ?? DEFAULT_UNIT_ACCURACY,
     abilityType: src.abilityType ?? 'none',
     abilityKey: src.abilityKey ?? null,
   };
@@ -888,6 +893,7 @@ function spawnBotArmy() {
       projectileSpeed: base.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED,
       attackRangeMax: base.attackRangeMax ?? 1,
       attackRangeFullDamage: base.attackRangeFullDamage ?? (base.attackRangeMax ?? 1),
+      accuracy: base.accuracy ?? DEFAULT_UNIT_ACCURACY,
     });
   }
 }
@@ -933,6 +939,7 @@ function buildBotBoardUnitsForSim(botId, team, nextIdRef) {
       projectileSpeed: base.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED,
       attackRangeMax: base.attackRangeMax ?? 1,
       attackRangeFullDamage: base.attackRangeFullDamage ?? (base.attackRangeMax ?? 1),
+      accuracy: base.accuracy ?? DEFAULT_UNIT_ACCURACY,
       dead: false,
       nextAttackAt: 0,
       nextMoveAt: 0,
@@ -1110,6 +1117,8 @@ function performAttackIn(simState, attackerId, targetId, timeMs) {
   const baseDamage = Math.max(0, Number(attacker.atk ?? 0));
   const damageMultiplier = dist > attackRangeFullDamage ? 0.5 : 1;
   const damage = Math.max(1, Math.round(baseDamage * damageMultiplier));
+  const accuracy = Math.max(0, Math.min(1, Number(attacker.accuracy ?? DEFAULT_UNIT_ACCURACY)));
+  const isHit = Math.random() < accuracy;
   const projectileSpeed = Math.max(0, Number(attacker.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED));
   const isRanged = attackRangeMax > 1;
   const projectileTravelMs = isRanged && projectileSpeed > 0
@@ -1121,6 +1130,8 @@ function performAttackIn(simState, attackerId, targetId, timeMs) {
     dist,
     attackRangeMax,
     attackRangeFullDamage,
+    accuracy,
+    isHit,
     isRanged,
     projectileSpeed,
     projectileTravelMs,
@@ -1217,6 +1228,22 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
         const dueAt = Number(next?.t ?? Infinity);
         if (!Number.isFinite(dueAt) || dueAt > tickTimeMs + 1e-6) break;
         pendingDamageEvents.shift();
+
+        if (next.missed === true) {
+          didSomething = true;
+          if (collectTimeline) {
+            events.push({
+              t: dueAt,
+              type: 'miss',
+              attackerId: next.attackerId,
+              targetId: next.targetId,
+              attackerTeam: next.attackerTeam,
+              attackSeq: Number(next.attackSeq ?? 0),
+              missSource: next.damageSource ?? 'attack',
+            });
+          }
+          continue;
+        }
 
         const dmgRes = applyDamageToUnitIn(simState, next.targetId, next.damage);
         if (!dmgRes.success) continue;
@@ -1353,24 +1380,39 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
                 damage: Number(res.damage ?? 1),
                 damageSource: 'projectile',
                 projectileSpeed: Number(res.projectileSpeed ?? 0),
+                missed: res.isHit !== true,
                 enableSkeletonArcherBounce: hasSkeletonArcherBounce,
               });
             } else {
-              const dmgRes = applyDamageToUnitIn(simState, liveTarget.id, res.damage);
-              if (dmgRes.success && collectTimeline) {
-                events.push({
-                  t: tickTimeMs,
-                  type: 'damage',
-                  attackerId: me.id,
-                  targetId: liveTarget.id,
-                  attackerTeam: me.team,
-                  attackSeq,
-                  damage: Number(dmgRes.damage ?? 0),
-                  targetHp: Number(dmgRes.targetHp ?? 0),
-                  targetMaxHp: Number(dmgRes.targetMaxHp ?? 0),
-                  killed: Boolean(dmgRes.killed),
-                  damageSource: 'attack',
-                });
+              if (res.isHit !== true) {
+                if (collectTimeline) {
+                  events.push({
+                    t: tickTimeMs,
+                    type: 'miss',
+                    attackerId: me.id,
+                    targetId: liveTarget.id,
+                    attackerTeam: me.team,
+                    attackSeq,
+                    missSource: 'attack',
+                  });
+                }
+              } else {
+                const dmgRes = applyDamageToUnitIn(simState, liveTarget.id, res.damage);
+                if (dmgRes.success && collectTimeline) {
+                  events.push({
+                    t: tickTimeMs,
+                    type: 'damage',
+                    attackerId: me.id,
+                    targetId: liveTarget.id,
+                    attackerTeam: me.team,
+                    attackSeq,
+                    damage: Number(dmgRes.damage ?? 0),
+                    targetHp: Number(dmgRes.targetHp ?? 0),
+                    targetMaxHp: Number(dmgRes.targetMaxHp ?? 0),
+                    killed: Boolean(dmgRes.killed),
+                    damageSource: 'attack',
+                  });
+                }
               }
             }
           }
@@ -2052,6 +2094,7 @@ function handleIntent(clientId, msg, ws) {
       projectileSpeed: offer.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED,
       attackRangeMax: offer.attackRangeMax ?? 1,
       attackRangeFullDamage: offer.attackRangeFullDamage ?? (offer.attackRangeMax ?? 1),
+      accuracy: offer.accuracy ?? DEFAULT_UNIT_ACCURACY,
     });
 
     // ownership: РєСѓРїР»РµРЅРЅС‹Р№ СЋРЅРёС‚ РїСЂРёРЅР°РґР»РµР¶РёС‚ СЌС‚РѕРјСѓ РєР»РёРµРЅС‚Сѓ
