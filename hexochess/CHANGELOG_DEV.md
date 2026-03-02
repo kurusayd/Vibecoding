@@ -83,3 +83,15 @@
   - beam starts from attacker visual center and ends at target visual center;
   - only for ranged attacks (`attackRangeMax > 1`);
   - includes short impact flash at target.
+
+### Skeleton Archer Passive (New)
+- Added passive ability metadata to `SkeletonArcher`:
+  - `abilityType: passive`
+  - `abilityKey: skeleton_archer_bounce`
+- Implemented server-authoritative bounce logic:
+  - after primary projectile hit, find one extra enemy target within `2` hexes from primary target;
+  - bounce damage is `50%` of primary hit damage (minimum `1`);
+  - bounce projectile travel speed uses the same projectile-speed model as direct ranged shot.
+- Replay/VFX:
+  - after primary hit, a second projectile is spawned from primary target center to bounce target center;
+  - bounce projectile flies straight and spins clockwise quickly for readability.

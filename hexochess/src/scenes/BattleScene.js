@@ -139,6 +139,7 @@ export default class BattleScene extends Phaser.Scene {
     this.load.image('particleStar', '/assets/particles/particle_star.png');
     this.load.image('crownexp', '/assets/icons/crownexp.png');
     this.load.image('updateMarketIcon', '/assets/icons/update_market.png');
+    this.load.image('broken_arrow', '/assets/icons/broken_arrow.png');
     this.load.image('projectile_bone', '/assets/projectiles/bone.png');
 
     for (const asset of EXTRA_PORTRAIT_ASSETS) {
@@ -630,6 +631,8 @@ export default class BattleScene extends Phaser.Scene {
     this.pendingMergeTargetBounces = new Map(); // targetId -> { targetCoreUnit, delayMs }
     this.pendingAttackAnimIds = new Set();
     this.pendingRangedBeamFx = [];
+    this.rangePenaltyIcons = [];
+    this.rangePenaltyIconsUsed = 0;
     this.initDragState();
 
     // --- SERVER CONNECTION ---
@@ -2274,6 +2277,30 @@ export default class BattleScene extends Phaser.Scene {
     this.drawHexFilledOn(this.gDynamic, cx, cy, fillColor, fillAlpha);
   }
 
+  resetRangePenaltyIcons() {
+    this.rangePenaltyIconsUsed = 0;
+    for (const icon of (this.rangePenaltyIcons ?? [])) {
+      if (icon?.active) icon.setVisible(false);
+    }
+  }
+
+  drawRangePenaltyIconAt(x, y) {
+    if (!this.textures?.exists?.('broken_arrow')) return;
+    this.rangePenaltyIcons = this.rangePenaltyIcons ?? [];
+    let icon = this.rangePenaltyIcons[this.rangePenaltyIconsUsed];
+    if (!icon || !icon.active) {
+      icon = this.add.image(0, 0, 'broken_arrow')
+        .setOrigin(0.5, 0.5)
+        .setDepth(2)
+        .setScale(0.45)
+        .setAlpha(0.4);
+      this.rangePenaltyIcons[this.rangePenaltyIconsUsed] = icon;
+    }
+    icon.setPosition(x, y);
+    icon.setVisible(true);
+    this.rangePenaltyIconsUsed += 1;
+  }
+
   drawHexGlowOn(g, cx, cy) {
     const pts = this.hexCorners(cx, cy);
     const stroke = (width, color, alpha) => {
@@ -2313,6 +2340,7 @@ export default class BattleScene extends Phaser.Scene {
   drawGridDynamic() {
     const g = this.gDynamic ?? this.g;
     g.clear();
+    this.resetRangePenaltyIcons?.();
     const isBattlePhase = !this.testSceneActive && this.battleState?.phase === 'battle';
     const isReplayBattle =
       isBattlePhase &&
@@ -2325,6 +2353,7 @@ export default class BattleScene extends Phaser.Scene {
 
     // затемнение занятых гексов (доска + скамейка)
     for (const u of (this.battleState?.units ?? [])) {
+      if (this.draggingUnitId != null && String(u.id) === String(this.draggingUnitId)) continue;
       // в prep врагов не затемняем (они скрыты)
       if (!this.testSceneActive && this.battleState?.phase === 'prep' && u.team === 'enemy') continue;
       if (u.dead) continue;
@@ -2347,6 +2376,54 @@ export default class BattleScene extends Phaser.Scene {
         const p = this.benchSlotToScreen(slot);
         this.drawHexFilledOn(g, p.x, p.y, 0x000000, 0.35);
         continue;
+      }
+    }
+
+    const draggingCoreForPlacement = (this.battleState?.units ?? []).find((u) => String(u.id) === String(this.draggingUnitId));
+    const canShowPlacementTargets = !!draggingCoreForPlacement && !this.battleState?.result;
+    if (canShowPlacementTargets) {
+      const phase = this.battleState?.phase ?? 'prep';
+      const canPlaceOnBoardNow = this.testSceneActive || phase === 'prep';
+
+      // Board placement targets (prep/test only).
+      if (canPlaceOnBoardNow) {
+        const boardCells = this.testSceneActive
+          ? (this.cachedBoardHexCenters ?? [])
+          : (this.cachedPrepBoardHexCenters ?? []);
+        for (const cell of boardCells) {
+          this.drawHexFilledOn(g, cell.x, cell.y, 0x000000, 0.16);
+        }
+      }
+
+      // Bench placement targets (always for draggable player units).
+      for (const cell of (this.cachedBenchHexCenters ?? [])) {
+        this.drawHexFilledOn(g, cell.x, cell.y, 0x000000, 0.16);
+      }
+    }
+
+    const draggingCore = (this.battleState?.units ?? []).find((u) => String(u.id) === String(this.draggingUnitId));
+    const dragAttackRangeMax = Math.max(1, Number(draggingCore?.attackRangeMax ?? 1));
+    const dragAttackRangeFull = Math.max(1, Number(draggingCore?.attackRangeFullDamage ?? dragAttackRangeMax));
+    const canShowRangeHeatmap =
+      !!this.dragBoardHover &&
+      this.battleState?.phase === 'prep' &&
+      !this.battleState?.result &&
+      !!draggingCore &&
+      !draggingCore.dead &&
+      dragAttackRangeMax > 1;
+    if (canShowRangeHeatmap) {
+      const boardCells = this.cachedBoardHexCenters ?? [];
+      for (const cell of boardCells) {
+        const d = hexDistance(this.dragBoardHover.q, this.dragBoardHover.r, cell.q, cell.r);
+        if (d > dragAttackRangeMax) continue;
+        if (d <= dragAttackRangeFull) {
+          // Full damage zone.
+          this.drawHexFilledOn(g, cell.x, cell.y, 0x7fdc6a, 0.18);
+        } else {
+          // Reduced (half) damage zone.
+          this.drawHexFilledOn(g, cell.x, cell.y, 0xff5a5a, 0.16);
+          this.drawRangePenaltyIconAt?.(cell.x, cell.y);
+        }
       }
     }
 

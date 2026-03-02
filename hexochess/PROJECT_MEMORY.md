@@ -135,3 +135,18 @@
   - from attacker visual center to target visual center;
   - short impact flash at target;
   - applied only to ranged attackers.
+
+## 12) Skeleton Archer Bounce Invariant
+- Unit `SkeletonArcher` has passive ability:
+  - `abilityType = passive`
+  - `abilityKey = skeleton_archer_bounce`
+- On primary projectile hit:
+  - server searches one secondary enemy target within `2` hexes from the primary target position;
+  - if found, schedules one bounce hit.
+- Bounce hit rules:
+  - damage = `50%` of primary hit damage, minimum `1`;
+  - travel timing is projectile-based (not instant) and uses ranged projectile speed model.
+- Client replay visualization:
+  - primary shot: normal ranged projectile path logic;
+  - bounce shot: spawned from primary target center to secondary target center, straight line;
+  - bounce shot has fast clockwise spin for readability.
