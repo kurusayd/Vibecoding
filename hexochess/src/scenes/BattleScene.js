@@ -1693,16 +1693,20 @@ export default class BattleScene extends Phaser.Scene {
     const targetVisual = vu?.art?.active ? vu.art : (vu?.sprite?.active ? vu.sprite : null);
     if (!targetVisual) return;
 
-    // Visual-only ghost feel: keep unit animations running, only pulse atlas alpha.
-    this.tweens.killTweensOf(targetVisual);
+    // Visual-only ghost feel: pulse only alpha and do not interrupt move tweens (x/y).
+    if (vu?._ghostMissAlphaTween) {
+      try { vu._ghostMissAlphaTween.stop(); } catch {}
+      vu._ghostMissAlphaTween = null;
+    }
     targetVisual.setAlpha(1);
-    this.tweens.add({
+    vu._ghostMissAlphaTween = this.tweens.add({
       targets: targetVisual,
       alpha: 0.34,
       duration: 120,
       yoyo: true,
       ease: 'Sine.Out',
       onComplete: () => {
+        if (vu) vu._ghostMissAlphaTween = null;
         if (targetVisual?.scene?.sys) targetVisual.setAlpha(1);
       },
     });
