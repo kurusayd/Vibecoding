@@ -738,6 +738,7 @@ const DEFAULT_UNIT_MOVE_SPEED = 1;
 const DEFAULT_UNIT_PROJECTILE_SPEED = 0;
 const DEFAULT_UNIT_ACCURACY = 0.8;
 const DEFAULT_UNIT_ABILITY_COOLDOWN = 0;
+const DEFAULT_UNIT_ATTACK_MODE = 'melee';
 const SHOP_EXCLUDED_UNIT_TYPES = new Set(['SimpleSkeleton']);
 const GHOST_EVASION_DODGE_CHANCE = 0.5;
 const UNDERTAKER_SUMMON_TYPE = 'SimpleSkeleton';
@@ -761,6 +762,7 @@ function makeRandomOffer() {
       projectileSpeed: DEFAULT_UNIT_PROJECTILE_SPEED,
       attackRangeMax: 1,
       attackRangeFullDamage: 1,
+      attackMode: DEFAULT_UNIT_ATTACK_MODE,
       accuracy: DEFAULT_UNIT_ACCURACY,
       abilityCooldown: DEFAULT_UNIT_ABILITY_COOLDOWN,
     };
@@ -780,6 +782,7 @@ function makeRandomOffer() {
     projectileSpeed: base.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED,
     attackRangeMax: base.attackRangeMax ?? 1,
     attackRangeFullDamage: base.attackRangeFullDamage ?? (base.attackRangeMax ?? 1),
+    attackMode: String(base.attackMode ?? DEFAULT_UNIT_ATTACK_MODE),
     accuracy: base.accuracy ?? DEFAULT_UNIT_ACCURACY,
     abilityCooldown: base.abilityCooldown ?? DEFAULT_UNIT_ABILITY_COOLDOWN,
     abilityType: base.abilityType ?? 'none',
@@ -798,6 +801,7 @@ function makeOfferFromCatalogUnit(base) {
     projectileSpeed: DEFAULT_UNIT_PROJECTILE_SPEED,
     attackRangeMax: 1,
     attackRangeFullDamage: 1,
+    attackMode: DEFAULT_UNIT_ATTACK_MODE,
     accuracy: DEFAULT_UNIT_ACCURACY,
     abilityCooldown: DEFAULT_UNIT_ABILITY_COOLDOWN,
   };
@@ -815,6 +819,7 @@ function makeOfferFromCatalogUnit(base) {
     projectileSpeed: src.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED,
     attackRangeMax: src.attackRangeMax ?? 1,
     attackRangeFullDamage: src.attackRangeFullDamage ?? (src.attackRangeMax ?? 1),
+    attackMode: String(src.attackMode ?? DEFAULT_UNIT_ATTACK_MODE),
     accuracy: src.accuracy ?? DEFAULT_UNIT_ACCURACY,
     abilityCooldown: src.abilityCooldown ?? DEFAULT_UNIT_ABILITY_COOLDOWN,
     abilityType: src.abilityType ?? 'none',
@@ -905,6 +910,7 @@ function spawnBotArmy() {
       projectileSpeed: base.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED,
       attackRangeMax: base.attackRangeMax ?? 1,
       attackRangeFullDamage: base.attackRangeFullDamage ?? (base.attackRangeMax ?? 1),
+      attackMode: String(base.attackMode ?? DEFAULT_UNIT_ATTACK_MODE),
       accuracy: base.accuracy ?? DEFAULT_UNIT_ACCURACY,
       abilityCooldown: base.abilityCooldown ?? DEFAULT_UNIT_ABILITY_COOLDOWN,
     });
@@ -952,6 +958,7 @@ function buildBotBoardUnitsForSim(botId, team, nextIdRef) {
       projectileSpeed: base.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED,
       attackRangeMax: base.attackRangeMax ?? 1,
       attackRangeFullDamage: base.attackRangeFullDamage ?? (base.attackRangeMax ?? 1),
+      attackMode: String(base.attackMode ?? DEFAULT_UNIT_ATTACK_MODE),
       accuracy: base.accuracy ?? DEFAULT_UNIT_ACCURACY,
       abilityCooldown: base.abilityCooldown ?? DEFAULT_UNIT_ABILITY_COOLDOWN,
       dead: false,
@@ -1109,6 +1116,11 @@ function applyDamageToUnitIn(simState, targetId, damageRaw) {
   };
 }
 
+function isRangedAttackUnit(unitLike) {
+  const mode = String(unitLike?.attackMode ?? DEFAULT_UNIT_ATTACK_MODE).toLowerCase();
+  return mode === 'ranged';
+}
+
 function performAttackIn(simState, attackerId, targetId, timeMs) {
   const attacker = findUnitByIdIn(simState, attackerId);
   const target = findUnitByIdIn(simState, targetId);
@@ -1134,7 +1146,7 @@ function performAttackIn(simState, attackerId, targetId, timeMs) {
   const accuracy = Math.max(0, Math.min(1, Number(attacker.accuracy ?? DEFAULT_UNIT_ACCURACY)));
   const isHit = Math.random() < accuracy;
   const projectileSpeed = Math.max(0, Number(attacker.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED));
-  const isRanged = attackRangeMax > 1;
+  const isRanged = isRangedAttackUnit(attacker);
   const projectileTravelMs = isRanged && projectileSpeed > 0
     ? ((dist / projectileSpeed) * 1000)
     : 0;
@@ -1436,6 +1448,7 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
           projectileSpeed: undertakerSummonBase.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED,
           attackRangeMax: undertakerSummonBase.attackRangeMax ?? 1,
           attackRangeFullDamage: undertakerSummonBase.attackRangeFullDamage ?? (undertakerSummonBase.attackRangeMax ?? 1),
+          attackMode: String(undertakerSummonBase.attackMode ?? DEFAULT_UNIT_ATTACK_MODE),
           accuracy: undertakerSummonBase.accuracy ?? DEFAULT_UNIT_ACCURACY,
           dead: false,
           nextAttackAt: 0,
@@ -1473,6 +1486,7 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
               projectileSpeed: summoned.projectileSpeed,
               attackRangeMax: summoned.attackRangeMax,
               attackRangeFullDamage: summoned.attackRangeFullDamage,
+              attackMode: String(summoned.attackMode ?? DEFAULT_UNIT_ATTACK_MODE),
               accuracy: summoned.accuracy,
               abilityType: summoned.abilityType,
               abilityKey: summoned.abilityKey,
@@ -2344,6 +2358,7 @@ function handleIntent(clientId, msg, ws) {
       projectileSpeed: offer.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED,
       attackRangeMax: offer.attackRangeMax ?? 1,
       attackRangeFullDamage: offer.attackRangeFullDamage ?? (offer.attackRangeMax ?? 1),
+      attackMode: String(offer.attackMode ?? DEFAULT_UNIT_ATTACK_MODE),
       accuracy: offer.accuracy ?? DEFAULT_UNIT_ACCURACY,
       abilityCooldown: offer.abilityCooldown ?? DEFAULT_UNIT_ABILITY_COOLDOWN,
     });

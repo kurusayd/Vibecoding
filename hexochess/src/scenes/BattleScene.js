@@ -1291,8 +1291,7 @@ export default class BattleScene extends Phaser.Scene {
         if (pendingAttackAnimIds) pendingAttackAnimIds.add(attacker.id);
       }
       if (attacker && target) {
-        const attackRangeMax = Math.max(1, Number(attacker.attackRangeMax ?? 1));
-        if (attackRangeMax > 1) {
+        if (Boolean(ev?.isRanged) === true) {
           this.pendingRangedBeamFx = this.pendingRangedBeamFx ?? [];
           this.pendingRangedBeamFx.push({
             attackerId: attacker.id,
@@ -1374,6 +1373,7 @@ export default class BattleScene extends Phaser.Scene {
             projectileSpeed: Number(spawned.projectileSpeed ?? 0),
             attackRangeMax: Number(spawned.attackRangeMax ?? 1),
             attackRangeFullDamage: Number(spawned.attackRangeFullDamage ?? 1),
+            attackMode: String(spawned.attackMode ?? 'melee'),
             accuracy: Number(spawned.accuracy ?? 0.8),
             abilityType: String(spawned.abilityType ?? 'none'),
             abilityKey: spawned.abilityKey ?? null,
@@ -1660,47 +1660,6 @@ export default class BattleScene extends Phaser.Scene {
     const readyAtMs = Number(vu._abilityCdReadyAtMs ?? NaN);
     if (!Number.isFinite(startAtMs) || !Number.isFinite(readyAtMs) || readyAtMs <= startAtMs) return 1;
     return Phaser.Math.Clamp((nowMs - startAtMs) / (readyAtMs - startAtMs), 0, 1);
-  }
-
-  playAbilityCooldownReadyFx(unitLike, barRect = null) {
-    if (!unitLike || !barRect) return;
-    const cx = Number(barRect.x ?? 0) + Number(barRect.w ?? 0) * 0.5;
-    const cy = Number(barRect.y ?? 0) + Number(barRect.h ?? 0) * 0.5;
-    const w = Math.max(8, Number(barRect.w ?? 0));
-    const h = Math.max(3, Number(barRect.h ?? 0));
-    // Guaranteed overlay above world/bars/background.
-    const fxDepth = 12050;
-
-    const pulse = this.add.rectangle(cx, cy, w + 4, h + 4, 0xffdf7a, 0.0)
-      .setDepth(fxDepth)
-      .setScrollFactor(1);
-    const sweep = this.add.rectangle(cx - (w * 0.5), cy, 6, h + 6, 0xfff3bf, 0.0)
-      .setDepth(fxDepth + 1)
-      .setScrollFactor(1);
-    const glow = this.add.rectangle(cx, cy, w + 10, h + 10, 0xffb300, 0.0)
-      .setDepth(fxDepth - 1)
-      .setScrollFactor(1);
-
-    this.tweens.add({
-      targets: [pulse, glow],
-      alpha: { from: 0, to: 0.95 },
-      duration: 120,
-      yoyo: true,
-      ease: 'Sine.Out',
-      onComplete: () => {
-        pulse.destroy();
-        glow.destroy();
-      },
-    });
-
-    sweep.setAlpha(0.95);
-    this.tweens.add({
-      targets: sweep,
-      x: cx + (w * 0.5),
-      duration: 180,
-      ease: 'Quad.Out',
-      onComplete: () => sweep.destroy(),
-    });
   }
 
   showCombatMissHint(coreUnitLike) {

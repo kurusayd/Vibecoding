@@ -185,3 +185,41 @@
 - В боевой фазе:
   - убрана hover-подсветка гекса у юнита;
   - открытая модалка остаётся на месте и не следует за двигающимся юнитом.
+
+## 17) Accuracy And Miss Invariant (2026-03-03)
+- Every unit has `accuracy` stat (default `0.8`).
+- Attack pipeline is strict binary: `hit` or `miss`.
+- `miss` means:
+  - no damage;
+  - no on-hit secondary effects;
+  - attack cooldown still starts normally.
+- Replay uses dedicated `miss` events to keep client/server behavior aligned.
+
+## 18) Ghost Evasion Invariant (2026-03-03)
+- `Ghost` passive (`ghost_evasion`) applies an additional 50% evade check against incoming successful hits.
+- If evasion succeeds, hit is converted into miss in authoritative simulation.
+- Client-only readability effect: ghost fades/flickers on evade.
+
+## 19) Undertaker Ability Invariant (2026-03-03)
+- `Undertaker` is an active-ability unit with summon behavior and no normal attack flow.
+- Ability lifecycle:
+  - starts battle on cooldown;
+  - on ready, enters cast (`ability_cast` event);
+  - while casting, movement is blocked by action gate;
+  - on cast completion, summon resolves (`spawn` event);
+  - ability cooldown starts after resolve.
+- Summon placement rule:
+  - pick nearest available board hex by expanding distance from caster when adjacent cells are occupied.
+- Summoned `SimpleSkeleton` is summon-only (excluded from shop) and inherits caster rank.
+
+## 20) Ability Cooldown Bar Invariant (2026-03-03)
+- Active-ability units render a thin golden cooldown bar under HP.
+- During cast, the bar is consumed (shrinks to zero) across cast duration.
+- Cooldown refill starts only after cast resolve.
+- Ready state uses one-shot flash rendered in the same HP/CD graphics layer.
+- Startup false-flash cases were addressed; replay init resets cooldown FX state.
+
+## 21) Replay Safety Notes (2026-03-03)
+- Replay render path includes fallback spawn creation to survive temporary occupied-cell desync.
+- Failure still logs `FAILED SPAWN VISUAL` diagnostics with position/context payload.
+- Current known cleanup candidate: legacy `BattleScene.playAbilityCooldownReadyFx(...)` remains but flash is now rendered in `hpbar.js` layer.

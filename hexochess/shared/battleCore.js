@@ -9,6 +9,7 @@ const DEFAULT_PROJECTILE_SPEED = 0;
 const DEFAULT_ACCURACY = 0.8;
 const DEFAULT_ABILITY_TYPE = 'none';
 const DEFAULT_ABILITY_COOLDOWN = 0;
+const DEFAULT_ATTACK_MODE = 'melee';
 
 export function createBattleState() {
   return {
@@ -35,6 +36,7 @@ export function addUnit(state, unit) {
   const projectileSpeed = Math.max(0, Number(unit.projectileSpeed ?? DEFAULT_PROJECTILE_SPEED));
   const accuracy = Math.max(0, Math.min(1, Number(unit.accuracy ?? DEFAULT_ACCURACY)));
   const abilityCooldown = Math.max(0, Number(unit.abilityCooldown ?? DEFAULT_ABILITY_COOLDOWN));
+  const attackMode = String(unit.attackMode ?? DEFAULT_ATTACK_MODE);
 
   state.units.push({
     id: unit.id,
@@ -52,6 +54,7 @@ export function addUnit(state, unit) {
     attackSpeed,
     moveSpeed,
     projectileSpeed,
+    attackMode,
     accuracy,
     abilityCooldown,
     attackRangeMax,

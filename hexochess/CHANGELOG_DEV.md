@@ -130,3 +130,54 @@
 
 ### Документация
 - Обновлены `CHANGELOG_DEV.md` и `PROJECT_MEMORY.md` с фиксацией новых инвариантов реплея, дальнего боя, drag-подсветок и UX модалки.
+
+## 2026-03-03 (Late Session Addendum)
+
+### Combat Accuracy + Miss Pipeline
+- Added `accuracy` as a default combat stat for all units (`0.8` baseline).
+- Server attack resolution now uses binary `hit / miss` check before damage application.
+- On miss:
+  - no damage is applied;
+  - no on-hit side effects are executed (including Skeleton Archer bounce);
+  - attack still consumes normal attack cooldown.
+- Replay now emits and renders explicit `miss` events.
+
+### Ghost Passive: Evasion
+- `Ghost` now has passive `ghost_evasion` behavior:
+  - incoming successful hit then has extra 50% evade check;
+  - on evade, hit is converted to `miss` event.
+- Client replay VFX:
+  - `miss` text shown above unit;
+  - ghost-specific fade/alpha flicker is played when evasion triggers.
+
+### Undertaker Active Ability
+- `Undertaker` switched to active non-attack behavior in battle sim:
+  - does not perform standard attacks;
+  - movement AI picks step maximizing distance from nearest enemy.
+- Added active summon ability flow:
+  - cast event (`ability_cast`) with cast time;
+  - summon resolve (`spawn`) after cast completes;
+  - cooldown starts after cast resolve, not at cast start.
+- Ability is not ready at battle start (starts on cooldown by design).
+- During cast, unit cannot move (same action gate style as attack lock).
+- Summon placement upgraded:
+  - nearest free hex search expands by distance if adjacent cells are blocked.
+- Summoned `SimpleSkeleton`:
+  - inherits caster rank;
+  - is excluded from shop offers (summon-only unit).
+
+### Ability Cooldown UI
+- Added thin golden ability cooldown bar under HP bar for active-ability units.
+- Added cast-phase bar behavior:
+  - during cast, bar shrinks to zero over cast time;
+  - cooldown fill then starts after cast resolution.
+- Added ready flash effect directly in HP/CD graphics layer (overlay-safe).
+- Fixed false ready flash triggers on battle start edge cases.
+
+### Unit Modal
+- Added unit rank visualization in modal portrait area (icon overlay).
+- Added ability cooldown line in modal for active abilities.
+
+### Replay + Spawn Robustness
+- Improved replay visual spawn fallback for occasional temporary occupancy desync.
+- Added warning diagnostics for failed visual spawn cases.

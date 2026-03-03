@@ -629,15 +629,36 @@ export function createUnitSystem(scene) {
 
   function update(dt) {
     const lagSpeed = 80;
+    const abilityCdFillEpsilon = 0.01;
+    const nowMs = Number(scene?.time?.now ?? 0);
 
     for (const u of state.units) {
-      const needsAbilityCdUi = Number.isFinite(Number(scene.getAbilityCooldownFillForUnit?.(u)));
+      const abilityCdFill = Number(scene.getAbilityCooldownFillForUnit?.(u));
+      const needsAbilityCdUi = Number.isFinite(abilityCdFill);
       if (u.hpLag > u.hpInstant) {
         u.hpLag = Math.max(u.hpInstant, u.hpLag - lagSpeed * dt);
+        if (needsAbilityCdUi) u._abilityCdLastRenderedFill = abilityCdFill;
         updateHpBar(scene, u);
       } else if (needsAbilityCdUi) {
-        // Ability cooldown bar animates over time even when HP does not change.
-        updateHpBar(scene, u);
+        const prevFill = Number(u._abilityCdLastRenderedFill ?? NaN);
+        const flashUntilMs = Number(u._abilityCdReadyFlashUntilMs ?? 0);
+        const inFlashWindow = flashUntilMs > nowMs;
+        const castEndAtMs = Number(u._abilityCastEndAtMs ?? NaN);
+        const inCastPhase = Number.isFinite(castEndAtMs) && castEndAtMs > nowMs;
+        const shouldRedrawCd =
+          !Number.isFinite(prevFill) ||
+          Math.abs(abilityCdFill - prevFill) >= abilityCdFillEpsilon ||
+          abilityCdFill <= 0.001 ||
+          abilityCdFill >= 0.999 ||
+          inFlashWindow ||
+          inCastPhase;
+        if (shouldRedrawCd) {
+          u._abilityCdLastRenderedFill = abilityCdFill;
+          // Ability cooldown bar animates over time even when HP does not change.
+          updateHpBar(scene, u);
+        }
+      } else if (u._abilityCdLastRenderedFill != null) {
+        u._abilityCdLastRenderedFill = null;
       }
     }
   }
