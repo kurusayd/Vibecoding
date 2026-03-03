@@ -26,10 +26,13 @@ export const UNIT_CATALOG = [
   { race: 'UNDEAD', type: 'Ghost',          label: 'GHOST',           powerType: POWER_TYPE_KNIGHT, hp: 120, atk: 12, attackSpeed: 0.7, moveSpeed: 2.4, attackRangeMax: 2,  attackRangeFullDamage: 2, projectileSpeed: 8.0, attackMode: ATTACK_MODE_MELEE, abilityType: ABILITY_PASSIVE, abilityKey: 'ghost_evasion' },
   { race: 'UNDEAD', type: 'Lich',           label: 'LICH',            powerType: POWER_TYPE_BISHOP, hp: 120, atk: 12, attackSpeed: 0.6, moveSpeed: 1.0, attackRangeMax: 20, attackRangeFullDamage: 5, projectileSpeed: 5.5, attackMode: ATTACK_MODE_RANGED },
   { race: 'UNDEAD', type: 'SkeletonArcher', label: 'SKELETON ARCHER', powerType: POWER_TYPE_PAWN,   hp: 120, atk: 12, attackSpeed: 0.65, moveSpeed: 1.0, attackRangeMax: 20, attackRangeFullDamage: 5, projectileSpeed: 7.5, attackMode: ATTACK_MODE_RANGED, abilityType: ABILITY_PASSIVE, abilityKey: 'skeleton_archer_bounce' },
+  { race: 'UNDEAD', type: 'Headless',       label: 'HEADLESS',        powerType: POWER_TYPE_ROOK,   hp: 120, atk: 12, attackSpeed: 0.8, moveSpeed: 0.9, attackRangeMax: 1,  attackRangeFullDamage: 1, projectileSpeed: 0, attackMode: ATTACK_MODE_MELEE, cellSpanX: 2 },
   { race: 'UNDEAD', type: 'Vampire',        label: 'VAMPIRE',         powerType: POWER_TYPE_BISHOP, hp: 120, atk: 12, attackSpeed: 1.1, moveSpeed: 2.0, attackRangeMax: 1,  attackRangeFullDamage: 1, projectileSpeed: 0, attackMode: ATTACK_MODE_MELEE },
   { race: 'UNDEAD', type: 'Zombie',         label: 'ZOMBIE',          powerType: POWER_TYPE_ROOK,   hp: 120, atk: 12, attackSpeed: 0.8, moveSpeed: 0.9, attackRangeMax: 1,  attackRangeFullDamage: 1, projectileSpeed: 0, attackMode: ATTACK_MODE_MELEE },
   { race: 'UNDEAD', type: 'Undertaker',     label: 'UNDERTAKER',      powerType: POWER_TYPE_BISHOP, hp: 120, atk: 12, attackSpeed: 0.9, moveSpeed: 1.1, attackRangeMax: 1,  attackRangeFullDamage: 1, projectileSpeed: 0, attackMode: ATTACK_MODE_MELEE, abilityType: ABILITY_ACTIVE, abilityKey: 'undertaker_active', abilityCooldown: 4 },
   { race: 'GOD',    type: 'Angel',          label: 'ANGEL',           powerType: POWER_TYPE_QUEEN,  hp: 480, atk: 24, attackSpeed: 1, moveSpeed: 3.0, attackRangeMax: 1,  attackRangeFullDamage: 1, projectileSpeed: 0, attackMode: ATTACK_MODE_MELEE },
+  { race: 'DEMON',  type: 'Incub',          label: 'INCUB',           powerType: POWER_TYPE_KNIGHT, hp: 120, atk: 12, attackSpeed: 0.9, moveSpeed: 1.1, attackRangeMax: 1,  attackRangeFullDamage: 1, projectileSpeed: 0, attackMode: ATTACK_MODE_MELEE },
+  { race: 'DEMON',  type: 'Succub',         label: 'SUCCUB',          powerType: POWER_TYPE_BISHOP, hp: 120, atk: 12, attackSpeed: 0.95, moveSpeed: 1.3, attackRangeMax: 1,  attackRangeFullDamage: 1, projectileSpeed: 0, attackMode: ATTACK_MODE_MELEE },
   { race: 'DEMON',  type: 'Devil',          label: 'DEVIL',           powerType: POWER_TYPE_QUEEN,  hp: 480, atk: 24, attackSpeed: 1, moveSpeed: 3.0, attackRangeMax: 1,  attackRangeFullDamage: 1, projectileSpeed: 0, attackMode: ATTACK_MODE_MELEE },
 ].map((u) => ({
   ...u,
@@ -37,6 +40,7 @@ export const UNIT_CATALOG = [
   abilityCooldown: Math.max(0, Number(u.abilityCooldown ?? 0)),
   abilityType: String(u.abilityType ?? ABILITY_NONE),
   abilityKey: u.abilityKey ?? null,
+  cellSpanX: Math.max(1, Math.floor(Number(u.cellSpanX ?? 1))),
   attackMode: String(u.attackMode ?? ((Number(u.attackRangeMax ?? 1) > 1 && Number(u.projectileSpeed ?? 0) > 0) ? ATTACK_MODE_RANGED : ATTACK_MODE_MELEE)),
 }));
 

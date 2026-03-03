@@ -8,6 +8,31 @@ export function cellKey(q, r) {
   return `${q},${r}`;
 }
 
+function getUnitCellSpanX(unitLike) {
+  const raw = Number(unitLike?.cellSpanX ?? NaN);
+  if (Number.isFinite(raw)) return Math.max(1, Math.floor(raw));
+  if (String(unitLike?.type ?? '') === 'Headless') return 2;
+  return 1;
+}
+
+function getOccupiedCellKeys(q, r, cellSpanX = 1) {
+  const span = Math.max(1, Math.floor(Number(cellSpanX ?? 1)));
+  const out = [];
+  // Anchor is the rightmost cell for horizontal multi-cell units.
+  for (let i = 0; i < span; i++) out.push(cellKey(Number(q) - i, Number(r)));
+  return out;
+}
+
+function isPlacementFree(occupiedSet, q, r, cellSpanX = 1, ignoreKeys = []) {
+  const blocked = new Set(ignoreKeys ?? []);
+  const keys = getOccupiedCellKeys(q, r, cellSpanX);
+  for (const k of keys) {
+    if (blocked.has(k)) continue;
+    if (occupiedSet.has(k)) return false;
+  }
+  return true;
+}
+
 const RANK_ICON_SCALE = 0.25;
 
 const UNIT_ART_DEPTH_LIVE = 1040;
@@ -129,12 +154,15 @@ export function createUnitSystem(scene) {
   }
 
   function getUnitAt(q, r) {
-    return state.units.find(u => u.q === q && u.r === r) ?? null;
+    return state.units.find((u) => {
+      const span = getUnitCellSpanX(u);
+      return getOccupiedCellKeys(u.q, u.r, span).includes(cellKey(q, r));
+    }) ?? null;
   }
 
   function spawnUnitOnBoard(q, r, opts = {}) {
-    const key = cellKey(q, r);
-    if (state.occupied.has(key)) return null;
+    const cellSpanX = getUnitCellSpanX(opts);
+    if (!isPlacementFree(state.occupied, q, r, cellSpanX)) return null;
 
     const p = scene.hexToPixel(q, r);
 
@@ -142,7 +170,6 @@ export function createUnitSystem(scene) {
     
     const sprite = scene.add.circle(p.x, p.y, radius, opts.color ?? 0x66ccff)
     .setDepth(1000);
-
 
     const w = scene.hexSize * 2;
     const h = scene.hexSize * 2;
@@ -217,6 +244,7 @@ export function createUnitSystem(scene) {
       q, r,
       team: opts.team ?? 'neutral',
       type: opts.type ?? null,
+      cellSpanX,
 
       hp,
       maxHp,
@@ -237,7 +265,7 @@ export function createUnitSystem(scene) {
 
     state.units.push(unit);
     indexUnit(unit);
-    state.occupied.add(key);
+    for (const k of getOccupiedCellKeys(q, r, cellSpanX)) state.occupied.add(k);
 
     updateHpBar(scene, unit);
     updateArtDepth(unit);
@@ -247,11 +275,11 @@ export function createUnitSystem(scene) {
   }
 
   function spawnUnitAtScreen(x, y, opts = {}) {
+    const cellSpanX = getUnitCellSpanX(opts);
     const radius = Math.floor(scene.hexSize * 0.62);
 
     const sprite = scene.add.circle(x, y, radius, opts.color ?? 0x66ccff)
       .setDepth(1000);
-
 
     const w = scene.hexSize * 2;
     const h = scene.hexSize * 2;
@@ -325,6 +353,7 @@ export function createUnitSystem(scene) {
       r: opts.r ?? 0,
       team: opts.team ?? 'neutral',
       type: opts.type ?? null,
+      cellSpanX,
 
       hp,
       maxHp,
@@ -359,9 +388,9 @@ export function createUnitSystem(scene) {
     const u = findUnit(id);
     if (!u) return;
 
-
-    const k = cellKey(u.q, u.r);
-    if (state.occupied.has(k)) state.occupied.delete(k);
+    for (const k of getOccupiedCellKeys(u.q, u.r, getUnitCellSpanX(u))) {
+      if (state.occupied.has(k)) state.occupied.delete(k);
+    }
 
 
     u.sprite.destroy();
@@ -415,9 +444,9 @@ export function createUnitSystem(scene) {
       return;
     }
 
-
-    state.occupied.delete(cellKey(u.q, u.r));
-    state.occupied.add(cellKey(q, r));
+    const span = getUnitCellSpanX(u);
+    for (const k of getOccupiedCellKeys(u.q, u.r, span)) state.occupied.delete(k);
+    for (const k of getOccupiedCellKeys(q, r, span)) state.occupied.add(k);
 
 
     u.q = q;
@@ -570,12 +599,12 @@ export function createUnitSystem(scene) {
   }
 
   function moveUnit(unit, newQ, newR) {
-    const oldKey = cellKey(unit.q, unit.r);
-    const newKey = cellKey(newQ, newR);
-    if (state.occupied.has(newKey)) return false;
+    const span = getUnitCellSpanX(unit);
+    const oldKeys = getOccupiedCellKeys(unit.q, unit.r, span);
+    if (!isPlacementFree(state.occupied, newQ, newR, span, oldKeys)) return false;
 
-    state.occupied.delete(oldKey);
-    state.occupied.add(newKey);
+    for (const k of oldKeys) state.occupied.delete(k);
+    for (const k of getOccupiedCellKeys(newQ, newR, span)) state.occupied.add(k);
 
     unit.q = newQ;
     unit.r = newR;

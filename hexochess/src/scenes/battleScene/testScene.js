@@ -5,6 +5,8 @@
   attack as coreAttack,
   getUnitAt as coreGetUnitAt,
   hexDistance as coreHexDistance,
+  getUnitCellSpanX as coreGetUnitCellSpanX,
+  getOccupiedCellsFromAnchor as coreGetOccupiedCellsFromAnchor,
 } from '../../../shared/battleCore.js';
 import { UNIT_CATALOG as SHARED_UNIT_CATALOG } from '../../../shared/unitCatalog.js';
 
@@ -202,8 +204,20 @@ export function installBattleSceneTestScene(BattleScene) {
       for (const n of TEST_SCENE_NEIGHBORS) {
         const nq = attacker.q + n.dq;
         const nr = attacker.r + n.dr;
-        if (!this.isInsideBoardCell(nq, nr)) continue;
-        if (coreGetUnitAt(state, nq, nr)) continue;
+        const cells = coreGetOccupiedCellsFromAnchor(nq, nr, coreGetUnitCellSpanX(attacker));
+        let blocked = false;
+        for (const c of cells) {
+          if (!this.isInsideBoardCell(c.q, c.r)) {
+            blocked = true;
+            break;
+          }
+          const occupied = coreGetUnitAt(state, c.q, c.r);
+          if (occupied && Number(occupied.id) !== Number(attacker.id)) {
+            blocked = true;
+            break;
+          }
+        }
+        if (blocked) continue;
         const d = coreHexDistance(nq, nr, target.q, target.r);
         if (d < bestDist) {
           bestDist = d;

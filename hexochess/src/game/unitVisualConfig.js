@@ -19,14 +19,14 @@ const DEFAULT_FOOT_SHADOW_OFFSET_Y_PX = 10;
 // - footShadowOffsetXPx/footShadowOffsetYPx: per-unit shadow anchor shift relative to unit hex center.
 export const UNIT_VISUAL_CONFIG_BY_TYPE = {
   Angel: {
-    groundLiftPx: 130,
-    artTargetPx: 220,
-    artOffsetXPx: 6,
+    groundLiftPx: 117,
+    artTargetPx: 210,
+    artOffsetXPx: 10,
     hpUiLiftPx: 75,
     footShadowWidthPx: 76,
     footShadowHeightPx: 24,
     footShadowOffsetXPx: 0,
-    footShadowOffsetYPx: 13,
+    footShadowOffsetYPx: 15,
   },
   BonesGolem: {
     // Tune BonesGolem here:
@@ -82,6 +82,28 @@ export const UNIT_VISUAL_CONFIG_BY_TYPE = {
     footShadowHeightPx: 14,
     footShadowOffsetXPx: 0,
     footShadowOffsetYPx: 12,
+  },
+  Headless: {
+    // Large 512x512 undead unit occupying 2 horizontal cells.
+    groundLiftPx: 115,
+    artTargetPx: 230,
+    artOffsetXPx: -38,
+    hpUiLiftPx: 95,
+    footShadowWidthPx: 118,
+    footShadowHeightPx: 24,
+    footShadowOffsetXPx: -38,
+    footShadowOffsetYPx: 11,
+  },
+  Incub: {
+    // Medium knight profile, close to Crusader.
+    groundLiftPx: 100,
+    artTargetPx: 160,
+    artOffsetXPx: 0,
+    hpUiLiftPx: 40,
+    footShadowWidthPx: 65,
+    footShadowHeightPx: 18,
+    footShadowOffsetXPx: 0,
+    footShadowOffsetYPx: 14,
   },
   Lich: {
     groundLiftPx: 95,
@@ -141,6 +163,16 @@ export const UNIT_VISUAL_CONFIG_BY_TYPE = {
     hpUiLiftPx: 20,
     footShadowWidthPx: 50,
     footShadowHeightPx: 15,
+    footShadowOffsetXPx: 0,
+    footShadowOffsetYPx: 15,
+  },
+  Succub: {
+    groundLiftPx: 100,
+    artTargetPx: 160,
+    artOffsetXPx: 0,
+    hpUiLiftPx: 50,
+    footShadowWidthPx: 60,
+    footShadowHeightPx: 18,
     footShadowOffsetXPx: 0,
     footShadowOffsetYPx: 15,
   },

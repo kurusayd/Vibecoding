@@ -144,6 +144,8 @@ function getUnitShortLabel(type) {
   if (t === 'angel') return 'A';
   if (t === 'devil') return 'D';
   if (t === 'ghost') return 'Gh';
+  if (t === 'headless') return 'Hd';
+  if (t === 'incub') return 'In';
   if (t === 'knight') return 'K';
   if (t === 'lich') return 'L';
   if (t === 'monk') return 'M';
@@ -151,11 +153,29 @@ function getUnitShortLabel(type) {
   if (t === 'simpleskeleton' || t === 'simple_skeleton') return 'SS';
   if (t === 'skeleton') return 'Sk';
   if (t === 'skeletonarcher' || t === 'skeleton_archer') return 'SA';
+  if (t === 'succub') return 'Su';
   if (t === 'swordsman' || t === 'swordmen') return 'S';
   if (t === 'undertaker') return 'U';
   if (t === 'vampire') return 'V';
   if (t === 'zombie') return 'Z';
   return '?';
+}
+
+function getUnitCellSpanX(unitLike) {
+  const raw = Number(unitLike?.cellSpanX ?? NaN);
+  if (Number.isFinite(raw)) return Math.max(1, Math.floor(raw));
+  if (String(unitLike?.type ?? '') === 'Headless') return 2;
+  return 1;
+}
+
+function getBoardCellsForUnit(unitLike) {
+  const span = getUnitCellSpanX(unitLike);
+  const q = Number(unitLike?.q ?? 0);
+  const r = Number(unitLike?.r ?? 0);
+  const out = [];
+  // Anchor is the rightmost cell for horizontal multi-cell units.
+  for (let i = 0; i < span; i++) out.push({ q: q - i, r });
+  return out;
 }
 
 export default class BattleScene extends Phaser.Scene {
@@ -1378,6 +1398,7 @@ export default class BattleScene extends Phaser.Scene {
             abilityType: String(spawned.abilityType ?? 'none'),
             abilityKey: spawned.abilityKey ?? null,
             abilityCooldown: Number(spawned.abilityCooldown ?? 0),
+            cellSpanX: Math.max(1, Math.floor(Number(spawned.cellSpanX ?? 1))),
             attackSeq: Number(spawned.attackSeq ?? 0),
             dead: Boolean(spawned.dead ?? false),
           });
@@ -2456,7 +2477,7 @@ export default class BattleScene extends Phaser.Scene {
             Number.isFinite(vu.q) &&
             Number.isFinite(vu.r)
           )
-          .map((vu) => `${vu.q},${vu.r}`)
+          .flatMap((vu) => getBoardCellsForUnit(vu).map((c) => `${c.q},${c.r}`))
       );
     }
 
@@ -2488,6 +2509,7 @@ export default class BattleScene extends Phaser.Scene {
             maxHp: u.maxHp ?? u.hp,
             rank: u.rank ?? 1,
             atk: u.atk,
+            cellSpanX: u.cellSpanX,
           });
         } else {
           created = this.unitSys.spawnUnitOnBoard(u.q, u.r, {
@@ -2500,6 +2522,7 @@ export default class BattleScene extends Phaser.Scene {
             rank: u.rank ?? 1,
             maxHp: u.maxHp ?? u.hp,
             atk: u.atk,
+            cellSpanX: u.cellSpanX,
           });
         }
 
@@ -2518,6 +2541,7 @@ export default class BattleScene extends Phaser.Scene {
             rank: u.rank ?? 1,
             maxHp: u.maxHp ?? u.hp,
             atk: u.atk,
+            cellSpanX: u.cellSpanX,
           });
           if (created && u.zone === 'board') {
             created.zone = 'board';
@@ -2549,7 +2573,9 @@ export default class BattleScene extends Phaser.Scene {
           // Визуал ушёл с доски на bench: освобождаем его старую клетку в локальном occupied,
           // иначе следующие спавны/создания визуалов на этой клетке могут падать с "occupied".
           if (created.zone === 'board') {
-            this.unitSys.state.occupied?.delete?.(`${created.q},${created.r}`);
+            for (const c of getBoardCellsForUnit(created)) {
+              this.unitSys.state.occupied?.delete?.(`${c.q},${c.r}`);
+            }
           }
           created.zone = 'bench';
           created.benchSlot = slot;
@@ -2595,6 +2621,7 @@ export default class BattleScene extends Phaser.Scene {
 
       // ---- UPDATE ----
       const vu = existing;
+      vu.cellSpanX = getUnitCellSpanX(u);
       this.bindUnitHoverGlow(vu);
       const prevZone = vu?.zone;
       const prevBenchSlot = Number(vu?.benchSlot);
@@ -2612,7 +2639,9 @@ export default class BattleScene extends Phaser.Scene {
         const p = this.benchSlotToScreen(slot);
 
         if (vu.zone === 'board') {
-          this.unitSys.state.occupied?.delete?.(`${vu.q},${vu.r}`);
+          for (const c of getBoardCellsForUnit(vu)) {
+            this.unitSys.state.occupied?.delete?.(`${c.q},${c.r}`);
+          }
         }
         vu.zone = 'bench';
         vu.benchSlot = slot;
@@ -2991,6 +3020,49 @@ export default class BattleScene extends Phaser.Scene {
     stroke(1, 0xfff4cd, 0.95);
   }
 
+  drawFootprintGlowOn(g, cells = []) {
+    const occupied = new Set((cells ?? []).map((c) => `${Number(c.q)},${Number(c.r)}`));
+    if (occupied.size <= 0) return;
+
+    const dirs = [
+      { dq: 1, dr: 0 },   // east
+      { dq: 1, dr: -1 },  // north-east
+      { dq: 0, dr: -1 },  // north-west
+      { dq: -1, dr: 0 },  // west
+      { dq: -1, dr: 1 },  // south-west
+      { dq: 0, dr: 1 },   // south-east
+    ];
+
+    const strokeOuterEdges = (width, color, alpha) => {
+      g.lineStyle(width, color, alpha);
+      for (const c of cells) {
+        const q = Number(c.q);
+        const r = Number(c.r);
+        const center = this.hexToPixel(q, r);
+        const pts = this.hexCorners(center.x, center.y);
+
+        for (let i = 0; i < 6; i++) {
+          const n = dirs[i];
+          const nk = `${q + n.dq},${r + n.dr}`;
+          if (occupied.has(nk)) continue; // inner shared edge: skip
+
+          const a = pts[i];
+          const b = pts[(i + 1) % 6];
+          g.beginPath();
+          g.moveTo(a.x, a.y);
+          g.lineTo(b.x, b.y);
+          g.strokePath();
+        }
+      }
+    };
+
+    // Same palette as drawHexGlowOn, but only on external contour.
+    strokeOuterEdges(5, 0xf0c36a, 0.18);
+    strokeOuterEdges(3, 0xf5cf7a, 0.36);
+    strokeOuterEdges(2, 0xffe2a0, 0.66);
+    strokeOuterEdges(1, 0xfff4cd, 0.95);
+  }
+
   drawGridStatic() {
     const g = this.gStatic ?? this.g;
     g.clear();
@@ -3032,14 +3104,15 @@ export default class BattleScene extends Phaser.Scene {
 
       if (u.zone === 'board') {
         if (!showBoardOccupancyShadow) continue;
-        // ? в prep не рисуем тени в скрытых колонках
-        if (!this.testSceneActive && this.battleState?.phase === 'prep') {
-          const col = u.q + Math.floor(u.r / 2);
-          if (col >= 6) continue;
+        for (const c of getBoardCellsForUnit(u)) {
+          // ? в prep не рисуем тени в скрытых колонках
+          if (!this.testSceneActive && this.battleState?.phase === 'prep') {
+            const col = c.q + Math.floor(c.r / 2);
+            if (col >= 6) continue;
+          }
+          const p = this.hexToPixel(c.q, c.r);
+          this.drawHexFilledOn(g, p.x, p.y, 0x000000, 0.35);
         }
-
-        const p = this.hexToPixel(u.q, u.r);
-        this.drawHexFilledOn(g, p.x, p.y, 0x000000, 0.35);
         continue;
       }
 
@@ -3100,9 +3173,14 @@ export default class BattleScene extends Phaser.Scene {
     }
 
     if (this.dragBoardHover && this.battleState?.phase === 'prep' && !this.battleState?.result) {
-      const p = this.hexToPixel(this.dragBoardHover.q, this.dragBoardHover.r);
-      this.drawHexFilledOn(g, p.x, p.y, 0x000000, 0.55);
-      this.drawHexOn(g, p.x, p.y, 0xffffff, 0.85);
+      const span = getUnitCellSpanX(draggingCore);
+      for (let i = 0; i < span; i++) {
+        const q = this.dragBoardHover.q - i;
+        const r = this.dragBoardHover.r;
+        const p = this.hexToPixel(q, r);
+        this.drawHexFilledOn(g, p.x, p.y, 0x000000, 0.55);
+        this.drawHexOn(g, p.x, p.y, 0xffffff, 0.85);
+      }
     }
     if (Number.isInteger(this.dragBenchHoverSlot)) {
       const p = this.benchSlotToScreen(this.dragBenchHoverSlot);
@@ -3127,7 +3205,24 @@ export default class BattleScene extends Phaser.Scene {
       } else if (this.hoverPickupCell.area === 'bench' && Number.isInteger(this.hoverPickupCell.slot)) {
         p = this.benchSlotToScreen(this.hoverPickupCell.slot);
       }
-      if (p && !this.unitInfoVisible && this.battleState?.phase !== 'battle') this.drawHexGlowOn(g, p.x, p.y);
+      if (p && !this.unitInfoVisible && this.battleState?.phase !== 'battle') {
+        if (this.hoverPickupCell.area === 'board' && this.hoverPickupCell.unitId != null) {
+          const hoverUnit = (this.battleState?.units ?? []).find((u) => String(u.id) === String(this.hoverPickupCell.unitId));
+          const span = getUnitCellSpanX(hoverUnit);
+          if (span > 1) {
+            const footprint = [];
+            for (let i = 0; i < span; i++) {
+              footprint.push({ q: this.hoverPickupCell.q - i, r: this.hoverPickupCell.r });
+            }
+            this.drawFootprintGlowOn(g, footprint);
+          } else {
+            const pp = this.hexToPixel(this.hoverPickupCell.q, this.hoverPickupCell.r);
+            this.drawHexGlowOn(g, pp.x, pp.y);
+          }
+        } else {
+          this.drawHexGlowOn(g, p.x, p.y);
+        }
+      }
     }
 
     // выделение

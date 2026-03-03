@@ -1,6 +1,13 @@
 import { updateHpBar } from '../../game/hpbar.js';
 import { getUnitArtOffsetXPx, getUnitFootShadowConfig, getUnitGroundLiftPx } from '../../game/unitVisualConfig.js';
 
+function getUnitCellSpanX(unitLike) {
+  const raw = Number(unitLike?.cellSpanX ?? NaN);
+  if (Number.isFinite(raw)) return Math.max(1, Math.floor(raw));
+  if (String(unitLike?.type ?? '') === 'Headless') return 2;
+  return 1;
+}
+
 export function installBattleSceneDrag(BattleScene) {
   Object.assign(BattleScene.prototype, {
     initDragState() {
@@ -73,12 +80,12 @@ export function installBattleSceneDrag(BattleScene) {
           this.dragBenchHoverSlot = hitBench ? hitBench.row : null;
           this.dragBoardHover = null;
           if (!hitBench) {
-            const hit = this.tryPickBoard(pointer.worldX, pointer.worldY);
+            const hit = this.tryPickBoard(pointer.worldX, pointer.worldY, { unitLike: core });
             this.dragBoardHover = hit ? { q: hit.q, r: hit.r } : null;
           }
         } else {
           this.dragBenchHoverSlot = null;
-          const hit = this.tryPickBoard(pointer.worldX, pointer.worldY);
+          const hit = this.tryPickBoard(pointer.worldX, pointer.worldY, { unitLike: core });
           this.dragBoardHover = hit ? { q: hit.q, r: hit.r } : null;
         }
 
@@ -115,10 +122,9 @@ export function installBattleSceneDrag(BattleScene) {
         const core = (this.battleState?.units ?? []).find((u) => String(u.id) === String(uid));
         if (!core) return;
 
-        gameObject.setPosition(dragX, dragY);
-
         const vu = this.unitSys.findUnit(uid);
         if (!vu) return;
+        gameObject.setPosition(dragX, dragY);
         vu.sprite?.setPosition(dragX, dragY);
         vu.dragHandle?.setPosition(dragX, dragY);
         vu.label?.setPosition(dragX, dragY);
@@ -132,12 +138,12 @@ export function installBattleSceneDrag(BattleScene) {
             this.dragBenchHoverSlot = hitBench.row;
             this.dragBoardHover = null;
           } else {
-            const hit = this.tryPickBoard(pointer.worldX, pointer.worldY);
+            const hit = this.tryPickBoard(pointer.worldX, pointer.worldY, { unitLike: core });
             this.dragBoardHover = hit ? { q: hit.q, r: hit.r } : this.dragBoardHover;
             this.dragBenchHoverSlot = null;
           }
         } else {
-          const hit = this.tryPickBoard(pointer.worldX, pointer.worldY);
+          const hit = this.tryPickBoard(pointer.worldX, pointer.worldY, { unitLike: core });
           this.dragBoardHover = hit ? { q: hit.q, r: hit.r } : this.dragBoardHover;
         }
         this.drawGrid();
@@ -227,7 +233,7 @@ export function installBattleSceneDrag(BattleScene) {
           return;
         }
 
-        const hit = this.tryPickBoard(pointer.worldX, pointer.worldY);
+        const hit = this.tryPickBoard(pointer.worldX, pointer.worldY, { unitLike: core });
         if (!hit) {
           this.renderFromState();
           restoreHoverAfterDrop(pointer, uid);
@@ -288,14 +294,29 @@ export function installBattleSceneDrag(BattleScene) {
       if (sprite.input) sprite.input.enabled = !!enabled;
     },
 
-    tryPickBoard(x, y) {
+    tryPickBoard(x, y, opts = {}) {
       const { q, r } = this.pixelToHex(x, y);
       const row = r;
       const col = q + Math.floor(row / 2);
 
       if (row < 0 || row >= this.gridRows) return null;
       if (col < 0 || col >= this.gridCols) return null;
-      if (!this.testSceneActive && this.battleState?.phase === 'prep' && col >= 6) return null;
+
+      const unitLike = opts?.unitLike ?? null;
+      if (unitLike) {
+        const span = getUnitCellSpanX(unitLike);
+        const maxPrepCols = Math.min(this.gridCols, 6);
+        for (let i = 0; i < span; i++) {
+          const qq = q - i;
+          const rr = r;
+          const cc = qq + Math.floor(rr / 2);
+          if (rr < 0 || rr >= this.gridRows) return null;
+          if (cc < 0 || cc >= this.gridCols) return null;
+          if (!this.testSceneActive && this.battleState?.phase === 'prep' && cc >= maxPrepCols) return null;
+        }
+      } else if (!this.testSceneActive && this.battleState?.phase === 'prep' && col >= 6) {
+        return null;
+      }
 
       return { q, r, row, col };
     },

@@ -43,6 +43,25 @@ export function updateHpBar(scene, unit) {
   const coreUnit =
     scene.coreUnitsById?.get?.(unit.id) ??
     (scene.battleState?.units ?? []).find((u) => u.id === unit.id);
+  const cellSpanX = Math.max(1, Math.floor(Number(coreUnit?.cellSpanX ?? (unit?.cellSpanX ?? 1))));
+  const uiCx = (() => {
+    const unitZone = String(coreUnit?.zone ?? unit?.zone ?? '');
+    if (unitZone !== 'board' || cellSpanX <= 1) return cx;
+
+    let stepX = Number.NaN;
+    if (typeof scene.hexToPixel === 'function') {
+      const baseQ = Number.isFinite(Number(coreUnit?.q)) ? Number(coreUnit.q) : 0;
+      const baseR = Number.isFinite(Number(coreUnit?.r)) ? Number(coreUnit.r) : 0;
+      const p0 = scene.hexToPixel(baseQ, baseR);
+      const p1 = scene.hexToPixel(baseQ - 1, baseR);
+      const dx = Number(p0?.x) - Number(p1?.x);
+      if (Number.isFinite(dx) && Math.abs(dx) > 1e-3) stepX = dx;
+    }
+    if (!Number.isFinite(stepX)) stepX = Math.sqrt(3) * Number(scene?.hexSize ?? 0);
+    if (!Number.isFinite(stepX) || Math.abs(stepX) <= 1e-3) return cx;
+
+    return cx - (stepX * (cellSpanX - 1)) / 2;
+  })();
   const unitType = coreUnit?.type ?? unit.type ?? null;
   const uiLift = Number(getUnitHpUiLiftPx(unitType));
 
@@ -53,7 +72,7 @@ export function updateHpBar(scene, unit) {
   const hpGap = Math.round(scene.hexSize * 2.75); // в‰€ +5px РїСЂРё hexSize=44
   const y = Math.round(tipY - h - hpGap - uiLift - HP_BAR_EXTRA_LIFT_PX);
 
-  const x = Math.round(cx - w / 2);
+  const x = Math.round(uiCx - w / 2);
   const uiDepth = (hasBoardCoords(coreUnit) && coreUnit?.zone !== 'bench')
     ? boardDepth(HP_UI_DEPTH_BASE, coreUnit.q, coreUnit.r)
     : HP_UI_DEPTH_BASE;
@@ -72,7 +91,7 @@ export function updateHpBar(scene, unit) {
     }
 
     // rankIcon РїСЂРёРІСЏР·С‹РІР°РµРј Рє РЅРёР¶РЅРµР№ РіСЂР°РЅРёС†Рµ HP-Р±Р°СЂР° (originY = 1).
-    unit.rankIcon.setPosition(cx, y + h - 5 + RANK_ICON_OFFSET_Y_PX);
+    unit.rankIcon.setPosition(uiCx, y + h - 5 + RANK_ICON_OFFSET_Y_PX);
     unit.rankIcon.setDepth(uiDepth + 1);
 
     // РІРёРґРёРјРѕСЃС‚СЊ:
@@ -163,6 +182,3 @@ export function updateHpBar(scene, unit) {
 function clamp(v, a, b) {
   return Math.max(a, Math.min(b, v));
 }
-
-
-

@@ -10,6 +10,48 @@ const DEFAULT_ACCURACY = 0.8;
 const DEFAULT_ABILITY_TYPE = 'none';
 const DEFAULT_ABILITY_COOLDOWN = 0;
 const DEFAULT_ATTACK_MODE = 'melee';
+const DEFAULT_CELL_SPAN_X = 1;
+
+function normalizeCellSpanX(value, type) {
+  if (Number.isFinite(Number(value))) {
+    return Math.max(1, Math.floor(Number(value)));
+  }
+  // Backward-safe fallback for older state snapshots without explicit span.
+  if (String(type ?? '') === 'Headless') return 2;
+  return DEFAULT_CELL_SPAN_X;
+}
+
+export function getUnitCellSpanX(unitLike) {
+  return normalizeCellSpanX(unitLike?.cellSpanX, unitLike?.type);
+}
+
+export function getOccupiedCellsFromAnchor(q, r, cellSpanX = DEFAULT_CELL_SPAN_X) {
+  const span = Math.max(1, Math.floor(Number(cellSpanX ?? DEFAULT_CELL_SPAN_X)));
+  const out = [];
+  for (let i = 0; i < span; i++) {
+    // Anchor is the rightmost cell for horizontal multi-cell units.
+    out.push({ q: Number(q) - i, r: Number(r) });
+  }
+  return out;
+}
+
+export function getUnitOccupiedCells(unitLike) {
+  if (!unitLike) return [];
+  return getOccupiedCellsFromAnchor(unitLike.q, unitLike.r, getUnitCellSpanX(unitLike));
+}
+
+function distanceBetweenUnitsByFootprint(a, b) {
+  const aCells = getUnitOccupiedCells(a);
+  const bCells = getUnitOccupiedCells(b);
+  let best = Infinity;
+  for (const ac of aCells) {
+    for (const bc of bCells) {
+      const d = hexDistance(ac.q, ac.r, bc.q, bc.r);
+      if (d < best) best = d;
+    }
+  }
+  return Number.isFinite(best) ? best : Infinity;
+}
 
 export function createBattleState() {
   return {
@@ -37,6 +79,7 @@ export function addUnit(state, unit) {
   const accuracy = Math.max(0, Math.min(1, Number(unit.accuracy ?? DEFAULT_ACCURACY)));
   const abilityCooldown = Math.max(0, Number(unit.abilityCooldown ?? DEFAULT_ABILITY_COOLDOWN));
   const attackMode = String(unit.attackMode ?? DEFAULT_ATTACK_MODE);
+  const cellSpanX = normalizeCellSpanX(unit.cellSpanX, unit.type);
 
   state.units.push({
     id: unit.id,
@@ -63,11 +106,15 @@ export function addUnit(state, unit) {
     abilityKey: unit.abilityKey ?? null,
     attackSeq: unit.attackSeq ?? 0,
     dead: Boolean(unit.dead ?? false),
+    cellSpanX,
   });
 }
 
 export function getUnitAt(state, q, r) {
-  return state.units.find((u) => u.zone === 'board' && !u.dead && u.q === q && u.r === r) ?? null;
+  return state.units.find((u) => {
+    if (u.zone !== 'board' || u.dead) return false;
+    return getUnitOccupiedCells(u).some((c) => c.q === q && c.r === r);
+  }) ?? null;
 }
 
 export function moveUnit(state, unitId, q, r) {
@@ -76,8 +123,11 @@ export function moveUnit(state, unitId, q, r) {
   if (unit.zone !== 'board') return false;
   if (unit.dead) return false;
 
-  const occupied = getUnitAt(state, q, r);
-  if (occupied && occupied.id !== unitId) return false;
+  const nextCells = getOccupiedCellsFromAnchor(q, r, getUnitCellSpanX(unit));
+  for (const c of nextCells) {
+    const occupied = getUnitAt(state, c.q, c.r);
+    if (occupied && occupied.id !== unitId) return false;
+  }
 
   unit.q = q;
   unit.r = r;
@@ -105,7 +155,7 @@ export function attack(state, attackerId, targetId) {
   if (target.dead) return { success: false, reason: 'TARGET_DEAD' };
   if (attacker.team === target.team) return { success: false, reason: 'SAME_TEAM' };
 
-  const dist = hexDistance(attacker.q, attacker.r, target.q, target.r);
+  const dist = distanceBetweenUnitsByFootprint(attacker, target);
   const attackRangeMax = Math.max(1, Number(attacker.attackRangeMax ?? DEFAULT_ATTACK_RANGE_MAX));
   const attackRangeFullDamage = Math.max(1, Number(attacker.attackRangeFullDamage ?? attackRangeMax));
   if (dist > attackRangeMax) return { success: false, reason: 'OUT_OF_RANGE', dist, attackRangeMax };

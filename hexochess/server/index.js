@@ -14,6 +14,8 @@ import {
   hexDistance,
   applyKingXp,
   kingXpToNext,
+  getUnitCellSpanX,
+  getOccupiedCellsFromAnchor,
 } from '../shared/battleCore.js';
 
 import {
@@ -765,6 +767,7 @@ function makeRandomOffer() {
       attackMode: DEFAULT_UNIT_ATTACK_MODE,
       accuracy: DEFAULT_UNIT_ACCURACY,
       abilityCooldown: DEFAULT_UNIT_ABILITY_COOLDOWN,
+      cellSpanX: 1,
     };
 
   const cost = COST_BY_POWER_TYPE[base.powerType] ?? 1;
@@ -787,6 +790,7 @@ function makeRandomOffer() {
     abilityCooldown: base.abilityCooldown ?? DEFAULT_UNIT_ABILITY_COOLDOWN,
     abilityType: base.abilityType ?? 'none',
     abilityKey: base.abilityKey ?? null,
+    cellSpanX: getUnitCellSpanX(base),
   };
 }
 
@@ -804,6 +808,7 @@ function makeOfferFromCatalogUnit(base) {
     attackMode: DEFAULT_UNIT_ATTACK_MODE,
     accuracy: DEFAULT_UNIT_ACCURACY,
     abilityCooldown: DEFAULT_UNIT_ABILITY_COOLDOWN,
+    cellSpanX: 1,
   };
   const cost = COST_BY_POWER_TYPE[src.powerType] ?? 1;
   return {
@@ -824,6 +829,7 @@ function makeOfferFromCatalogUnit(base) {
     abilityCooldown: src.abilityCooldown ?? DEFAULT_UNIT_ABILITY_COOLDOWN,
     abilityType: src.abilityType ?? 'none',
     abilityKey: src.abilityKey ?? null,
+    cellSpanX: getUnitCellSpanX(src),
   };
 }
 
@@ -840,14 +846,13 @@ function findFirstFreeBenchSlot() {
   return null;
 }
 
-function findFirstFreeBoardCell() {
+function findFirstFreeBoardCell(unitLike = null) {
   for (let r = 0; r < GRID_ROWS; r++) {
     // Р’ prep РёРіСЂРѕРєСѓ СЂР°Р·СЂРµС€РµРЅР° С‚РѕР»СЊРєРѕ "СЃРІРѕСЏ" РїРѕР»РѕРІРёРЅР° РїРѕР»СЏ (РєР°Рє РЅР° РєР»РёРµРЅС‚Рµ: РїРµСЂРІС‹Рµ 6 РєРѕР»РѕРЅРѕРє).
     const maxPlayerPrepCols = Math.min(GRID_COLS, 6);
     for (let col = 0; col < maxPlayerPrepCols; col++) {
       const q = col - Math.floor(r / 2);
-      if (!isInsideBoard(q, r)) continue;
-      if (getUnitAt(state, q, r)) continue;
+      if (!canPlaceUnitAtBoard(state, unitLike, q, r)) continue;
       return { q, r };
     }
   }
@@ -881,11 +886,9 @@ function spawnBotArmy() {
   });
 
   for (const b of botUnits) {
-    // safety: РµСЃР»Рё РєР»РµС‚РєР° Р·Р°РЅСЏС‚Р° РёР»Рё РІРЅРµ РїРѕР»СЏ вЂ” РїСЂРѕСЃС‚Рѕ РїСЂРѕРїСѓСЃРєР°РµРј
-    if (!isInsideBoard(b.q, b.r)) continue;
-    if (getUnitAt(state, b.q, b.r)) continue;
-
     const base = UNIT_CATALOG.find(x => x.type === b.type) ?? UNIT_CATALOG[0];
+    // safety: skip invalid/occupied placement (including large units with >1 cell footprint)
+    if (!canPlaceUnitAtBoard(state, base, b.q, b.r)) continue;
     const rank = Math.max(1, Math.min(3, Number(b.rank ?? 1)));
     const mult = rankMultiplier(rank);
     const hp = Math.max(1, Math.round(Number(base.hp ?? 1) * mult));
@@ -913,6 +916,7 @@ function spawnBotArmy() {
       attackMode: String(base.attackMode ?? DEFAULT_UNIT_ATTACK_MODE),
       accuracy: base.accuracy ?? DEFAULT_UNIT_ACCURACY,
       abilityCooldown: base.abilityCooldown ?? DEFAULT_UNIT_ABILITY_COOLDOWN,
+      cellSpanX: getUnitCellSpanX(base),
     });
   }
 }
@@ -928,10 +932,11 @@ function buildBotBoardUnitsForSim(botId, team, nextIdRef) {
 
   for (const u of preset) {
     const { q, r } = colRowToAxial(u.col, u.row);
-    if (!isInsideBoard(q, r)) continue;
-
     const base = UNIT_CATALOG.find((x) => x.type === u.type) ?? UNIT_CATALOG[0];
     if (!base) continue;
+    if (!isBoardPlacementInsideForUnit(base, q, r)) continue;
+    const tempState = { units: out };
+    if (findBlockingUnitAtPlacement(tempState, base, q, r, null)) continue;
 
     const rank = Math.max(1, Math.min(3, Number(u.rank ?? 1)));
     const mult = rankMultiplier(rank);
@@ -961,6 +966,7 @@ function buildBotBoardUnitsForSim(botId, team, nextIdRef) {
       attackMode: String(base.attackMode ?? DEFAULT_UNIT_ATTACK_MODE),
       accuracy: base.accuracy ?? DEFAULT_UNIT_ACCURACY,
       abilityCooldown: base.abilityCooldown ?? DEFAULT_UNIT_ABILITY_COOLDOWN,
+      cellSpanX: getUnitCellSpanX(base),
       dead: false,
       nextAttackAt: 0,
       nextMoveAt: 0,
@@ -1003,6 +1009,48 @@ function isInsideBoard(q, r) {
   if (r < 0 || r >= GRID_ROWS) return false;
   const col = q + Math.floor(r / 2);
   return col >= 0 && col < GRID_COLS;
+}
+
+function getBoardCellsForUnitAnchor(unitLike, q, r) {
+  return getOccupiedCellsFromAnchor(q, r, getUnitCellSpanX(unitLike));
+}
+
+function isBoardPlacementInsideForUnit(unitLike, q, r) {
+  const cells = getBoardCellsForUnitAnchor(unitLike, q, r);
+  return cells.every((c) => isInsideBoard(c.q, c.r));
+}
+
+function findBlockingUnitAtPlacement(simState, unitLike, q, r, ignoreUnitId = null) {
+  const cells = getBoardCellsForUnitAnchor(unitLike, q, r);
+  for (const c of cells) {
+    const occupied = getUnitAt(simState, c.q, c.r);
+    if (!occupied) continue;
+    if (ignoreUnitId != null && Number(occupied.id) === Number(ignoreUnitId)) continue;
+    return occupied;
+  }
+  return null;
+}
+
+function canPlaceUnitAtBoard(simState, unitLike, q, r, ignoreUnitId = null) {
+  if (!isBoardPlacementInsideForUnit(unitLike, q, r)) return false;
+  const blocker = findBlockingUnitAtPlacement(simState, unitLike, q, r, ignoreUnitId);
+  return !blocker;
+}
+
+function unitDistanceByFootprintAtTime(simState, a, b, timeMs) {
+  const aPos = getCombatHexAtIn(simState, a, timeMs);
+  const bPos = getCombatHexAtIn(simState, b, timeMs);
+  if (!aPos || !bPos) return Infinity;
+  const aCells = getBoardCellsForUnitAnchor(a, aPos.q, aPos.r);
+  const bCells = getBoardCellsForUnitAnchor(b, bPos.q, bPos.r);
+  let best = Infinity;
+  for (const ac of aCells) {
+    for (const bc of bCells) {
+      const d = hexDistance(ac.q, ac.r, bc.q, bc.r);
+      if (d < best) best = d;
+    }
+  }
+  return Number.isFinite(best) ? best : Infinity;
 }
 
 const NEIGHBORS = [
@@ -1077,8 +1125,7 @@ function getCombatHexAtIn(simState, unit, timeMs) {
 function findClosestOpponentIn(simState, attacker, timeMs) {
   if (!attacker || attacker.dead) return null;
   const opponentTeam = attacker.team === 'player' ? 'enemy' : 'player';
-  const mePos = getCombatHexAtIn(simState, attacker, timeMs);
-  if (!mePos) return null;
+  if (!getCombatHexAtIn(simState, attacker, timeMs)) return null;
 
   let best = null;
   let bestDist = Infinity;
@@ -1086,9 +1133,7 @@ function findClosestOpponentIn(simState, attacker, timeMs) {
     if (u.zone !== 'board') continue;
     if (u.dead) continue;
     if (u.team !== opponentTeam) continue;
-    const targetPos = getCombatHexAtIn(simState, u, timeMs);
-    if (!targetPos) continue;
-    const d = hexDistance(mePos.q, mePos.r, targetPos.q, targetPos.r);
+    const d = unitDistanceByFootprintAtTime(simState, attacker, u, timeMs);
     if (d < bestDist) {
       bestDist = d;
       best = u;
@@ -1131,11 +1176,8 @@ function performAttackIn(simState, attackerId, targetId, timeMs) {
   if (target.dead) return { success: false, reason: 'TARGET_DEAD' };
   if (attacker.team === target.team) return { success: false, reason: 'SAME_TEAM' };
 
-  const attackerPos = getCombatHexAtIn(simState, attacker, timeMs);
-  const targetPos = getCombatHexAtIn(simState, target, timeMs);
-  if (!attackerPos || !targetPos) return { success: false, reason: 'NO_POSITION' };
-
-  const dist = hexDistance(attackerPos.q, attackerPos.r, targetPos.q, targetPos.r);
+  const dist = unitDistanceByFootprintAtTime(simState, attacker, target, timeMs);
+  if (!Number.isFinite(dist)) return { success: false, reason: 'NO_POSITION' };
   const attackRangeMax = Math.max(1, Number(attacker.attackRangeMax ?? 1));
   const attackRangeFullDamage = Math.max(1, Number(attacker.attackRangeFullDamage ?? attackRangeMax));
   if (dist > attackRangeMax) return { success: false, reason: 'OUT_OF_RANGE', dist, attackRangeMax };
@@ -1165,7 +1207,7 @@ function performAttackIn(simState, attackerId, targetId, timeMs) {
 }
 
 function getUnitAtIn(simState, q, r) {
-  return simState.units.find((u) => u.zone === 'board' && !u.dead && u.q === q && u.r === r) ?? null;
+  return getUnitAt(simState, q, r);
 }
 
 function findBounceTargetIn(simState, fromQ, fromR, attackerTeam, excludedIds = []) {
@@ -1177,7 +1219,11 @@ function findBounceTargetIn(simState, fromQ, fromR, attackerTeam, excludedIds = 
     if (!u || u.zone !== 'board' || u.dead) continue;
     if (u.team !== enemyTeam) continue;
     if (blocked.has(Number(u.id))) continue;
-    const d = hexDistance(fromQ, fromR, Number(u.q), Number(u.r));
+    const targetCells = getBoardCellsForUnitAnchor(u, Number(u.q), Number(u.r));
+    let d = Infinity;
+    for (const c of targetCells) {
+      d = Math.min(d, hexDistance(fromQ, fromR, c.q, c.r));
+    }
     if (d > 2) continue;
     if (d < bestDist || (d === bestDist && Number(u.id) < Number(best?.id ?? Infinity))) {
       bestDist = d;
@@ -1202,6 +1248,7 @@ function pickBestStepTowardIn(simState, attacker, target, timeMs) {
   const attackerPos = getCombatHexAtIn(simState, attacker, timeMs);
   const targetPos = getCombatHexAtIn(simState, target, timeMs);
   if (!attackerPos || !targetPos) return null;
+  const targetCells = getBoardCellsForUnitAnchor(target, targetPos.q, targetPos.r);
 
   let best = null;
   let bestDist = Infinity;
@@ -1209,9 +1256,14 @@ function pickBestStepTowardIn(simState, attacker, target, timeMs) {
   for (const n of NEIGHBORS) {
     const nq = attackerPos.q + n.dq;
     const nr = attackerPos.r + n.dr;
-    if (!isInsideBoard(nq, nr)) continue;
-    if (getUnitAtIn(simState, nq, nr)) continue;
-    const d = hexDistance(nq, nr, targetPos.q, targetPos.r);
+    if (!canPlaceUnitAtBoard(simState, attacker, nq, nr, attacker.id)) continue;
+    const attackerCells = getBoardCellsForUnitAnchor(attacker, nq, nr);
+    let d = Infinity;
+    for (const ac of attackerCells) {
+      for (const tc of targetCells) {
+        d = Math.min(d, hexDistance(ac.q, ac.r, tc.q, tc.r));
+      }
+    }
     if (d < bestDist) {
       bestDist = d;
       best = { q: nq, r: nr };
@@ -1227,15 +1279,21 @@ function pickBestStepAwayFromClosestEnemyIn(simState, unit, timeMs) {
   if (!nearestEnemy) return null;
   const enemyPos = getCombatHexAtIn(simState, nearestEnemy, timeMs);
   if (!enemyPos) return null;
+  const enemyCells = getBoardCellsForUnitAnchor(nearestEnemy, enemyPos.q, enemyPos.r);
 
   let best = null;
   let bestDist = -Infinity;
   for (const n of NEIGHBORS) {
     const nq = mePos.q + n.dq;
     const nr = mePos.r + n.dr;
-    if (!isInsideBoard(nq, nr)) continue;
-    if (getUnitAtIn(simState, nq, nr)) continue;
-    const d = hexDistance(nq, nr, enemyPos.q, enemyPos.r);
+    if (!canPlaceUnitAtBoard(simState, unit, nq, nr, unit.id)) continue;
+    const myCells = getBoardCellsForUnitAnchor(unit, nq, nr);
+    let d = Infinity;
+    for (const mc of myCells) {
+      for (const ec of enemyCells) {
+        d = Math.min(d, hexDistance(mc.q, mc.r, ec.q, ec.r));
+      }
+    }
     if (d > bestDist) {
       bestDist = d;
       best = { q: nq, r: nr };
@@ -1254,9 +1312,9 @@ function findNearestFreeAdjacentHexIn(simState, q, r) {
     for (let col = 0; col < GRID_COLS; col++) {
       const nq = col - rowShift;
       const nr = row;
-      if (!isInsideBoard(nq, nr)) continue;
+      if (!isBoardPlacementInsideForUnit({ cellSpanX: 1 }, nq, nr)) continue;
       if (nq === q && nr === r) continue;
-      if (getUnitAtIn(simState, nq, nr)) continue;
+      if (findBlockingUnitAtPlacement(simState, { cellSpanX: 1 }, nq, nr, null)) continue;
       const d = hexDistance(q, r, nq, nr);
       if (d < 1) continue;
       if (d < bestDist || (d === bestDist && (nr < Number(best?.r ?? Infinity) || (nr === Number(best?.r ?? Infinity) && nq < Number(best?.q ?? Infinity))))) {
@@ -1365,7 +1423,12 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
           if (Number.isFinite(fromQ) && Number.isFinite(fromR) && projectileSpeed > 0) {
             const bounceTarget = findBounceTargetIn(simState, fromQ, fromR, next.attackerTeam, [next.targetId]);
             if (bounceTarget) {
-              const bounceDist = hexDistance(fromQ, fromR, Number(bounceTarget.q), Number(bounceTarget.r));
+              const bounceCells = getBoardCellsForUnitAnchor(bounceTarget, Number(bounceTarget.q), Number(bounceTarget.r));
+              let bounceDist = Infinity;
+              for (const c of bounceCells) {
+                bounceDist = Math.min(bounceDist, hexDistance(fromQ, fromR, c.q, c.r));
+              }
+              if (!Number.isFinite(bounceDist)) bounceDist = 1;
               const bounceTravelMs = (bounceDist / projectileSpeed) * 1000;
               const bounceDamage = Math.max(1, Math.round(Number(dmgRes.damage ?? 1) * 0.5));
               const bounceT = dueAt + Math.max(0, Number(bounceTravelMs ?? 0));
@@ -1450,6 +1513,7 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
           attackRangeFullDamage: undertakerSummonBase.attackRangeFullDamage ?? (undertakerSummonBase.attackRangeMax ?? 1),
           attackMode: String(undertakerSummonBase.attackMode ?? DEFAULT_UNIT_ATTACK_MODE),
           accuracy: undertakerSummonBase.accuracy ?? DEFAULT_UNIT_ACCURACY,
+          cellSpanX: getUnitCellSpanX(undertakerSummonBase),
           dead: false,
           nextAttackAt: 0,
           nextMoveAt: 0,
@@ -1491,6 +1555,7 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
               abilityType: summoned.abilityType,
               abilityKey: summoned.abilityKey,
               abilityCooldown: summoned.abilityCooldown,
+              cellSpanX: summoned.cellSpanX,
               dead: false,
               attackSeq: 0,
             },
@@ -2088,6 +2153,10 @@ function handleIntent(clientId, msg, ws) {
         occupied.zone = 'bench';
         occupied.benchSlot = prev.benchSlot;
       } else {
+        if (!canPlaceUnitAtBoard(state, occupied, prev.q, prev.r, me.id)) {
+          ws.send(JSON.stringify(makeErrorMessage('OCCUPIED', 'Cannot swap: previous board cell is blocked')));
+          return;
+        }
         occupied.zone = 'board';
         occupied.benchSlot = null;
         occupied.q = prev.q;
@@ -2131,21 +2200,30 @@ function handleIntent(clientId, msg, ws) {
       return;
     }
 
-    // Р’ prep РёРіСЂРѕРє РјРѕР¶РµС‚ СЃС‚Р°РІРёС‚СЊ СЋРЅРёС‚РѕРІ С‚РѕР»СЊРєРѕ РЅР° СЃРІРѕСЋ РїРѕР»РѕРІРёРЅСѓ РїРѕР»СЏ (РїРµСЂРІС‹Рµ 6 РєРѕР»РѕРЅРѕРє).
-    // Р­С‚Рѕ РґСѓР±Р»РёСЂСѓРµС‚ РѕРіСЂР°РЅРёС‡РµРЅРёРµ РєР»РёРµРЅС‚Р°, РЅРѕ РґРѕР»Р¶РЅРѕ РїСЂРѕРІРµСЂСЏС‚СЊСЃСЏ Рё РЅР° СЃРµСЂРІРµСЂРµ.
-    if (state.phase === 'prep') {
-      const col = q + Math.floor(r / 2);
-      const maxPlayerPrepCols = Math.min(GRID_COLS, 6);
-      if (col < 0 || col >= maxPlayerPrepCols) {
-        ws.send(JSON.stringify(makeErrorMessage('OUT_OF_PREP_ZONE', 'Cell is outside player prep zone')));
-        return;
-      }
-    }
-
     const me = findUnitById(requestedUnitId);
     if (!me) {
       ws.send(JSON.stringify(makeErrorMessage('NO_UNIT', 'Unit not found')));
       return;
+    }
+
+    if (!isBoardPlacementInsideForUnit(me, q, r)) {
+      ws.send(JSON.stringify(makeErrorMessage('OUT_OF_BOUNDS', 'Unit footprint is outside board')));
+      return;
+    }
+
+    // Р’ prep РёРіСЂРѕРє РјРѕР¶РµС‚ СЃС‚Р°РІРёС‚СЊ СЋРЅРёС‚РѕРІ С‚РѕР»СЊРєРѕ РЅР° СЃРІРѕСЋ РїРѕР»РѕРІРёРЅСѓ РїРѕР»СЏ (РїРµСЂРІС‹Рµ 6 РєРѕР»РѕРЅРѕРє).
+    // РџСЂРѕРІРµСЂСЏРµРј РІСЃСЋ footprint-РіРµРѕРјРµС‚СЂРёСЋ (РґР»СЏ 2-cell СЋРЅРёС‚РѕРІ С‚РѕР¶Рµ).
+    if (state.phase === 'prep') {
+      const maxPlayerPrepCols = Math.min(GRID_COLS, 6);
+      const cells = getBoardCellsForUnitAnchor(me, q, r);
+      const outsidePrep = cells.some((c) => {
+        const col = c.q + Math.floor(c.r / 2);
+        return col < 0 || col >= maxPlayerPrepCols;
+      });
+      if (outsidePrep) {
+        ws.send(JSON.stringify(makeErrorMessage('OUT_OF_PREP_ZONE', 'Cell is outside player prep zone')));
+        return;
+      }
     }
 
     // Р·Р°РїРѕРјРёРЅР°РµРј РѕС‚РєСѓРґР° СЋРЅРёС‚ РїСЂРёС€С‘Р» (С‡С‚РѕР±С‹ Р±С‹Р»Рѕ РєСѓРґР° "РІС‹С‚РѕР»РєРЅСѓС‚СЊ" РІС‚РѕСЂРѕРіРѕ)
@@ -2156,8 +2234,13 @@ function handleIntent(clientId, msg, ws) {
       benchSlot: me.benchSlot,
     };
 
-    const occupied = getUnitAt(state, q, r);
+    const occupied = findBlockingUnitAtPlacement(state, me, q, r, requestedUnitId);
     if (occupied && occupied.id !== requestedUnitId) {
+      // Large units use strict occupancy (no swaps for multi-cell footprint).
+      if (getUnitCellSpanX(me) > 1 || getUnitCellSpanX(occupied) > 1) {
+        ws.send(JSON.stringify(makeErrorMessage('OCCUPIED', 'Target footprint is occupied')));
+        return;
+      }
       // вњ… swap С‚РѕР»СЊРєРѕ РµСЃР»Рё Р·Р°РЅСЏС‚Рѕ РњРћРРњ СЋРЅРёС‚РѕРј
       if (occupied.team !== 'player' || !owned.has(occupied.id)) {
         ws.send(JSON.stringify(makeErrorMessage('OCCUPIED', 'Cell is occupied')));
@@ -2191,6 +2274,11 @@ function handleIntent(clientId, msg, ws) {
     // РѕР±С‹С‡РЅР°СЏ СѓСЃС‚Р°РЅРѕРІРєР° (РєР»РµС‚РєР° СЃРІРѕР±РѕРґРЅР°)
     me.zone = 'board';
     me.benchSlot = null;
+
+    if (!canPlaceUnitAtBoard(state, me, q, r, requestedUnitId)) {
+      ws.send(JSON.stringify(makeErrorMessage('MOVE_DENIED', 'Cannot set start there')));
+      return;
+    }
 
     const ok = moveUnit(state, requestedUnitId, q, r);
     if (!ok) {
@@ -2325,7 +2413,7 @@ function handleIntent(clientId, msg, ws) {
     }
 
     const canPlaceOnBoardNow = (state.phase === 'prep') && !state.result;
-    const freeBoardCell = canPlaceOnBoardNow ? findFirstFreeBoardCell() : null;
+    const freeBoardCell = canPlaceOnBoardNow ? findFirstFreeBoardCell(offer) : null;
     const freeSlot = freeBoardCell ? null : findFirstFreeBenchSlot();
     if (!freeBoardCell && freeSlot == null) {
       ws.send(JSON.stringify(makeErrorMessage('NO_SPACE', 'No free board cell or bench slot')));
@@ -2361,6 +2449,7 @@ function handleIntent(clientId, msg, ws) {
       attackMode: String(offer.attackMode ?? DEFAULT_UNIT_ATTACK_MODE),
       accuracy: offer.accuracy ?? DEFAULT_UNIT_ACCURACY,
       abilityCooldown: offer.abilityCooldown ?? DEFAULT_UNIT_ABILITY_COOLDOWN,
+      cellSpanX: getUnitCellSpanX(offer),
     });
 
     // ownership: РєСѓРїР»РµРЅРЅС‹Р№ СЋРЅРёС‚ РїСЂРёРЅР°РґР»РµР¶РёС‚ СЌС‚РѕРјСѓ РєР»РёРµРЅС‚Сѓ
