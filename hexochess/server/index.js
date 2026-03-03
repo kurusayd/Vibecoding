@@ -737,13 +737,20 @@ const DEFAULT_UNIT_ATTACK_SPEED = 1;
 const DEFAULT_UNIT_MOVE_SPEED = 1;
 const DEFAULT_UNIT_PROJECTILE_SPEED = 0;
 const DEFAULT_UNIT_ACCURACY = 0.8;
+const DEFAULT_UNIT_ABILITY_COOLDOWN = 0;
+const SHOP_EXCLUDED_UNIT_TYPES = new Set(['SimpleSkeleton']);
 const GHOST_EVASION_DODGE_CHANCE = 0.5;
+const UNDERTAKER_SUMMON_TYPE = 'SimpleSkeleton';
+const UNDERTAKER_ABILITY_KEY = 'undertaker_active';
+const UNDERTAKER_CAST_TIME_MS = 1000;
 const MAX_ACTIONS_PER_UNIT_PER_TICK = 8;
 const SNAPSHOT_STEP_MS = 100;
 
 function makeRandomOffer() {
-  const base = UNIT_CATALOG.length
-    ? UNIT_CATALOG[randInt(UNIT_CATALOG.length)]
+  const catalogPool = UNIT_CATALOG.filter((u) => !SHOP_EXCLUDED_UNIT_TYPES.has(String(u?.type ?? '')));
+  const sourcePool = catalogPool.length > 0 ? catalogPool : UNIT_CATALOG;
+  const base = sourcePool.length
+    ? sourcePool[randInt(sourcePool.length)]
     : {
       type: 'Swordsman',
       powerType: '\u041f\u0435\u0448\u043a\u0430', // Пешка
@@ -755,6 +762,7 @@ function makeRandomOffer() {
       attackRangeMax: 1,
       attackRangeFullDamage: 1,
       accuracy: DEFAULT_UNIT_ACCURACY,
+      abilityCooldown: DEFAULT_UNIT_ABILITY_COOLDOWN,
     };
 
   const cost = COST_BY_POWER_TYPE[base.powerType] ?? 1;
@@ -773,6 +781,7 @@ function makeRandomOffer() {
     attackRangeMax: base.attackRangeMax ?? 1,
     attackRangeFullDamage: base.attackRangeFullDamage ?? (base.attackRangeMax ?? 1),
     accuracy: base.accuracy ?? DEFAULT_UNIT_ACCURACY,
+    abilityCooldown: base.abilityCooldown ?? DEFAULT_UNIT_ABILITY_COOLDOWN,
     abilityType: base.abilityType ?? 'none',
     abilityKey: base.abilityKey ?? null,
   };
@@ -790,6 +799,7 @@ function makeOfferFromCatalogUnit(base) {
     attackRangeMax: 1,
     attackRangeFullDamage: 1,
     accuracy: DEFAULT_UNIT_ACCURACY,
+    abilityCooldown: DEFAULT_UNIT_ABILITY_COOLDOWN,
   };
   const cost = COST_BY_POWER_TYPE[src.powerType] ?? 1;
   return {
@@ -806,6 +816,7 @@ function makeOfferFromCatalogUnit(base) {
     attackRangeMax: src.attackRangeMax ?? 1,
     attackRangeFullDamage: src.attackRangeFullDamage ?? (src.attackRangeMax ?? 1),
     accuracy: src.accuracy ?? DEFAULT_UNIT_ACCURACY,
+    abilityCooldown: src.abilityCooldown ?? DEFAULT_UNIT_ABILITY_COOLDOWN,
     abilityType: src.abilityType ?? 'none',
     abilityKey: src.abilityKey ?? null,
   };
@@ -895,6 +906,7 @@ function spawnBotArmy() {
       attackRangeMax: base.attackRangeMax ?? 1,
       attackRangeFullDamage: base.attackRangeFullDamage ?? (base.attackRangeMax ?? 1),
       accuracy: base.accuracy ?? DEFAULT_UNIT_ACCURACY,
+      abilityCooldown: base.abilityCooldown ?? DEFAULT_UNIT_ABILITY_COOLDOWN,
     });
   }
 }
@@ -941,6 +953,7 @@ function buildBotBoardUnitsForSim(botId, team, nextIdRef) {
       attackRangeMax: base.attackRangeMax ?? 1,
       attackRangeFullDamage: base.attackRangeFullDamage ?? (base.attackRangeMax ?? 1),
       accuracy: base.accuracy ?? DEFAULT_UNIT_ACCURACY,
+      abilityCooldown: base.abilityCooldown ?? DEFAULT_UNIT_ABILITY_COOLDOWN,
       dead: false,
       nextAttackAt: 0,
       nextMoveAt: 0,
@@ -1195,6 +1208,54 @@ function pickBestStepTowardIn(simState, attacker, target, timeMs) {
   return best;
 }
 
+function pickBestStepAwayFromClosestEnemyIn(simState, unit, timeMs) {
+  const mePos = getCombatHexAtIn(simState, unit, timeMs);
+  if (!mePos) return null;
+  const nearestEnemy = findClosestOpponentIn(simState, unit, timeMs);
+  if (!nearestEnemy) return null;
+  const enemyPos = getCombatHexAtIn(simState, nearestEnemy, timeMs);
+  if (!enemyPos) return null;
+
+  let best = null;
+  let bestDist = -Infinity;
+  for (const n of NEIGHBORS) {
+    const nq = mePos.q + n.dq;
+    const nr = mePos.r + n.dr;
+    if (!isInsideBoard(nq, nr)) continue;
+    if (getUnitAtIn(simState, nq, nr)) continue;
+    const d = hexDistance(nq, nr, enemyPos.q, enemyPos.r);
+    if (d > bestDist) {
+      bestDist = d;
+      best = { q: nq, r: nr };
+    }
+  }
+  return best;
+}
+
+function findNearestFreeAdjacentHexIn(simState, q, r) {
+  // Find nearest free board hex by growing radius (1,2,3,...), not only adjacent cells.
+  // This prevents summon fail when all neighboring cells are occupied.
+  let best = null;
+  let bestDist = Infinity;
+  for (let row = 0; row < GRID_ROWS; row++) {
+    const rowShift = Math.floor(row / 2);
+    for (let col = 0; col < GRID_COLS; col++) {
+      const nq = col - rowShift;
+      const nr = row;
+      if (!isInsideBoard(nq, nr)) continue;
+      if (nq === q && nr === r) continue;
+      if (getUnitAtIn(simState, nq, nr)) continue;
+      const d = hexDistance(q, r, nq, nr);
+      if (d < 1) continue;
+      if (d < bestDist || (d === bestDist && (nr < Number(best?.r ?? Infinity) || (nr === Number(best?.r ?? Infinity) && nq < Number(best?.q ?? Infinity))))) {
+        bestDist = d;
+        best = { q: nq, r: nr };
+      }
+    }
+  }
+  return best;
+}
+
 function computeResultIn(simState) {
   const hasPlayer = simState.units.some(u => u.team === 'player' && u.zone === 'board' && !u.dead);
   const hasEnemy = simState.units.some(u => u.team === 'enemy' && u.zone === 'board' && !u.dead);
@@ -1225,6 +1286,9 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
   const events = [];
   const snapshots = [];
   const pendingDamageEvents = [];
+  const pendingSummonEvents = [];
+  let simNextUnitId = (simState.units ?? []).reduce((mx, u) => Math.max(mx, Number(u?.id ?? 0)), 0) + 1;
+  const undertakerSummonBase = UNIT_CATALOG.find((u) => String(u.type ?? '') === UNDERTAKER_SUMMON_TYPE) ?? null;
 
   let elapsedMs = 0;
   let result = computeResultIn(simState);
@@ -1331,6 +1395,98 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
       }
     }
 
+    if (pendingSummonEvents.length > 0) {
+      pendingSummonEvents.sort((a, b) => Number(a?.t ?? 0) - Number(b?.t ?? 0));
+      while (pendingSummonEvents.length > 0) {
+        const next = pendingSummonEvents[0];
+        const dueAt = Number(next?.t ?? Infinity);
+        if (!Number.isFinite(dueAt) || dueAt > tickTimeMs + 1e-6) break;
+        pendingSummonEvents.shift();
+
+        const caster = findUnitByIdIn(simState, next.casterId);
+        if (!caster || caster.dead || caster.zone !== 'board') continue;
+        if (!undertakerSummonBase) continue;
+        const casterPos = getCombatHexAtIn(simState, caster, dueAt);
+        if (!casterPos) continue;
+        const summonHex = findNearestFreeAdjacentHexIn(simState, casterPos.q, casterPos.r);
+        if (!summonHex) continue;
+
+        const summonRank = Math.max(1, Math.min(3, Number(caster.rank ?? 1)));
+        const summonMult = rankMultiplier(summonRank);
+        const summonHp = Math.max(1, Math.round(Number(undertakerSummonBase.hp ?? 1) * summonMult));
+        const summonAtk = Math.max(1, Math.round(Number(undertakerSummonBase.atk ?? 1) * summonMult));
+        const summoned = {
+          id: simNextUnitId++,
+          q: summonHex.q,
+          r: summonHex.r,
+          hp: summonHp,
+          maxHp: summonHp,
+          atk: summonAtk,
+          team: caster.team,
+          type: undertakerSummonBase.type,
+          powerType: undertakerSummonBase.powerType,
+          abilityType: undertakerSummonBase.abilityType ?? 'none',
+          abilityKey: undertakerSummonBase.abilityKey ?? null,
+          abilityCooldown: undertakerSummonBase.abilityCooldown ?? DEFAULT_UNIT_ABILITY_COOLDOWN,
+          rank: summonRank,
+          zone: 'board',
+          benchSlot: null,
+          attackSpeed: undertakerSummonBase.attackSpeed ?? DEFAULT_UNIT_ATTACK_SPEED,
+          moveSpeed: undertakerSummonBase.moveSpeed ?? DEFAULT_UNIT_MOVE_SPEED,
+          projectileSpeed: undertakerSummonBase.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED,
+          attackRangeMax: undertakerSummonBase.attackRangeMax ?? 1,
+          attackRangeFullDamage: undertakerSummonBase.attackRangeFullDamage ?? (undertakerSummonBase.attackRangeMax ?? 1),
+          accuracy: undertakerSummonBase.accuracy ?? DEFAULT_UNIT_ACCURACY,
+          dead: false,
+          nextAttackAt: 0,
+          nextMoveAt: 0,
+          nextActionAt: 0,
+          nextAbilityAt: Math.max(0, Number(undertakerSummonBase.abilityCooldown ?? 0) * 1000),
+          attackSeq: 0,
+          moveStartAt: -1,
+          moveEndAt: -1,
+          moveFromQ: summonHex.q,
+          moveFromR: summonHex.r,
+        };
+        simState.units.push(summoned);
+        didSomething = true;
+
+        if (collectTimeline) {
+          events.push({
+            t: dueAt,
+            type: 'spawn',
+            unit: {
+              id: summoned.id,
+              q: summoned.q,
+              r: summoned.r,
+              hp: summoned.hp,
+              maxHp: summoned.maxHp,
+              atk: summoned.atk,
+              team: summoned.team,
+              rank: summoned.rank,
+              type: summoned.type,
+              powerType: summoned.powerType,
+              zone: summoned.zone,
+              benchSlot: null,
+              attackSpeed: summoned.attackSpeed,
+              moveSpeed: summoned.moveSpeed,
+              projectileSpeed: summoned.projectileSpeed,
+              attackRangeMax: summoned.attackRangeMax,
+              attackRangeFullDamage: summoned.attackRangeFullDamage,
+              accuracy: summoned.accuracy,
+              abilityType: summoned.abilityType,
+              abilityKey: summoned.abilityKey,
+              abilityCooldown: summoned.abilityCooldown,
+              dead: false,
+              attackSeq: 0,
+            },
+            sourceId: caster.id,
+            sourceAbilityKey: UNDERTAKER_ABILITY_KEY,
+          });
+        }
+      }
+    }
+
     result = computeResultIn(simState);
     if (result) break;
 
@@ -1348,6 +1504,8 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
 
       const attackSpeed = Math.max(0.1, Number(me.attackSpeed ?? DEFAULT_UNIT_ATTACK_SPEED));
       const moveSpeed = Math.max(0.1, Number(me.moveSpeed ?? DEFAULT_UNIT_MOVE_SPEED));
+      const abilityCooldownSec = Math.max(0, Number(me.abilityCooldown ?? 0));
+      const abilityIntervalMs = abilityCooldownSec * 1000;
       const attackIntervalMs = 1000 / attackSpeed;
       const moveIntervalMs = 1000 / moveSpeed;
       me.nextAttackAt = Math.max(0, Number(me.nextAttackAt ?? 0));
@@ -1355,6 +1513,15 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
       // Unified action gate:
       // after movement, unit cannot start attack/ability until it "arrives" to destination hex.
       me.nextActionAt = Math.max(0, Number(me.nextActionAt ?? 0));
+      if (Number.isFinite(Number(me.nextAbilityAt))) {
+        me.nextAbilityAt = Math.max(0, Number(me.nextAbilityAt ?? 0));
+      } else {
+        // Any active ability starts on cooldown by default.
+        me.nextAbilityAt = abilityIntervalMs;
+      }
+      const isUndertakerSummoner =
+        String(me.abilityType ?? 'none') === 'active'
+        && String(me.abilityKey ?? '') === UNDERTAKER_ABILITY_KEY;
 
       let unitActions = 0;
       while (unitActions < MAX_ACTIONS_PER_UNIT_PER_TICK) {
@@ -1367,7 +1534,40 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
         const dist = hexDistance(mePos.q, mePos.r, targetPos.q, targetPos.r);
         const attackRangeMax = Math.max(1, Number(me.attackRangeMax ?? 1));
 
-        if (dist <= attackRangeMax) {
+        if (
+          isUndertakerSummoner
+          && undertakerSummonBase
+          && abilityIntervalMs > 0
+          && tickTimeMs + 1e-6 >= me.nextActionAt
+          && tickTimeMs + 1e-6 >= me.nextAbilityAt
+        ) {
+          const summonHex = findNearestFreeAdjacentHexIn(simState, mePos.q, mePos.r);
+          if (summonHex) {
+            const castCompleteAt = tickTimeMs + UNDERTAKER_CAST_TIME_MS;
+            // Cooldown starts only after cast is completed (ability actually resolves).
+            me.nextAbilityAt = Math.max(me.nextAbilityAt, castCompleteAt) + abilityIntervalMs;
+            me.nextActionAt = Math.max(me.nextActionAt, castCompleteAt);
+            pendingSummonEvents.push({
+              t: castCompleteAt,
+              casterId: me.id,
+            });
+            unitActions += 1;
+            didSomething = true;
+
+            if (collectTimeline) {
+              events.push({
+                t: tickTimeMs,
+                type: 'ability_cast',
+                casterId: me.id,
+                abilityKey: UNDERTAKER_ABILITY_KEY,
+                castTimeMs: UNDERTAKER_CAST_TIME_MS,
+              });
+            }
+            continue;
+          }
+        }
+
+        if (!isUndertakerSummoner && dist <= attackRangeMax) {
           if (tickTimeMs + 1e-6 < me.nextActionAt) break;
           if (tickTimeMs + 1e-6 < me.nextAttackAt) break;
 
@@ -1465,10 +1665,14 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
 
         // Do not allow movement while attack cooldown is active:
         // after attacking, unit "commits" and waits for its attack timer before advancing.
+        // Same gate for casting: while cast is in progress (nextActionAt), unit cannot move.
+        if (tickTimeMs + 1e-6 < me.nextActionAt) break;
         if (tickTimeMs + 1e-6 < me.nextAttackAt) break;
         if (tickTimeMs + 1e-6 < me.nextMoveAt) break;
 
-        const step = pickBestStepTowardIn(simState, me, liveTarget, tickTimeMs);
+        const step = isUndertakerSummoner
+          ? pickBestStepAwayFromClosestEnemyIn(simState, me, tickTimeMs)
+          : pickBestStepTowardIn(simState, me, liveTarget, tickTimeMs);
         if (!step) break;
 
         const from = { q: me.q, r: me.r };
@@ -1558,6 +1762,7 @@ function sanitizeUnitForBattleStart(unit) {
   unit.nextAttackAt = 0;
   unit.nextMoveAt = 0;
   unit.nextActionAt = 0;
+  unit.nextAbilityAt = Math.max(0, Number(unit.abilityCooldown ?? 0) * 1000);
   unit.attackSeq = 0;
   unit.moveStartAt = -1;
   unit.moveEndAt = -1;
@@ -1570,6 +1775,7 @@ function clonePlayerUnitForPrep(unit) {
   clone.nextAttackAt = 0;
   clone.nextMoveAt = 0;
   clone.nextActionAt = 0;
+  clone.nextAbilityAt = 0;
   clone.attackSeq = 0;
   clone.moveStartAt = -1;
   clone.moveEndAt = -1;
@@ -2139,6 +2345,7 @@ function handleIntent(clientId, msg, ws) {
       attackRangeMax: offer.attackRangeMax ?? 1,
       attackRangeFullDamage: offer.attackRangeFullDamage ?? (offer.attackRangeMax ?? 1),
       accuracy: offer.accuracy ?? DEFAULT_UNIT_ACCURACY,
+      abilityCooldown: offer.abilityCooldown ?? DEFAULT_UNIT_ABILITY_COOLDOWN,
     });
 
     // ownership: РєСѓРїР»РµРЅРЅС‹Р№ СЋРЅРёС‚ РїСЂРёРЅР°РґР»РµР¶РёС‚ СЌС‚РѕРјСѓ РєР»РёРµРЅС‚Сѓ

@@ -26,12 +26,13 @@ export const UNIT_CATALOG = [
   { race: 'UNDEAD', type: 'SkeletonArcher', label: 'SKELETON ARCHER', powerType: POWER_TYPE_PAWN,   hp: 120, atk: 12, attackSpeed: 0.65, moveSpeed: 1.0, attackRangeMax: 20, attackRangeFullDamage: 5, projectileSpeed: 7.5, abilityType: ABILITY_PASSIVE, abilityKey: 'skeleton_archer_bounce' },
   { race: 'UNDEAD', type: 'Vampire',        label: 'VAMPIRE',         powerType: POWER_TYPE_BISHOP, hp: 120, atk: 12, attackSpeed: 1.1, moveSpeed: 2.0, attackRangeMax: 1,  attackRangeFullDamage: 1, projectileSpeed: 0 },
   { race: 'UNDEAD', type: 'Zombie',         label: 'ZOMBIE',          powerType: POWER_TYPE_ROOK,   hp: 120, atk: 12, attackSpeed: 0.8, moveSpeed: 0.9, attackRangeMax: 1,  attackRangeFullDamage: 1, projectileSpeed: 0 },
-  { race: 'UNDEAD', type: 'Undertaker',     label: 'UNDERTAKER',      powerType: POWER_TYPE_BISHOP, hp: 120, atk: 12, attackSpeed: 0.9, moveSpeed: 1.1, attackRangeMax: 1,  attackRangeFullDamage: 1, projectileSpeed: 0, abilityType: ABILITY_ACTIVE, abilityKey: 'undertaker_active' },
+  { race: 'UNDEAD', type: 'Undertaker',     label: 'UNDERTAKER',      powerType: POWER_TYPE_BISHOP, hp: 120, atk: 12, attackSpeed: 0.9, moveSpeed: 1.1, attackRangeMax: 1,  attackRangeFullDamage: 1, projectileSpeed: 0, abilityType: ABILITY_ACTIVE, abilityKey: 'undertaker_active', abilityCooldown: 4 },
   { race: 'GOD',    type: 'Angel',          label: 'ANGEL',           powerType: POWER_TYPE_QUEEN,  hp: 480, atk: 24, attackSpeed: 1, moveSpeed: 3.0, attackRangeMax: 1,  attackRangeFullDamage: 1, projectileSpeed: 0 },
   { race: 'DEMON',  type: 'Devil',          label: 'DEVIL',           powerType: POWER_TYPE_QUEEN,  hp: 480, atk: 24, attackSpeed: 1, moveSpeed: 3.0, attackRangeMax: 1,  attackRangeFullDamage: 1, projectileSpeed: 0 },
 ].map((u) => ({
   ...u,
   accuracy: Math.max(0, Math.min(1, Number(u.accuracy ?? DEFAULT_ACCURACY))),
+  abilityCooldown: Math.max(0, Number(u.abilityCooldown ?? 0)),
   abilityType: String(u.abilityType ?? ABILITY_NONE),
   abilityKey: u.abilityKey ?? null,
 }));

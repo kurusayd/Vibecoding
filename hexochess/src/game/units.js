@@ -631,8 +631,12 @@ export function createUnitSystem(scene) {
     const lagSpeed = 80;
 
     for (const u of state.units) {
+      const needsAbilityCdUi = Number.isFinite(Number(scene.getAbilityCooldownFillForUnit?.(u)));
       if (u.hpLag > u.hpInstant) {
         u.hpLag = Math.max(u.hpInstant, u.hpLag - lagSpeed * dt);
+        updateHpBar(scene, u);
+      } else if (needsAbilityCdUi) {
+        // Ability cooldown bar animates over time even when HP does not change.
         updateHpBar(scene, u);
       }
     }

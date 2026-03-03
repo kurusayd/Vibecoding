@@ -9,6 +9,15 @@ import { boardDepth, hasBoardCoords } from './depthOrder.js';
 const HP_BAR_EXTRA_LIFT_PX = 3; // РѕР±С‰РёР№ РїРѕРґСЉС‘Рј HP-Р±Р°СЂР° РґР»СЏ РІСЃРµС… СЋРЅРёС‚РѕРІ (rank icon РЅРµ С‚СЂРѕРіР°РµРј)
 const RANK_ICON_OFFSET_Y_PX = 8; // + вниз, - вверх (только rank icon, HP-бар не двигается)
 const HP_UI_DEPTH_BASE = 2000;
+const ABILITY_CD_BAR_HEIGHT_PX = 4;
+const ABILITY_CD_BAR_GAP_PX = 0;
+const ABILITY_CD_BAR_BG = 0x3a2e12;
+const ABILITY_CD_BAR_BG_ALPHA = 0.72;
+const ABILITY_CD_BAR_FILL = 0xf3c24a;
+const ABILITY_CD_BAR_FILL_ALPHA = 0.96;
+const ABILITY_CD_BAR_BORDER = 0x241b0a;
+const ABILITY_CD_BAR_BORDER_ALPHA = 0.85;
+const ABILITY_CD_READY_FLASH_MS = 260;
 
 export function updateHpBar(scene, unit) {
   // Tween callbacks can still fire during scene teardown/restart.
@@ -101,6 +110,54 @@ export function updateHpBar(scene, unit) {
   // РѕР±РІРѕРґРєР°
   g.lineStyle(1, border, 0.9);
   g.strokeRect(x, y, w, h);
+
+  // Active-ability cooldown bar (thin golden bar under HP).
+  const abilityCdFill = Number(scene.getAbilityCooldownFillForUnit?.(unit));
+  if (Number.isFinite(abilityCdFill)) {
+    const cdRatio = clamp(abilityCdFill, 0, 1);
+    const nowMs = Number(scene?.time?.now ?? 0);
+    const cdY = y + h + ABILITY_CD_BAR_GAP_PX;
+    const cdW = w;
+    const cdH = ABILITY_CD_BAR_HEIGHT_PX;
+    const cdFillW = Math.round(cdW * cdRatio);
+
+    g.fillStyle(ABILITY_CD_BAR_BG, ABILITY_CD_BAR_BG_ALPHA);
+    g.fillRect(x, cdY, cdW, cdH);
+
+    if (cdFillW > 0) {
+      g.fillStyle(ABILITY_CD_BAR_FILL, ABILITY_CD_BAR_FILL_ALPHA);
+      g.fillRect(x, cdY, cdFillW, cdH);
+    }
+
+    g.lineStyle(1, ABILITY_CD_BAR_BORDER, ABILITY_CD_BAR_BORDER_ALPHA);
+    g.strokeRect(x, cdY, cdW, cdH);
+
+    // One-shot ready flash when cooldown reaches 100%.
+    // Guard against false flash on battle start:
+    // flash only after bar was previously "not full" in this cooldown cycle.
+    if (cdRatio < 0.999) {
+      unit._abilityCdReadyFxArmed = true;
+      unit._abilityCdReadyFxPlayed = false;
+    } else if (unit._abilityCdReadyFxArmed && !unit._abilityCdReadyFxPlayed) {
+      unit._abilityCdReadyFxPlayed = true;
+      unit._abilityCdReadyFxArmed = false;
+      unit._abilityCdReadyFlashUntilMs = nowMs + ABILITY_CD_READY_FLASH_MS;
+    }
+
+    // Draw flash overlay directly in the same HP/CD graphics layer (guaranteed visible over the bar).
+    const flashUntil = Number(unit._abilityCdReadyFlashUntilMs ?? 0);
+    if (flashUntil > nowMs) {
+      const leftMs = Math.max(0, flashUntil - nowMs);
+      const t = clamp(leftMs / ABILITY_CD_READY_FLASH_MS, 0, 1);
+      const a = 0.75 * t;
+      g.fillStyle(0xfff2b3, a);
+      g.fillRect(x - 1, cdY - 1, cdW + 2, cdH + 2);
+      g.lineStyle(1, 0xffcc55, Math.min(1, a + 0.15));
+      g.strokeRect(x - 1, cdY - 1, cdW + 2, cdH + 2);
+    } else if (flashUntil > 0) {
+      unit._abilityCdReadyFlashUntilMs = 0;
+    }
+  }
 }
 
 function clamp(v, a, b) {

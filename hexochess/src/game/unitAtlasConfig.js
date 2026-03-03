@@ -29,6 +29,13 @@ export function atlasAttackFrameRegex(def) {
   return new RegExp(`^${escapedPrefix}/attack_?\\d{4}\\.png$`);
 }
 
+export function atlasSpellFrameRegex(def) {
+  const prefix = atlasFramePrefix(def);
+  if (!prefix) return /^spell_?\d{4}\.png$/;
+  const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^${escapedPrefix}/spell_?\\d{4}\\.png$`);
+}
+
 export const UNIT_ATLAS_DEFS = [
   {
     type: 'Swordsman',
@@ -167,6 +174,7 @@ export const UNIT_ATLAS_DEFS = [
     idleAnim: 'undertaker_idle',
     walkAnim: 'undertaker_walk',
     attackAnim: 'undertaker_attack',
+    spellAnim: 'undertaker_spell',
     deadAnim: 'undertaker_dead',
     framePrefix: 'psd_anim',
   },
@@ -203,6 +211,7 @@ export const UNIT_ANIMS_BY_TYPE = Object.fromEntries(
       idle: def.idleAnim,
       walk: def.walkAnim,
       attack: def.attackAnim,
+      spell: def.spellAnim ?? null,
       dead: def.deadAnim,
     },
   ])

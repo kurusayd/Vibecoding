@@ -7,6 +7,7 @@ import {
   atlasDeadFrame,
   atlasWalkFrameRegex,
   atlasAttackFrameRegex,
+  atlasSpellFrameRegex,
   UNIT_ATLAS_DEFS,
   UNIT_ATLAS_DEF_BY_TYPE,
   UNIT_ANIMS_BY_TYPE,
@@ -105,7 +106,7 @@ const ABILITY_KIND_LABEL = {
 const ABILITY_DESC_BY_KEY = {
   skeleton_archer_bounce: 'Попадание отскакивает в еще одну цель в радиусе 2 клеток и наносит 50% урона.',
   ghost_evasion: '50% шанс увернуться от любой успешно попавшей атаки.',
-  undertaker_active: 'Пока в разработке: активная способность гробовщика.',
+  undertaker_active: 'Раз в 4 секунды призывает Simple Skeleton в ближайшую свободную соседнюю клетку.',
 };
 const MISS_HINT_TEXT = 'miss';
 const MISS_HINT_RISE_PX = 34;
@@ -661,6 +662,23 @@ export default class BattleScene extends Phaser.Scene {
         });
       }
 
+      if (def.spellAnim && !this.anims.exists(def.spellAnim)) {
+        const texture = this.textures.get(def.atlasKey);
+        const spellFrames = (texture?.getFrameNames?.() ?? [])
+          .filter((name) => atlasSpellFrameRegex(def).test(name))
+          .sort()
+          .map((frame) => ({ key: def.atlasKey, frame }));
+
+        if (spellFrames.length > 0) {
+          this.anims.create({
+            key: def.spellAnim,
+            frames: spellFrames,
+            frameRate: 12,
+            repeat: 0,
+          });
+        }
+      }
+
       if (!this.anims.exists(def.deadAnim)) {
         this.anims.create({
           key: def.deadAnim,
@@ -675,6 +693,7 @@ export default class BattleScene extends Phaser.Scene {
     this.mergeBounceAnimatingIds = new Set(); // avoid stacking bounce on the same merge target
     this.pendingMergeTargetBounces = new Map(); // targetId -> { targetCoreUnit, delayMs }
     this.pendingAttackAnimIds = new Set();
+    this.pendingAbilityCastAnimIds = new Set();
     this.pendingRangedBeamFx = [];
     this.rangePenaltyIcons = [];
     this.rangePenaltyIconsUsed = 0;
@@ -1156,7 +1175,20 @@ export default class BattleScene extends Phaser.Scene {
       units: (battleStartState?.units ?? []).map((u) => ({ ...u })),
     };
     this.pendingAttackAnimIds = new Set();
+    this.pendingAbilityCastAnimIds = new Set();
     this.pendingRangedBeamFx = [];
+    for (const vu of (this.unitSys?.state?.units ?? [])) {
+      vu._abilityCdStartAtMs = null;
+      vu._abilityCdReadyAtMs = null;
+      vu._abilityCdDurationMs = null;
+      vu._abilityCdUiEnabled = false;
+      vu._abilityCdReadyFxArmed = false;
+      vu._abilityCdReadyFxPlayed = false;
+      vu._abilityCdReadyFlashUntilMs = 0;
+      vu._abilityCastStartAtMs = null;
+      vu._abilityCastEndAtMs = null;
+      vu._abilityCastStartFill = null;
+    }
     this.renderFromState();
     this.drawGrid();
     this.syncKingsUI();
@@ -1298,6 +1330,58 @@ export default class BattleScene extends Phaser.Scene {
           dist: 1,
           attackRangeFullDamage: 1,
         });
+      }
+      return;
+    }
+
+    if (ev.type === 'ability_cast') {
+      const caster = byId.get(ev.casterId);
+      if (caster) {
+        if (this.pendingAbilityCastAnimIds) this.pendingAbilityCastAnimIds.add(caster.id);
+        this.startUnitAbilityCastUi?.(caster, Number(ev.castTimeMs ?? 0));
+      }
+      return;
+    }
+
+    if (ev.type === 'spawn') {
+      const spawned = ev?.unit ?? null;
+      if (!spawned || !Number.isFinite(Number(spawned.id))) return;
+      const sourceCaster = byId.get(Number(ev?.sourceId ?? NaN));
+      if (sourceCaster && String(ev?.sourceAbilityKey ?? '') === 'undertaker_active') {
+        // Start cooldown UI when cast is resolved (spawn happened), not at cast start.
+        this.restartUnitAbilityCooldownUi?.(sourceCaster);
+      }
+      const existing = byId.get(spawned.id);
+      if (existing) {
+        Object.assign(existing, spawned, { zone: 'board', dead: Boolean(spawned.dead ?? false) });
+      } else {
+        if (this.battleState?.units && Array.isArray(this.battleState.units)) {
+          this.battleState.units.push({
+            id: Number(spawned.id),
+            q: Number(spawned.q ?? 0),
+            r: Number(spawned.r ?? 0),
+            hp: Number(spawned.hp ?? 1),
+            maxHp: Number(spawned.maxHp ?? spawned.hp ?? 1),
+            atk: Number(spawned.atk ?? 1),
+            team: spawned.team ?? 'enemy',
+            rank: Number(spawned.rank ?? 1),
+            type: spawned.type ?? null,
+            powerType: spawned.powerType ?? null,
+            zone: 'board',
+            benchSlot: null,
+            attackSpeed: Number(spawned.attackSpeed ?? 1),
+            moveSpeed: Number(spawned.moveSpeed ?? 1),
+            projectileSpeed: Number(spawned.projectileSpeed ?? 0),
+            attackRangeMax: Number(spawned.attackRangeMax ?? 1),
+            attackRangeFullDamage: Number(spawned.attackRangeFullDamage ?? 1),
+            accuracy: Number(spawned.accuracy ?? 0.8),
+            abilityType: String(spawned.abilityType ?? 'none'),
+            abilityKey: spawned.abilityKey ?? null,
+            abilityCooldown: Number(spawned.abilityCooldown ?? 0),
+            attackSeq: Number(spawned.attackSeq ?? 0),
+            dead: Boolean(spawned.dead ?? false),
+          });
+        }
       }
       return;
     }
@@ -1457,6 +1541,166 @@ export default class BattleScene extends Phaser.Scene {
       if (!projectileRendered) this.playRangedBeamFx(attackerCore, targetCore, fx);
     }
     this.pendingRangedBeamFx = [];
+  }
+
+  syncUnitAbilityCooldownUi(coreUnitLike, visualUnit) {
+    const core = coreUnitLike ?? null;
+    const vu = visualUnit ?? this.unitSys?.findUnit?.(core?.id);
+    if (!core || !vu) return;
+
+    const isActiveAbility = String(core.abilityType ?? 'none') === 'active';
+    const cooldownSec = Math.max(0, Number(core.abilityCooldown ?? 0));
+    const cooldownMs = cooldownSec * 1000;
+    if (!isActiveAbility || cooldownMs <= 0) {
+      vu._abilityCdStartAtMs = null;
+      vu._abilityCdReadyAtMs = null;
+      vu._abilityCdDurationMs = null;
+      vu._abilityCdUiEnabled = false;
+      vu._abilityCdReadyFxArmed = false;
+      vu._abilityCdReadyFxPlayed = false;
+      vu._abilityCdReadyFlashUntilMs = 0;
+      vu._abilityCastStartAtMs = null;
+      vu._abilityCastEndAtMs = null;
+      vu._abilityCastStartFill = null;
+      return;
+    }
+
+    const phase = this.battleState?.phase ?? 'prep';
+    const result = this.battleState?.result ?? null;
+    vu._abilityCdUiEnabled = (phase === 'battle' && !result && core.zone === 'board' && !core.dead);
+    vu._abilityCdDurationMs = cooldownMs;
+
+    const nowMs = Number(this.time?.now ?? 0);
+    const replayStartMs = Number(this.serverReplayPlayback?.startTimeMs ?? nowMs);
+    const nextAbilityAtRelMs = Number(core.nextAbilityAt ?? NaN);
+
+    if (Number.isFinite(nextAbilityAtRelMs) && nextAbilityAtRelMs > 0) {
+      vu._abilityCdReadyAtMs = replayStartMs + nextAbilityAtRelMs;
+      vu._abilityCdStartAtMs = vu._abilityCdReadyAtMs - cooldownMs;
+    } else {
+      vu._abilityCdReadyAtMs = nowMs;
+      vu._abilityCdStartAtMs = nowMs - cooldownMs;
+    }
+  }
+
+  restartUnitAbilityCooldownUi(coreUnitLike) {
+    const core = coreUnitLike ?? null;
+    const vu = this.unitSys?.findUnit?.(core?.id);
+    if (!core || !vu) return;
+    const cooldownSec = Math.max(0, Number(core.abilityCooldown ?? 0));
+    const cooldownMs = cooldownSec * 1000;
+    if (String(core.abilityType ?? 'none') !== 'active' || cooldownMs <= 0) return;
+    const nowMs = Number(this.time?.now ?? 0);
+    vu._abilityCdDurationMs = cooldownMs;
+    vu._abilityCdStartAtMs = nowMs;
+    vu._abilityCdReadyAtMs = nowMs + cooldownMs;
+    vu._abilityCdUiEnabled = true;
+    vu._abilityCdReadyFxArmed = false;
+    vu._abilityCdReadyFxPlayed = false;
+    vu._abilityCdReadyFlashUntilMs = 0;
+    vu._abilityCastStartAtMs = null;
+    vu._abilityCastEndAtMs = null;
+    vu._abilityCastStartFill = null;
+  }
+
+  startUnitAbilityCastUi(coreUnitLike, castTimeMsRaw = 0) {
+    const core = coreUnitLike ?? null;
+    const vu = this.unitSys?.findUnit?.(core?.id);
+    if (!core || !vu) return;
+    const cooldownSec = Math.max(0, Number(core.abilityCooldown ?? 0));
+    const cooldownMs = cooldownSec * 1000;
+    if (String(core.abilityType ?? 'none') !== 'active' || cooldownMs <= 0) return;
+    const castTimeMs = Math.max(0, Number(castTimeMsRaw ?? 0));
+    if (castTimeMs <= 0) return;
+
+    const nowMs = Number(this.time?.now ?? 0);
+    const startAtMs = Number(vu._abilityCdStartAtMs ?? NaN);
+    const readyAtMs = Number(vu._abilityCdReadyAtMs ?? NaN);
+    let currentFill = 1;
+    if (Number.isFinite(startAtMs) && Number.isFinite(readyAtMs) && readyAtMs > startAtMs) {
+      currentFill = Phaser.Math.Clamp((nowMs - startAtMs) / (readyAtMs - startAtMs), 0, 1);
+    }
+
+    vu._abilityCastStartAtMs = nowMs;
+    vu._abilityCastEndAtMs = nowMs + castTimeMs;
+    vu._abilityCastStartFill = currentFill;
+  }
+
+  getAbilityCooldownFillForUnit(unitLike) {
+    const unitId = Number(unitLike?.id ?? NaN);
+    if (!Number.isFinite(unitId)) return NaN;
+    const core = this.coreUnitsById?.get?.(unitId)
+      ?? (this.battleState?.units ?? []).find((u) => Number(u?.id) === unitId);
+    const vu = this.unitSys?.findUnit?.(unitId);
+    if (!core || !vu) return NaN;
+
+    const isActiveAbility = String(core.abilityType ?? 'none') === 'active';
+    const cooldownSec = Math.max(0, Number(core.abilityCooldown ?? 0));
+    const cooldownMs = cooldownSec * 1000;
+    const phase = this.battleState?.phase ?? 'prep';
+    const result = this.battleState?.result ?? null;
+    if (!isActiveAbility || cooldownMs <= 0) return NaN;
+    if (phase !== 'battle' || !!result || core.zone !== 'board' || core.dead) return NaN;
+
+    const nowMs = Number(this.time?.now ?? 0);
+    const castStartAtMs = Number(vu._abilityCastStartAtMs ?? NaN);
+    const castEndAtMs = Number(vu._abilityCastEndAtMs ?? NaN);
+    if (Number.isFinite(castStartAtMs) && Number.isFinite(castEndAtMs) && castEndAtMs > castStartAtMs) {
+      if (nowMs < castEndAtMs) {
+        const castT = Phaser.Math.Clamp((nowMs - castStartAtMs) / (castEndAtMs - castStartAtMs), 0, 1);
+        const startFill = Phaser.Math.Clamp(Number(vu._abilityCastStartFill ?? 1), 0, 1);
+        return Phaser.Math.Clamp(startFill * (1 - castT), 0, 1);
+      }
+      vu._abilityCastStartAtMs = null;
+      vu._abilityCastEndAtMs = null;
+      vu._abilityCastStartFill = null;
+    }
+
+    const startAtMs = Number(vu._abilityCdStartAtMs ?? NaN);
+    const readyAtMs = Number(vu._abilityCdReadyAtMs ?? NaN);
+    if (!Number.isFinite(startAtMs) || !Number.isFinite(readyAtMs) || readyAtMs <= startAtMs) return 1;
+    return Phaser.Math.Clamp((nowMs - startAtMs) / (readyAtMs - startAtMs), 0, 1);
+  }
+
+  playAbilityCooldownReadyFx(unitLike, barRect = null) {
+    if (!unitLike || !barRect) return;
+    const cx = Number(barRect.x ?? 0) + Number(barRect.w ?? 0) * 0.5;
+    const cy = Number(barRect.y ?? 0) + Number(barRect.h ?? 0) * 0.5;
+    const w = Math.max(8, Number(barRect.w ?? 0));
+    const h = Math.max(3, Number(barRect.h ?? 0));
+    // Guaranteed overlay above world/bars/background.
+    const fxDepth = 12050;
+
+    const pulse = this.add.rectangle(cx, cy, w + 4, h + 4, 0xffdf7a, 0.0)
+      .setDepth(fxDepth)
+      .setScrollFactor(1);
+    const sweep = this.add.rectangle(cx - (w * 0.5), cy, 6, h + 6, 0xfff3bf, 0.0)
+      .setDepth(fxDepth + 1)
+      .setScrollFactor(1);
+    const glow = this.add.rectangle(cx, cy, w + 10, h + 10, 0xffb300, 0.0)
+      .setDepth(fxDepth - 1)
+      .setScrollFactor(1);
+
+    this.tweens.add({
+      targets: [pulse, glow],
+      alpha: { from: 0, to: 0.95 },
+      duration: 120,
+      yoyo: true,
+      ease: 'Sine.Out',
+      onComplete: () => {
+        pulse.destroy();
+        glow.destroy();
+      },
+    });
+
+    sweep.setAlpha(0.95);
+    this.tweens.add({
+      targets: sweep,
+      x: cx + (w * 0.5),
+      duration: 180,
+      ease: 'Quad.Out',
+      onComplete: () => sweep.destroy(),
+    });
   }
 
   showCombatMissHint(coreUnitLike) {
@@ -1958,6 +2202,10 @@ export default class BattleScene extends Phaser.Scene {
       .setOrigin(0.5, 0.5)
       .setDisplaySize(108, 108)
       .setVisible(false);
+    const portraitRankIcon = this.add.image(-86, -26, 'rank1')
+      .setOrigin(0.5, 1)
+      .setScale(0.24)
+      .setVisible(false);
     const portraitFallback = this.add.text(-86, -82, '?', {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
       fontSize: '42px',
@@ -1981,7 +2229,7 @@ export default class BattleScene extends Phaser.Scene {
       wordWrap: { width: 190, useAdvancedWrap: true },
     }).setOrigin(0, 0);
 
-    const raceUnderPortrait = this.add.text(-86, -14, '', {
+    const raceUnderPortrait = this.add.text(-86, 0, '', {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
       fontSize: '12px',
       color: '#d9c3a2',
@@ -2022,11 +2270,12 @@ export default class BattleScene extends Phaser.Scene {
     }).setOrigin(0, 0);
 
     const hit = this.add.zone(0, 0, w, h).setOrigin(0.5, 0.5).setInteractive();
-    modal.add([shadow, bg, portraitPanel, portrait, portraitFallback, raceUnderPortrait, title, stats, abilityKind, abilityDesc, funLine1, funLine2, hit]);
+    modal.add([shadow, bg, portraitPanel, portrait, portraitFallback, portraitRankIcon, raceUnderPortrait, title, stats, abilityKind, abilityDesc, funLine1, funLine2, hit]);
 
     this.unitInfoModal = modal;
     this.unitInfoHit = hit;
     this.unitInfoPortrait = portrait;
+    this.unitInfoPortraitRankIcon = portraitRankIcon;
     this.unitInfoPortraitFallback = portraitFallback;
     this.unitInfoTitle = title;
     this.unitInfoStats = stats;
@@ -2105,6 +2354,7 @@ export default class BattleScene extends Phaser.Scene {
     const accuracy = Math.max(0, Math.min(1, Number(core.accuracy ?? 0.8)));
     const isMelee = rangeMax <= 1;
     const isLongRanged = rangeMax > 2;
+    const abilityCooldown = Math.max(0, Number(core.abilityCooldown ?? 0));
 
     this.unitInfoTitle?.setText(String(core.type ?? 'UNKNOWN').toUpperCase());
     const statsLines = [
@@ -2120,6 +2370,9 @@ export default class BattleScene extends Phaser.Scene {
         statsLines.push(`FULL DMG RANGE: ${rangeFull}`);
       }
       statsLines.push(`PROJECTILE SPD: ${projectileSpeed.toFixed(2)}`);
+    }
+    if (String(core.abilityType ?? 'none') === 'active' && abilityCooldown > 0) {
+      statsLines.push(`ABILITY CD: ${abilityCooldown.toFixed(1)}s`);
     }
     this.unitInfoStats?.setText(statsLines.join('\n'));
     this.unitInfoRaceUnderPortrait?.setText(String(core.race ?? '-').toUpperCase());
@@ -2151,6 +2404,14 @@ export default class BattleScene extends Phaser.Scene {
     } else {
       this.unitInfoPortrait?.setVisible(false);
       this.unitInfoPortraitFallback?.setVisible(true);
+    }
+
+    const rank = Math.max(1, Math.min(3, Number(core.rank ?? 1)));
+    const rankKey = `rank${rank}`;
+    if (this.unitInfoPortraitRankIcon && this.textures?.exists?.(rankKey)) {
+      this.unitInfoPortraitRankIcon.setTexture(rankKey).setVisible(true);
+    } else {
+      this.unitInfoPortraitRankIcon?.setVisible(false);
     }
 
     this.positionUnitInfoModalNearCore(core);
@@ -2281,16 +2542,37 @@ export default class BattleScene extends Phaser.Scene {
 
 
         if (!created) {
-          console.warn('FAILED SPAWN VISUAL', {
+          // Fallback for transient local occupancy desync during replay:
+          // create the visual off-board and snap it to authoritative server hex.
+          const fallbackPos = this.hexToPixel(u.q, u.r);
+          created = this.unitSys.spawnUnitAtScreen(fallbackPos.x, fallbackPos.y, {
             id: u.id,
+            type: u.type,
+            label: getUnitShortLabel(u.type),
+            color: u.team === 'enemy' ? 0x66ccff : 0xff7777,
             team: u.team,
-            q: u.q,
-            r: u.r,
-            zone: u.zone,
-            benchSlot: u.benchSlot,
-            reason: 'cell occupied or invalid',
+            hp: u.hp,
+            rank: u.rank ?? 1,
+            maxHp: u.maxHp ?? u.hp,
+            atk: u.atk,
           });
-          continue;
+          if (created && u.zone === 'board') {
+            created.zone = 'board';
+            created.benchSlot = null;
+            this.unitSys.setUnitPos(created.id, u.q, u.r, { tweenMs: 0 });
+          }
+          if (!created) {
+            console.warn('FAILED SPAWN VISUAL', {
+              id: u.id,
+              team: u.team,
+              q: u.q,
+              r: u.r,
+              zone: u.zone,
+              benchSlot: u.benchSlot,
+              reason: 'cell occupied or invalid (fallback failed)',
+            });
+            continue;
+          }
         }
 
         created.dragHandle.setDataEnabled();
@@ -2342,6 +2624,8 @@ export default class BattleScene extends Phaser.Scene {
         if (u.team === 'player' && (u.zone === 'bench' || u.zone === 'board') && !u.dead) {
           this.playUnitFeedbackBounce?.(created, { scaleMul: 1.06, duration: 90 });
         }
+
+        this.syncUnitAbilityCooldownUi?.(u, created);
 
         continue;
       }
@@ -2426,6 +2710,7 @@ export default class BattleScene extends Phaser.Scene {
       }
 
       if (vu) vu.rank = u.rank ?? 1;
+      this.syncUnitAbilityCooldownUi?.(u, vu);
 
       // HP
       this.unitSys.setUnitHp(u.id, u.hp, u.maxHp ?? existing.maxHp);
@@ -2458,6 +2743,22 @@ export default class BattleScene extends Phaser.Scene {
       this.pendingAttackAnimIds.clear();
     }
 
+    if (this.pendingAbilityCastAnimIds?.size) {
+      for (const id of this.pendingAbilityCastAnimIds) {
+        const vu = byId.get(id);
+        if (!vu?.art) continue;
+        const casterCore = (this.battleState?.units ?? []).find((x) => x.id === id) ?? null;
+        if (casterCore && casterCore.zone === 'board' && !casterCore.dead) {
+          this.unitSys.setUnitPos(casterCore.id, casterCore.q, casterCore.r, { tweenMs: 0 });
+        }
+        const targetCore = this.findClosestOpponentForFacing(casterCore);
+        this.faceUnitVisualTowardCoreUnit(vu, targetCore);
+        vu._castAnimPlaying = true;
+        vu._castAnimForceReplay = true;
+      }
+      this.pendingAbilityCastAnimIds.clear();
+    }
+
     for (const u of (this.battleState?.units ?? [])) {
       // в prep враги скрыты, но это не важно — просто синкаем тех, кто есть
       const vu = byId.get(u.id);
@@ -2485,14 +2786,50 @@ export default class BattleScene extends Phaser.Scene {
         (u.zone === 'board') &&
         this.anims.exists(animDef.attack) &&
         !!vu._attackAnimPlaying;
-      const animKey = u.dead ? animDef.dead : (wantAttack ? animDef.attack : (wantWalk ? animDef.walk : animDef.idle));
+      const wantCast =
+        !u.dead &&
+        (phase === 'battle') &&
+        !result &&
+        (u.zone === 'board') &&
+        !!animDef.spell &&
+        this.anims.exists(animDef.spell) &&
+        !!vu._castAnimPlaying;
+      const animKey = u.dead
+        ? animDef.dead
+        : (wantCast ? animDef.spell : (wantAttack ? animDef.attack : (wantWalk ? animDef.walk : animDef.idle)));
+      const forceReplayCast = wantCast && !!vu._castAnimForceReplay;
       const forceReplayAttack = wantAttack && !!vu._attackAnimForceReplay;
 
       // не дёргаем play каждый тик/рендер если уже играет то же самое
-      if (!forceReplayAttack && vu.art.anims?.getName?.() === animKey) continue;
+      if (!forceReplayCast && !forceReplayAttack && vu.art.anims?.getName?.() === animKey) continue;
 
       if (this.anims.exists(animKey)) {
         vu.art.play(animKey, true);
+        if (forceReplayCast) {
+          vu._castAnimForceReplay = false;
+          vu.art.once(`animationcomplete-${animDef.spell}`, (anim) => {
+            if (!vu?.art?.active) return;
+            if (anim?.key !== animDef.spell) return;
+            vu._castAnimPlaying = false;
+            vu._castAnimForceReplay = false;
+
+            const latest = (this.battleState?.units ?? []).find((x) => x.id === u.id);
+            if (!latest || latest.dead) return;
+
+            const latestPhase = this.battleState?.phase ?? 'prep';
+            const latestResult = this.battleState?.result ?? null;
+            const shouldWalk =
+              (latestPhase === 'battle') &&
+              !latestResult &&
+              (latest.zone === 'board') &&
+              !!vu._moveTween;
+
+            const fallbackAnimKey = shouldWalk ? animDef.walk : animDef.idle;
+            if (!this.anims.exists(fallbackAnimKey)) return;
+            if (vu.art.anims?.getName?.() === fallbackAnimKey) return;
+            vu.art.play(fallbackAnimKey, true);
+          });
+        }
         if (forceReplayAttack) {
           vu._attackAnimForceReplay = false;
           vu.art.once(`animationcomplete-${animDef.attack}`, (anim) => {
