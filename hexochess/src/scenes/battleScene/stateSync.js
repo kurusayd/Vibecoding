@@ -112,6 +112,17 @@ export function installBattleSceneStateSync(BattleScene) {
         };
       }
 
+      const autoSellFx = nextState?.autoSellFx ?? null;
+      const autoSellFxNonce = Number(autoSellFx?.nonce ?? NaN);
+      if (
+        Number.isFinite(autoSellFxNonce) &&
+        autoSellFxNonce > 0 &&
+        Number(this.lastHandledServerAutoSellFxNonce ?? NaN) !== autoSellFxNonce
+      ) {
+        this.lastHandledServerAutoSellFxNonce = autoSellFxNonce;
+        this.playServerAutoSellFx?.(autoSellFx?.unitIds ?? []);
+      }
+
       this.battleState = nextState;
 
       const phaseChanged = (nextState?.phase ?? null) !== prevPhase;

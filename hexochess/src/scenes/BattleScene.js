@@ -241,6 +241,7 @@ export default class BattleScene extends Phaser.Scene {
       timers: [],
     };
     this.lockedPlayerBoardUnitCount = null;
+    this.lastHandledServerAutoSellFxNonce = null;
     this.trashRemoveAnimatingIds = new Set();
     this.coreUnitsById = new Map();
     this.kingXpCost = KING_XP_COST;
@@ -1129,6 +1130,22 @@ export default class BattleScene extends Phaser.Scene {
         },
       });
     }
+  }
+
+  playServerAutoSellFx(unitIds = []) {
+    const ids = Array.isArray(unitIds) ? unitIds.map((id) => Number(id)).filter(Number.isFinite) : [];
+    if (ids.length <= 0) return;
+
+    ids.forEach((unitId, idx) => {
+      this.time.delayedCall(idx * 45, () => {
+        const vu = this.unitSys?.findUnit?.(unitId);
+        if (!vu?.sprite?.active) return;
+        this.playTrashCoinBurstFx?.();
+        this.playTrashRemoveFx?.(unitId, () => {
+          this.unitSys?.destroyUnit?.(unitId);
+        });
+      });
+    });
   }
 
   applyLocalPlayerKingTexture(textureKey) {

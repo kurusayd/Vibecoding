@@ -2060,6 +2060,59 @@ function startBattle() {
   syncRoundPairingsForCurrentRound();
   markHiddenBattlesPhase('battle');
 
+  // Enforce board-cap on battle start: if player has more board units than level cap,
+  // move random excess units to free bench slots.
+  // Important: do this BEFORE prepSnapshot to avoid board/bench duplication on resetToPrep().
+  const playerLevelCap = Math.max(1, Math.floor(Number(state?.kings?.player?.level ?? 1)));
+  const playerBoardUnits = (state.units ?? []).filter((u) => (
+    u?.team === 'player' &&
+    u?.zone === 'board' &&
+    !u?.dead
+  ));
+  let overflow = playerBoardUnits.length - playerLevelCap;
+  const autoSoldUnitIds = [];
+  if (overflow > 0) {
+    const shuffled = [...playerBoardUnits];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const tmp = shuffled[i];
+      shuffled[i] = shuffled[j];
+      shuffled[j] = tmp;
+    }
+
+    for (const unit of shuffled) {
+      if (overflow <= 0) break;
+      const freeSlot = findFirstFreeBenchSlot();
+      if (Number.isInteger(freeSlot)) {
+        unit.zone = 'bench';
+        unit.benchSlot = freeSlot;
+      } else {
+        const sellRefund = getSellPriceForUnit(unit);
+        state.kings = state.kings ?? {};
+        state.kings.player = state.kings.player ?? { hp: 100, maxHp: 100, coins: 0, level: 1, xp: 0 };
+        state.kings.player.coins = Number(state.kings.player.coins ?? 0) + sellRefund;
+        clampPlayerCoins();
+
+        const ownerEntry = Array.from(clientToUnits.entries()).find(([, owned]) => owned?.has?.(unit.id));
+        const owned = ownerEntry?.[1] ?? null;
+        if (owned) {
+          removeOwnedUnit(state, owned, unit.id);
+        } else {
+          state.units = state.units.filter((u) => u.id !== unit.id);
+        }
+        autoSoldUnitIds.push(unit.id);
+      }
+      overflow -= 1;
+    }
+  }
+
+  if (autoSoldUnitIds.length > 0) {
+    const fxNonce = Number(state.autoSellFx?.nonce ?? 0) + 1;
+    state.autoSellFx = { nonce: fxNonce, unitIds: autoSoldUnitIds.slice() };
+  } else {
+    state.autoSellFx = null;
+  }
+
   // 1) Р’СЃРµРіРґР° СЃРѕС…СЂР°РЅСЏРµРј Р°РєС‚СѓР°Р»СЊРЅСѓСЋ СЂР°СЃСЃС‚Р°РЅРѕРІРєСѓ РёРіСЂРѕРєР° РїРµСЂРµРґ Р»СЋР±С‹Рј РёСЃС…РѕРґРѕРј СЃС‚Р°СЂС‚Р° Р±РѕСЏ
   // (РІ С‚РѕРј С‡РёСЃР»Рµ РїРµСЂРµРґ instant defeat, РµСЃР»Рё РЅР° РґРѕСЃРєРµ РїСѓСЃС‚Рѕ)
   prepSnapshot = state.units
