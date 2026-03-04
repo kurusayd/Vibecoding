@@ -235,13 +235,32 @@ export function installBattleSceneDrag(BattleScene) {
           this.dragMainCellOffsetX = 0;
           this.hoverPickupCell = null;
           this.drawGrid();
-          this.playTrashRemoveFx?.(uid, () => {
+          const soldVu = this.unitSys?.findUnit?.(uid);
+          if (soldVu?.dragHandle) {
+            this.setSpriteDraggable?.(soldVu.dragHandle, false);
+            soldVu.dragHandle.disableInteractive?.();
+            if (soldVu.dragHandle.input) soldVu.dragHandle.input.enabled = false;
+          }
+          this.playTrashCoinBurstFx?.();
+          const finalizeRemove = () => {
             if (!this.testSceneActive) {
               this.ws?.sendIntentRemoveUnit?.(uid);
             } else {
               this.battleState.units = (this.battleState?.units ?? []).filter((u) => String(u.id) !== String(uid));
               this.renderFromState();
             }
+          };
+          const safeFinalizeRemove = () => {
+            const pointerDown = Boolean(this.input?.activePointer?.isDown);
+            if (pointerDown) {
+              this.time.delayedCall(34, safeFinalizeRemove);
+              return;
+            }
+            // Defer one more tick so Phaser input plugin fully exits current drag cycle.
+            this.time.delayedCall(0, finalizeRemove);
+          };
+          this.playTrashRemoveFx?.(uid, () => {
+            safeFinalizeRemove();
           });
           return;
         }

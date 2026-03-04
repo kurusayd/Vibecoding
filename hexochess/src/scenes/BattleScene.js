@@ -119,6 +119,12 @@ const TRASH_ICON_OFFSET_Y_PX = 220; // pixel offset from bottom edge of left kin
 const TRASH_ICON_DEPTH = 1700;
 const TRASH_ICON_ALPHA_CLOSED = 0.9;
 const TRASH_ICON_ALPHA_OPEN = 1.0;
+const TRASH_COIN_BURST_COUNT = 14;
+const TRASH_COIN_BURST_FLIGHT_MS_MIN = 300;
+const TRASH_COIN_BURST_FLIGHT_MS_MAX = 420;
+const TRASH_COIN_BURST_SCALE_START = 0.11;
+const TRASH_COIN_BURST_SCALE_END = 0.035;
+const TRASH_COIN_BURST_ALPHA = 0.95;
 
 const UNIT_FUN_LINES_BY_TYPE = {
   SkeletonArcher: ['Нанимался "тихим", но гремит костями на весь ряд.', 'Стреляет метко, жалуется громко.'],
@@ -984,7 +990,6 @@ export default class BattleScene extends Phaser.Scene {
     const ty = Number(this.trashIcon?.y ?? vu.sprite.y ?? 0);
     const targets = [
       vu.sprite,
-      vu.dragHandle,
       vu.art,
       vu.label,
     ].filter((obj) => obj?.active);
@@ -1001,7 +1006,6 @@ export default class BattleScene extends Phaser.Scene {
 
     for (const obj of targets) {
       this.tweens.killTweensOf(obj);
-      if (obj?.input) obj.input.enabled = false;
       obj.setDepth?.(Math.max(Number(obj.depth ?? 0), TRASH_ICON_DEPTH + 2));
     }
 
@@ -1016,6 +1020,76 @@ export default class BattleScene extends Phaser.Scene {
       duration: 170,
       onComplete: finish,
     });
+  }
+
+  playTrashCoinBurstFx() {
+    if (!this.textures?.exists?.('coin')) return;
+    const tx = Number(this.trashIcon?.x ?? NaN);
+    const ty = Number(this.trashIcon?.y ?? NaN);
+    if (!Number.isFinite(tx) || !Number.isFinite(ty)) return;
+    for (let i = 0; i < TRASH_COIN_BURST_COUNT; i++) {
+      const coin = this.add.image(tx, ty, 'coin')
+        .setDepth(TRASH_ICON_DEPTH + 3)
+        .setScale(TRASH_COIN_BURST_SCALE_START)
+        .setAlpha(TRASH_COIN_BURST_ALPHA)
+        .setAngle(Phaser.Math.Between(0, 360));
+
+      const landingX = tx + Phaser.Math.Between(-115, 115);
+      const landingY = ty + Phaser.Math.Between(35, 70);
+      const arcHeight = Phaser.Math.Between(35, 92);
+      const flightMs = Phaser.Math.Between(TRASH_COIN_BURST_FLIGHT_MS_MIN, TRASH_COIN_BURST_FLIGHT_MS_MAX);
+      const spin = Phaser.Math.Between(-420, 420);
+
+      const arcProxy = { t: 0 };
+      this.tweens.add({
+        targets: arcProxy,
+        t: 1,
+        duration: flightMs,
+        ease: 'Cubic.Out',
+        onUpdate: () => {
+          if (!coin.active) return;
+          const t = Phaser.Math.Clamp(Number(arcProxy.t ?? 0), 0, 1);
+          const x = Phaser.Math.Linear(tx, landingX, t);
+          const baseY = Phaser.Math.Linear(ty, landingY, t);
+          const arcY = arcHeight * 4 * t * (1 - t);
+          coin.setPosition(x, baseY - arcY);
+          coin.setAngle(Number(coin.angle ?? 0) + (spin / Math.max(1, flightMs)) * this.game.loop.delta);
+        },
+        onComplete: () => {
+          if (!coin.active) return;
+          const bounceH = Phaser.Math.Between(10, 24);
+          const bounceDx = Phaser.Math.Between(-12, 12);
+          const bounceUpMs = Phaser.Math.Between(55, 85);
+          const flyToKingMs = Phaser.Math.Between(260, 360);
+
+          this.tweens.add({
+            targets: coin,
+            x: landingX + bounceDx,
+            y: landingY - bounceH,
+            duration: bounceUpMs,
+            ease: 'Quad.Out',
+            onComplete: () => {
+              if (!coin.active) return;
+              const kingX = Number(this.kingLeft?.x ?? (this.scale?.width ?? 0) * 0.18);
+              const kingY = Number(this.kingLeft?.y ?? (this.scale?.height ?? 0) * 0.72);
+              const targetX = kingX + Phaser.Math.Between(-16, 16);
+              const targetY = kingY + Phaser.Math.Between(22, 52);
+              this.tweens.add({
+                targets: coin,
+                x: targetX,
+                y: targetY,
+                alpha: 0,
+                scaleX: TRASH_COIN_BURST_SCALE_END,
+                scaleY: TRASH_COIN_BURST_SCALE_END,
+                duration: flyToKingMs,
+                ease: 'Linear',
+                onComplete: () => coin.destroy(),
+              });
+            },
+          });
+        },
+      });
+    }
   }
 
   applyLocalPlayerKingTexture(textureKey) {

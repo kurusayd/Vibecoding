@@ -418,13 +418,19 @@ export function createUnitSystem(scene) {
     }
 
 
+    if (u.dragHandle) {
+      try { scene.input?.setDraggable?.(u.dragHandle, false); } catch {}
+      try { u.dragHandle.disableInteractive?.(); } catch {}
+      if (u.dragHandle.input) u.dragHandle.input.enabled = false;
+    }
+
     u.sprite.destroy();
     u.label.destroy();
     u.hpBar.destroy();
     u.art?.destroy();
     u.footShadow?.destroy();
     u.dragHandle?.destroy();
-    u.rankIcon?.destroy(); 
+    u.rankIcon?.destroy();
 
     unindexUnit(id);
     state.units = state.units.filter(x => x.id !== id);
