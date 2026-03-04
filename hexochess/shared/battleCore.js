@@ -55,10 +55,11 @@ function distanceBetweenUnitsByFootprint(a, b) {
 
 export function createBattleState() {
   return {
-    phase: 'prep',     // 'prep' | 'battle'
+    phase: 'prep',     // 'prep' | 'entry' | 'battle'
     result: null,      // null | 'victory' | 'defeat' | 'draw'
     gameStarted: false,
     battleReplay: null, // precomputed server battle log
+    entrySecondsLeft: 0,
     units: [],
     kings: {
       player: { hp: 100, maxHp: 100, coins: 100, level: 1, xp: 0 },

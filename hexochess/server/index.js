@@ -36,9 +36,12 @@ let state = createBattleState();
 let nextUnitId = 1;
 
 state.battleSecondsLeft = state.battleSecondsLeft ?? 0;
+state.entrySecondsLeft = state.entrySecondsLeft ?? 0;
 
 let battleCountdownTimer = null;
+let entryCountdownTimer = null;
 const BATTLE_DURATION_SECONDS = 45; // Бой длится максимум 45с, затем ничья.
+const BATTLE_ENTRY_SECONDS = 4;
 
 // ---- rounds / prep timer ----
 state.round = state.round ?? 1;              // РёРіСЂР° СЃС‚Р°СЂС‚СѓРµС‚ СЃ 1 СЂР°СѓРЅРґР°
@@ -85,6 +88,7 @@ function createMatchRuntime(matchId = DEFAULT_MATCH_ID) {
     state: createBattleState(),
     nextUnitId: 1,
     battleCountdownTimer: null,
+    entryCountdownTimer: null,
     prepTimer: null,
     prepSnapshot: null,
     finishTimeout: null,
@@ -94,6 +98,7 @@ function createMatchRuntime(matchId = DEFAULT_MATCH_ID) {
   };
 
   runtime.state.battleSecondsLeft = runtime.state.battleSecondsLeft ?? 0;
+  runtime.state.entrySecondsLeft = runtime.state.entrySecondsLeft ?? 0;
   runtime.state.round = runtime.state.round ?? 1;
   runtime.state.prepSecondsLeft = runtime.state.prepSecondsLeft ?? 0;
   runtime.state.winStreak = runtime.state.winStreak ?? 0;
@@ -110,6 +115,7 @@ function saveActiveRuntime() {
   rt.state = state;
   rt.nextUnitId = nextUnitId;
   rt.battleCountdownTimer = battleCountdownTimer;
+  rt.entryCountdownTimer = entryCountdownTimer;
   rt.prepTimer = prepTimer;
   rt.prepSnapshot = prepSnapshot;
   rt.finishTimeout = finishTimeout;
@@ -128,6 +134,7 @@ function bindRuntime(matchId = DEFAULT_MATCH_ID) {
   state = rt.state;
   nextUnitId = rt.nextUnitId;
   battleCountdownTimer = rt.battleCountdownTimer;
+  entryCountdownTimer = rt.entryCountdownTimer;
   prepTimer = rt.prepTimer;
   prepSnapshot = rt.prepSnapshot;
   finishTimeout = rt.finishTimeout;
@@ -571,6 +578,14 @@ function stopBattleTimers() {
   state.battleSecondsLeft = 0;
 }
 
+function stopEntryTimer() {
+  if (entryCountdownTimer) {
+    clearInterval(entryCountdownTimer);
+    entryCountdownTimer = null;
+  }
+  state.entrySecondsLeft = 0;
+}
+
 function stopPrepTimer() {
   if (prepTimer) {
     clearInterval(prepTimer);
@@ -580,6 +595,7 @@ function stopPrepTimer() {
 
 function resetGameToStart() {
   stopBattleTimers();
+  stopEntryTimer();
   stopPrepTimer();
 
   prepSnapshot = null;
@@ -593,6 +609,7 @@ function resetGameToStart() {
 
   state.round = 1;
   state.prepSecondsLeft = 0;
+  state.entrySecondsLeft = 0;
   state.battleSecondsLeft = 0;
   state.winStreak = 0;
   state.loseStreak = 0;
@@ -1968,6 +1985,8 @@ function clonePlayerUnitForPrep(unit) {
 }
 
 function resetToPrep() {
+  stopEntryTimer();
+
   // Auto Chess rule: +1 XP each round (win/lose doesnвЂ™t matter)
   applyKingXp(state.kings.player, 1);
   grantRoundXpToAllBots(1);
@@ -2018,6 +2037,7 @@ function resetToPrep() {
 
 function finishBattle(result) {
   const matchId = activeMatchId ?? DEFAULT_MATCH_ID;
+  stopEntryTimer();
   stopBattleTimers();
   const replayDamage = Number(state?.battleReplay?.winnerDamageByResult?.[result] ?? 0);
   const fallbackDefeatDamage = (result === 'defeat' && !state?.battleReplay)
@@ -2052,107 +2072,27 @@ function finishBattle(result) {
   }, 3000);
 }
 
-function startBattle() {
-  const matchId = activeMatchId ?? DEFAULT_MATCH_ID;
-  stopPrepTimer();
-  if (state.phase === 'battle') return;
-  ensureSoloLobbyInitialized();
-  syncRoundPairingsForCurrentRound();
-  markHiddenBattlesPhase('battle');
+function startBattleFromPreparedReplay(matchId) {
+  if (state.phase !== 'entry') return;
 
-  // Enforce board-cap on battle start: if player has more board units than level cap,
-  // move random excess units to free bench slots.
-  // Important: do this BEFORE prepSnapshot to avoid board/bench duplication on resetToPrep().
-  const playerLevelCap = Math.max(1, Math.floor(Number(state?.kings?.player?.level ?? 1)));
-  const playerBoardUnits = (state.units ?? []).filter((u) => (
-    u?.team === 'player' &&
-    u?.zone === 'board' &&
-    !u?.dead
-  ));
-  let overflow = playerBoardUnits.length - playerLevelCap;
-  const autoSoldUnitIds = [];
-  if (overflow > 0) {
-    const shuffled = [...playerBoardUnits];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      const tmp = shuffled[i];
-      shuffled[i] = shuffled[j];
-      shuffled[j] = tmp;
-    }
-
-    for (const unit of shuffled) {
-      if (overflow <= 0) break;
-      const freeSlot = findFirstFreeBenchSlot();
-      if (Number.isInteger(freeSlot)) {
-        unit.zone = 'bench';
-        unit.benchSlot = freeSlot;
-      } else {
-        const sellRefund = getSellPriceForUnit(unit);
-        state.kings = state.kings ?? {};
-        state.kings.player = state.kings.player ?? { hp: 100, maxHp: 100, coins: 0, level: 1, xp: 0 };
-        state.kings.player.coins = Number(state.kings.player.coins ?? 0) + sellRefund;
-        clampPlayerCoins();
-
-        const ownerEntry = Array.from(clientToUnits.entries()).find(([, owned]) => owned?.has?.(unit.id));
-        const owned = ownerEntry?.[1] ?? null;
-        if (owned) {
-          removeOwnedUnit(state, owned, unit.id);
-        } else {
-          state.units = state.units.filter((u) => u.id !== unit.id);
-        }
-        autoSoldUnitIds.push(unit.id);
-      }
-      overflow -= 1;
-    }
-  }
-
-  if (autoSoldUnitIds.length > 0) {
-    const fxNonce = Number(state.autoSellFx?.nonce ?? 0) + 1;
-    state.autoSellFx = { nonce: fxNonce, unitIds: autoSoldUnitIds.slice() };
-  } else {
-    state.autoSellFx = null;
-  }
-
-  // 1) Р’СЃРµРіРґР° СЃРѕС…СЂР°РЅСЏРµРј Р°РєС‚СѓР°Р»СЊРЅСѓСЋ СЂР°СЃСЃС‚Р°РЅРѕРІРєСѓ РёРіСЂРѕРєР° РїРµСЂРµРґ Р»СЋР±С‹Рј РёСЃС…РѕРґРѕРј СЃС‚Р°СЂС‚Р° Р±РѕСЏ
-  // (РІ С‚РѕРј С‡РёСЃР»Рµ РїРµСЂРµРґ instant defeat, РµСЃР»Рё РЅР° РґРѕСЃРєРµ РїСѓСЃС‚Рѕ)
-  prepSnapshot = state.units
-    .filter(u => u.team === 'player')
-    .map((u) => clonePlayerUnitForPrep(u));
-
-  // 2) Р•СЃР»Рё РЅР° РґРѕСЃРєРµ РЅРµС‚ РёРіСЂРѕРєРѕРІ вЂ” РјРіРЅРѕРІРµРЅРЅРѕРµ РїРѕСЂР°Р¶РµРЅРёРµ
-  const hasPlayersOnBoard = state.units.some(u => u.team === 'player' && u.zone === 'board');
-  if (!hasPlayersOnBoard) {
-    finishBattle('defeat');
+  const replay = state.battleReplay ?? null;
+  if (!replay) {
+    finishBattle('draw');
     return;
   }
 
-  // РґР°Р»СЊС€Рµ РѕР±С‹С‡РЅС‹Р№ СЃС‚Р°СЂС‚ Р±РѕСЏ...
+  stopEntryTimer();
+
   state.phase = 'battle';
   state.result = null;
-  state.battleReplay = null;
-
-  // СЃРїР°РІРЅРёРј Р°СЂРјРёСЋ Р±РѕС‚Р° С‚РѕР»СЊРєРѕ РЅР° СЃС‚Р°СЂС‚ Р±РѕСЏ
-  spawnBotArmy();
 
   for (const u of (state.units ?? [])) {
     if (u?.zone !== 'board') continue;
     sanitizeUnitForBattleStart(u);
   }
 
-  // enemy king РїРѕСЏРІР»СЏРµС‚СЃСЏ С‚РѕР»СЊРєРѕ РІ Р±РѕСЋ
-  if (state.kings?.enemy) {
-    state.kings.enemy.visible = true;
-    state.kings.enemy.name = getCurrentOpponentBotName();
-  }
-
-  // Replay-only authoritative battle simulation.
-  state.battleReplay = simulateBattleReplayFromState(state, {
-    tickMs: SNAPSHOT_STEP_MS,
-    maxBattleMs: BATTLE_DURATION_SECONDS * 1000,
-  });
-
-  const replayResult = state.battleReplay?.result ?? 'draw';
-  const rawDurationMs = Number(state.battleReplay?.durationMs ?? 0);
+  const replayResult = replay?.result ?? 'draw';
+  const rawDurationMs = Number(replay?.durationMs ?? 0);
   const replayFinishMs = Number.isFinite(rawDurationMs)
     ? Math.max(0, Math.min(BATTLE_DURATION_SECONDS * 1000, rawDurationMs))
     : (BATTLE_DURATION_SECONDS * 1000);
@@ -2195,6 +2135,147 @@ function startBattle() {
   }, replayFinishMs);
 }
 
+function startBattle() {
+  const matchId = activeMatchId ?? DEFAULT_MATCH_ID;
+  stopPrepTimer();
+  stopEntryTimer();
+  if (state.phase === 'battle' || state.phase === 'entry') return;
+  ensureSoloLobbyInitialized();
+  syncRoundPairingsForCurrentRound();
+  markHiddenBattlesPhase('battle');
+
+  // Enforce board-cap on battle start: if player has more board units than level cap,
+  // move random excess units to free bench slots.
+  // Important: do this BEFORE prepSnapshot to avoid board/bench duplication on resetToPrep().
+  const playerLevelCap = Math.max(1, Math.floor(Number(state?.kings?.player?.level ?? 1)));
+  const playerBoardUnits = (state.units ?? []).filter((u) => (
+    u?.team === 'player' &&
+    u?.zone === 'board' &&
+    !u?.dead
+  ));
+  let overflow = playerBoardUnits.length - playerLevelCap;
+  const autoBenchedUnitIds = [];
+  const autoSoldUnitIds = [];
+  if (overflow > 0) {
+    const shuffled = [...playerBoardUnits];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const tmp = shuffled[i];
+      shuffled[i] = shuffled[j];
+      shuffled[j] = tmp;
+    }
+
+    for (const unit of shuffled) {
+      if (overflow <= 0) break;
+      const freeSlot = findFirstFreeBenchSlot();
+      if (Number.isInteger(freeSlot)) {
+        unit.zone = 'bench';
+        unit.benchSlot = freeSlot;
+        autoBenchedUnitIds.push(unit.id);
+      } else {
+        const sellRefund = getSellPriceForUnit(unit);
+        state.kings = state.kings ?? {};
+        state.kings.player = state.kings.player ?? { hp: 100, maxHp: 100, coins: 0, level: 1, xp: 0 };
+        state.kings.player.coins = Number(state.kings.player.coins ?? 0) + sellRefund;
+        clampPlayerCoins();
+
+        const ownerEntry = Array.from(clientToUnits.entries()).find(([, owned]) => owned?.has?.(unit.id));
+        const owned = ownerEntry?.[1] ?? null;
+        if (owned) {
+          removeOwnedUnit(state, owned, unit.id);
+        } else {
+          state.units = state.units.filter((u) => u.id !== unit.id);
+        }
+        autoSoldUnitIds.push(unit.id);
+      }
+      overflow -= 1;
+    }
+  }
+
+  if (autoSoldUnitIds.length > 0) {
+    const fxNonce = Number(state.autoSellFx?.nonce ?? 0) + 1;
+    state.autoSellFx = { nonce: fxNonce, unitIds: autoSoldUnitIds.slice() };
+  } else {
+    state.autoSellFx = null;
+  }
+  if (autoBenchedUnitIds.length > 0) {
+    const fxNonce = Number(state.autoBenchFx?.nonce ?? 0) + 1;
+    state.autoBenchFx = { nonce: fxNonce, unitIds: autoBenchedUnitIds.slice() };
+  } else {
+    state.autoBenchFx = null;
+  }
+
+  // 1) Р’СЃРµРіРґР° СЃРѕС…СЂР°РЅСЏРµРј Р°РєС‚СѓР°Р»СЊРЅСѓСЋ СЂР°СЃСЃС‚Р°РЅРѕРІРєСѓ РёРіСЂРѕРєР° РїРµСЂРµРґ Р»СЋР±С‹Рј РёСЃС…РѕРґРѕРј СЃС‚Р°СЂС‚Р° Р±РѕСЏ
+  // (РІ С‚РѕРј С‡РёСЃР»Рµ РїРµСЂРµРґ instant defeat, РµСЃР»Рё РЅР° РґРѕСЃРєРµ РїСѓСЃС‚Рѕ)
+  prepSnapshot = state.units
+    .filter(u => u.team === 'player')
+    .map((u) => clonePlayerUnitForPrep(u));
+
+  // 2) Р•СЃР»Рё РЅР° РґРѕСЃРєРµ РЅРµС‚ РёРіСЂРѕРєРѕРІ вЂ” РјРіРЅРѕРІРµРЅРЅРѕРµ РїРѕСЂР°Р¶РµРЅРёРµ
+  const hasPlayersOnBoard = state.units.some(u => u.team === 'player' && u.zone === 'board');
+  if (!hasPlayersOnBoard) {
+    finishBattle('defeat');
+    return;
+  }
+
+  // Entry phase between prep and battle.
+  state.phase = 'entry';
+  state.result = null;
+  state.battleReplay = null;
+  state.entrySecondsLeft = BATTLE_ENTRY_SECONDS;
+  state.battleSecondsLeft = 0;
+  state.replayRequestNonce = Number(state.replayRequestNonce ?? 0) + 1;
+  const replayRequestNonce = Number(state.replayRequestNonce ?? 0);
+
+  // Spawn enemy army at entry start.
+  spawnBotArmy();
+
+  // Enemy king belongs to entry + battle views.
+  if (state.kings?.enemy) {
+    state.kings.enemy.visible = true;
+    state.kings.enemy.name = getCurrentOpponentBotName();
+  }
+
+  broadcast(makeStateMessage(state));
+
+  // Compute replay asynchronously while entry countdown is running.
+  setTimeout(() => {
+    withMatchRuntime(matchId, () => {
+      if (state.phase !== 'entry') return;
+      if (Number(state.replayRequestNonce ?? 0) !== replayRequestNonce) return;
+      try {
+        state.battleReplay = simulateBattleReplayFromState(state, {
+          tickMs: SNAPSHOT_STEP_MS,
+          maxBattleMs: BATTLE_DURATION_SECONDS * 1000,
+        });
+      } catch {
+        state.battleReplay = null;
+      }
+      broadcast(makeStateMessage(state));
+    });
+  }, 0);
+
+  entryCountdownTimer = setInterval(() => {
+    withMatchRuntime(matchId, () => {
+      if (state.phase !== 'entry') {
+        stopEntryTimer();
+        return;
+      }
+
+      state.entrySecondsLeft = Math.max(0, Number(state.entrySecondsLeft ?? 0) - 1);
+      broadcast(makeStateMessage(state));
+
+      if (state.entrySecondsLeft <= 0) {
+        if (!state.battleReplay) {
+          finishBattle('draw');
+          return;
+        }
+        startBattleFromPreparedReplay(matchId);
+      }
+    });
+  }, 1000);
+}
+
 function handleIntent(clientId, msg, ws) {
   if (!msg || msg.type !== 'intent') return;
 
@@ -2224,6 +2305,7 @@ function handleIntent(clientId, msg, ws) {
       !state.result &&
       Number(state.round ?? 1) === 1 &&
       Number(state.prepSecondsLeft ?? 0) === 0 &&
+      Number(state.entrySecondsLeft ?? 0) === 0 &&
       Number(state.battleSecondsLeft ?? 0) === 0 &&
       !prepTimer &&
       !finishTimeout;
@@ -2240,6 +2322,7 @@ function handleIntent(clientId, msg, ws) {
     state.result = null;
     state.gameStarted = true;
     state.prepSecondsLeft = 0;
+    state.entrySecondsLeft = 0;
 
     // РјР°РіР°Р·РёРЅ РЅР° СЃС‚Р°СЂС‚
     generateShopOffers();
@@ -2767,6 +2850,7 @@ wss.on('connection', (ws, req) => {
 
       if (clients.size === 0) {
         stopBattleTimers();
+        stopEntryTimer();
         stopPrepTimer();
         matchStore.delete(closedMatchId);
         if (activeMatchId === closedMatchId) activeMatchId = null;

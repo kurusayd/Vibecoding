@@ -12,6 +12,7 @@ export function installBattleSceneLifecycle(BattleScene) {
         this._onResizeHandler = null;
       }
       this.stopServerBattleReplayPlayback?.();
+      this.stopBattleEntryReveal?.();
       this.ws?.close?.();
     },
 

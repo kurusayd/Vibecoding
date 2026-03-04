@@ -165,10 +165,11 @@ export function installBattleSceneKingHudUi(BattleScene) {
       const enemyDisplayName = String(e.name ?? this.enemyKingDisplayName ?? 'Enemy King');
       this.kingRightNameText?.setText(enemyDisplayName);
 
+      const isEntryView = phase === 'entry' && !!this.entryEnemyKingVisible;
       const isBattleView = (phase === 'battle') || (result != null);
-      const showEnemy = isBattleView && (e.visible !== false);
+      const showEnemyKing = (isEntryView || isBattleView) && (e.visible !== false);
 
-      this.kingRight?.setVisible(showEnemy);
+      this.kingRight?.setVisible(showEnemyKing);
       this.syncRoundUI();
       this.drawKingHpBars();
     },

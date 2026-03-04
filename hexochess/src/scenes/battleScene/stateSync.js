@@ -123,6 +123,17 @@ export function installBattleSceneStateSync(BattleScene) {
         this.playServerAutoSellFx?.(autoSellFx?.unitIds ?? []);
       }
 
+      const autoBenchFx = nextState?.autoBenchFx ?? null;
+      const autoBenchFxNonce = Number(autoBenchFx?.nonce ?? NaN);
+      if (
+        Number.isFinite(autoBenchFxNonce) &&
+        autoBenchFxNonce > 0 &&
+        Number(this.lastHandledServerAutoBenchFxNonce ?? NaN) !== autoBenchFxNonce
+      ) {
+        this.lastHandledServerAutoBenchFxNonce = autoBenchFxNonce;
+        this.entryAutoBenchAnimatingIds = new Set((autoBenchFx?.unitIds ?? []).map((id) => Number(id)).filter(Number.isFinite));
+      }
+
       this.battleState = nextState;
 
       const phaseChanged = (nextState?.phase ?? null) !== prevPhase;
@@ -133,6 +144,7 @@ export function installBattleSceneStateSync(BattleScene) {
         Boolean(prevState?.gameStarted) !== Boolean(nextState?.gameStarted) ||
         Number(prevState?.round ?? 0) !== Number(nextState?.round ?? 0) ||
         Number(prevState?.prepSecondsLeft ?? 0) !== Number(nextState?.prepSecondsLeft ?? 0) ||
+        Number(prevState?.entrySecondsLeft ?? 0) !== Number(nextState?.entrySecondsLeft ?? 0) ||
         Number(prevState?.battleSecondsLeft ?? 0) !== Number(nextState?.battleSecondsLeft ?? 0);
       const unitsChanged = !areUnitsEqual(prevState?.units, nextState?.units);
       const pendingAttackAnimIds = new Set();
@@ -153,6 +165,13 @@ export function installBattleSceneStateSync(BattleScene) {
       }
 
       if (phaseChanged) {
+        if (nextState?.phase === 'entry' && !nextState?.result) {
+          this.startBattleEntryReveal?.();
+        } else if (prevPhase === 'entry') {
+          this.stopBattleEntryReveal?.();
+          this.entryAutoBenchAnimatingIds?.clear?.();
+          this.pendingServerAutoSellFxIds?.clear?.();
+        }
         if (nextState?.phase === 'battle' && !nextState?.result) {
           this.shopCollapsed = true;
           // Freeze X from player board at battle start; bench must not affect this value.

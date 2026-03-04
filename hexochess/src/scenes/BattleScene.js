@@ -242,6 +242,16 @@ export default class BattleScene extends Phaser.Scene {
     };
     this.lockedPlayerBoardUnitCount = null;
     this.lastHandledServerAutoSellFxNonce = null;
+    this.lastHandledServerAutoBenchFxNonce = null;
+    this.pendingServerAutoSellFxIds = new Set();
+    this.entryAutoBenchAnimatingIds = new Set();
+    this.entryEnemyKingVisible = false;
+    this.entryEnemyKingUiVisible = false;
+    this.entryEnemyKingUiRevealPlayed = false;
+    this.entryEnemyUnitsVisible = true;
+    this.entryEnemyUnitsUiVisible = false;
+    this.entryEnemyUnitsUiRevealPlayed = false;
+    this.entryRevealTimers = [];
     this.trashRemoveAnimatingIds = new Set();
     this.coreUnitsById = new Map();
     this.kingXpCost = KING_XP_COST;
@@ -1135,6 +1145,8 @@ export default class BattleScene extends Phaser.Scene {
   playServerAutoSellFx(unitIds = []) {
     const ids = Array.isArray(unitIds) ? unitIds.map((id) => Number(id)).filter(Number.isFinite) : [];
     if (ids.length <= 0) return;
+    this.pendingServerAutoSellFxIds = this.pendingServerAutoSellFxIds ?? new Set();
+    for (const id of ids) this.pendingServerAutoSellFxIds.add(id);
 
     ids.forEach((unitId, idx) => {
       this.time.delayedCall(idx * 45, () => {
@@ -1143,8 +1155,300 @@ export default class BattleScene extends Phaser.Scene {
         this.playTrashCoinBurstFx?.();
         this.playTrashRemoveFx?.(unitId, () => {
           this.unitSys?.destroyUnit?.(unitId);
+          this.pendingServerAutoSellFxIds?.delete?.(unitId);
         });
       });
+    });
+  }
+
+  playEntryAutoBenchArc(vu, coreUnit) {
+    if (!vu || !coreUnit) return;
+    const slot = Number.isInteger(coreUnit?.benchSlot) ? coreUnit.benchSlot : 0;
+    const p = this.benchSlotToScreen(slot);
+    const lift = getUnitGroundLiftPx(coreUnit.type);
+    const shadowCfg = getUnitFootShadowConfig(coreUnit.type);
+
+    const startCenter = {
+      x: Number(vu?.sprite?.x ?? 0),
+      y: Number(vu?.sprite?.y ?? 0),
+    };
+    const endCenter = {
+      x: Number(p.x ?? startCenter.x),
+      y: Number(p.y ?? startCenter.y),
+    };
+    const startArt = {
+      x: Number(vu?.art?.x ?? startCenter.x),
+      y: Number(vu?.art?.y ?? (startCenter.y + this.hexSize - lift)),
+    };
+    const endArt = {
+      x: Number(p.x + getUnitArtOffsetXPx(coreUnit.type, coreUnit.team)),
+      y: Number(p.y + this.hexSize - lift),
+    };
+    const startShadow = {
+      x: Number(vu?.footShadow?.x ?? (startCenter.x + shadowCfg.offsetXPx)),
+      y: Number(vu?.footShadow?.y ?? (startCenter.y + shadowCfg.offsetYPx)),
+    };
+    const endShadow = {
+      x: Number(p.x + shadowCfg.offsetXPx),
+      y: Number(p.y + shadowCfg.offsetYPx),
+    };
+
+    const arcH = Math.max(28, Math.min(74, Math.abs(endCenter.x - startCenter.x) * 0.18 + 28));
+    const arcProxy = { t: 0 };
+    vu._entryBenchAnimating = true;
+
+    if (vu?.hpBar) vu.hpBar.setVisible(false);
+    if (vu?.rankIcon) vu.rankIcon.setVisible(!coreUnit.dead);
+
+    const updateArc = () => {
+      const t = Phaser.Math.Clamp(Number(arcProxy.t ?? 0), 0, 1);
+      const arcY = arcH * 4 * t * (1 - t);
+
+      const cx = Phaser.Math.Linear(startCenter.x, endCenter.x, t);
+      const cy = Phaser.Math.Linear(startCenter.y, endCenter.y, t) - arcY;
+      vu?.sprite?.setPosition?.(cx, cy);
+      vu?.dragHandle?.setPosition?.(cx, cy);
+      vu?.label?.setPosition?.(cx, cy);
+
+      const ax = Phaser.Math.Linear(startArt.x, endArt.x, t);
+      const ay = Phaser.Math.Linear(startArt.y, endArt.y, t) - arcY;
+      vu?.art?.setPosition?.(ax, ay);
+
+      const sx = Phaser.Math.Linear(startShadow.x, endShadow.x, t);
+      const sy = Phaser.Math.Linear(startShadow.y, endShadow.y, t) - arcY * 0.6;
+      vu?.footShadow?.setPosition?.(sx, sy);
+      if (!coreUnit.dead) vu?.footShadow?.setVisible?.(true);
+      updateHpBar(this, vu);
+    };
+
+    this.tweens.killTweensOf(arcProxy);
+    this.tweens.add({
+      targets: arcProxy,
+      t: 1,
+      duration: 500,
+      ease: 'Sine.Out',
+      onUpdate: updateArc,
+      onComplete: () => {
+        vu._entryBenchAnimating = false;
+        this.entryAutoBenchAnimatingIds?.delete?.(coreUnit.id);
+        updateArc();
+      },
+    });
+  }
+
+  clearEntryRevealTimers() {
+    for (const t of (this.entryRevealTimers ?? [])) {
+      try { t?.remove?.(false); } catch {}
+    }
+    this.entryRevealTimers = [];
+  }
+
+  stopBattleEntryReveal() {
+    this.clearEntryRevealTimers();
+    this.entryEnemyKingVisible = false;
+    this.entryEnemyKingUiVisible = false;
+    this.entryEnemyKingUiRevealPlayed = false;
+    this.entryEnemyUnitsVisible = true;
+    this.entryEnemyUnitsUiVisible = false;
+    this.entryEnemyUnitsUiRevealPlayed = false;
+  }
+
+  startBattleEntryReveal() {
+    this.clearEntryRevealTimers();
+    this.entryEnemyKingVisible = false;
+    this.entryEnemyKingUiVisible = false;
+    this.entryEnemyKingUiRevealPlayed = false;
+    this.entryEnemyUnitsVisible = false;
+    this.entryEnemyUnitsUiVisible = false;
+    this.entryEnemyUnitsUiRevealPlayed = false;
+    this.syncKingsUI?.();
+    this.renderFromState?.();
+    this.drawGrid?.();
+
+    const kingTimer = this.time.delayedCall(0, () => {
+      this.entryEnemyKingVisible = true;
+      this.syncKingsUI?.();
+      if (this.kingRight?.active) {
+        this.tweens.killTweensOf(this.kingRight);
+        const baseScaleX = Number(this.kingRight.scaleX ?? 1);
+        const baseScaleY = Number(this.kingRight.scaleY ?? 1);
+        const targetX = Number(this.kingRight.x ?? 0);
+        const targetY = Number(this.kingRight.y ?? 0);
+        const startY = targetY - 140;
+        const bounceY = targetY - 18;
+        this.kingRight
+          .setVisible(true)
+          .setPosition(targetX, startY)
+          .setAlpha(0)
+          .setScale(baseScaleX * 0.9, baseScaleY * 0.9);
+        this.tweens.add({
+          targets: this.kingRight,
+          y: targetY,
+          alpha: 1,
+          scaleX: baseScaleX,
+          scaleY: baseScaleY,
+          ease: 'Quad.In',
+          duration: 392,
+          onComplete: () => {
+            if (!this.kingRight?.active) return;
+            this.tweens.add({
+              targets: this.kingRight,
+              y: bounceY,
+              ease: 'Quad.Out',
+              duration: 84,
+              yoyo: true,
+            });
+          },
+        });
+      }
+    });
+    const kingUiTimer = this.time.delayedCall(700, () => {
+      if (this.kingHpAnim?.enemy) {
+        this.kingHpAnim.enemy.instant = null;
+        this.kingHpAnim.enemy.lag = null;
+      }
+      if (this.kingHpLock) this.kingHpLock.enemy = null;
+      this.entryEnemyKingUiVisible = true;
+      this.syncKingsUI?.();
+      this.playEntryEnemyKingUiRevealFx?.();
+    });
+    const armyTimer = this.time.delayedCall(1000, () => {
+      this.entryEnemyUnitsVisible = true;
+      this.renderFromState?.();
+      this.animateEntryEnemyArmyReveal?.();
+      this.drawGrid?.();
+    });
+    const armyUiTimer = this.time.delayedCall(3000, () => {
+      this.entryEnemyUnitsUiVisible = true;
+      this.renderFromState?.();
+      this.playEntryEnemyArmyUiRevealFx?.();
+      this.drawGrid?.();
+    });
+    this.entryRevealTimers.push(kingTimer, kingUiTimer, armyTimer, armyUiTimer);
+  }
+
+  playEntryEnemyKingUiRevealFx() {
+    if (this.entryEnemyKingUiRevealPlayed) return;
+    this.entryEnemyKingUiRevealPlayed = true;
+
+    const hpParts = [this.kingRightHpBg, this.kingRightHpLagFill, this.kingRightHpFill].filter((x) => x?.active);
+    for (const part of hpParts) {
+      this.tweens.killTweensOf(part);
+      part.setAlpha(0);
+      this.tweens.add({
+        targets: part,
+        alpha: 1,
+        duration: 120,
+        ease: 'Quad.Out',
+      });
+    }
+
+    const nameText = this.kingRightNameText;
+    if (nameText?.active) {
+      this.tweens.killTweensOf(nameText);
+      nameText.setAlpha(0);
+      this.tweens.add({
+        targets: nameText,
+        alpha: 1,
+        delay: 120,
+        duration: 110,
+        ease: 'Quad.Out',
+      });
+    }
+  }
+
+  playEntryEnemyArmyUiRevealFx() {
+    if (this.entryEnemyUnitsUiRevealPlayed) return;
+    this.entryEnemyUnitsUiRevealPlayed = true;
+
+    const enemyVisuals = (this.unitSys?.state?.units ?? [])
+      .filter((vu) => {
+        const core = this.coreUnitsById?.get?.(vu.id);
+        return core?.team === 'enemy' && core?.zone === 'board' && !core?.dead;
+      })
+      .sort((a, b) => {
+        const ar = Number(this.coreUnitsById?.get?.(a.id)?.r ?? a.r ?? 0);
+        const br = Number(this.coreUnitsById?.get?.(b.id)?.r ?? b.r ?? 0);
+        if (ar !== br) return br - ar;
+        const aq = Number(this.coreUnitsById?.get?.(a.id)?.q ?? a.q ?? 0);
+        const bq = Number(this.coreUnitsById?.get?.(b.id)?.q ?? b.q ?? 0);
+        return aq - bq;
+      });
+
+    const staggerMs = 45;
+    const fadeMs = 120;
+    enemyVisuals.forEach((vu, idx) => {
+      const hpGraphics = vu?.hpBar;
+      if (!hpGraphics?.active) return;
+      this.tweens.killTweensOf(hpGraphics);
+      hpGraphics.setAlpha(0);
+      this.tweens.add({
+        targets: hpGraphics,
+        alpha: 1,
+        delay: idx * staggerMs,
+        duration: fadeMs,
+        ease: 'Quad.Out',
+      });
+    });
+  }
+
+  animateEntryEnemyArmyReveal() {
+    const enemyVisuals = (this.unitSys?.state?.units ?? [])
+      .filter((vu) => {
+        const core = this.coreUnitsById?.get?.(vu.id);
+        return core?.team === 'enemy' && core?.zone === 'board' && !core?.dead;
+      })
+      .sort((a, b) => {
+        const ar = Number(this.coreUnitsById?.get?.(a.id)?.r ?? a.r ?? 0);
+        const br = Number(this.coreUnitsById?.get?.(b.id)?.r ?? b.r ?? 0);
+        if (ar !== br) return br - ar; // bottom -> top
+        const aq = Number(this.coreUnitsById?.get?.(a.id)?.q ?? a.q ?? 0);
+        const bq = Number(this.coreUnitsById?.get?.(b.id)?.q ?? b.q ?? 0);
+        return aq - bq;
+      });
+
+    // Spread enemy unit reveals across first 1.5s of the 2s entry army window.
+    // Last 0.5s stays calm for readability.
+    const revealWindowMs = 1500;
+    const dropMs = 240;
+    const bounceMs = 80;
+    const totalPerUnitMs = dropMs + bounceMs;
+    const maxDelayMs = Math.max(0, revealWindowMs - totalPerUnitMs);
+    const count = Math.max(1, enemyVisuals.length);
+    const delayStepMs = (count > 1) ? (maxDelayMs / (count - 1)) : 0;
+    enemyVisuals.forEach((vu, idx) => {
+      const items = [vu.sprite, vu.art, vu.label, vu.footShadow, vu.rankIcon].filter((x) => x?.active);
+      for (const item of items) {
+        this.tweens.killTweensOf(item);
+        const targetY = Number(item.y ?? 0);
+        const startY = targetY - 90;
+        const bounceY = targetY - 10;
+        const baseScaleX = Number(item.scaleX ?? 1);
+        const baseScaleY = Number(item.scaleY ?? 1);
+        item.setAlpha(0);
+        item.setY(startY);
+        item.setScale(baseScaleX * 0.9, baseScaleY * 0.9);
+        this.tweens.add({
+          targets: item,
+          alpha: 1,
+          y: targetY,
+          scaleX: baseScaleX,
+          scaleY: baseScaleY,
+          ease: 'Quad.In',
+          duration: dropMs,
+          delay: Math.round(idx * delayStepMs),
+          onComplete: () => {
+            if (!item?.active) return;
+            this.tweens.add({
+              targets: item,
+              y: bounceY,
+              ease: 'Quad.Out',
+              duration: bounceMs,
+              yoyo: true,
+            });
+          },
+        });
+      }
     });
   }
 
@@ -1268,8 +1572,9 @@ export default class BattleScene extends Phaser.Scene {
 
     this.roundText.setText(this.testSceneActive ? UI_TEXT.TEST_SCENE : `${UI_TEXT.ROUND} ${round}`);
 
-    // таймер показываем только в prep и пока нет результата
+    // timer line under round title
     const isPrep = (phase === 'prep') && (result == null);
+    const isEntry = (phase === 'entry') && (result == null);
     const isBattle = (phase === 'battle') && (result == null);
 
     if (isPrep) {
@@ -1286,6 +1591,11 @@ export default class BattleScene extends Phaser.Scene {
       const ss = String(Math.max(0, Math.min(59, t))).padStart(2, '0');
       this.prepTimerText.setVisible(true);
       this.prepTimerText.setText(`${UI_TEXT.BATTLE}: ${ss}с`);
+    } else if (isEntry) {
+      const t = Number(this.battleState?.entrySecondsLeft ?? 0);
+      const ss = String(Math.max(0, Math.min(59, t))).padStart(2, '0');
+      this.prepTimerText.setVisible(true);
+      this.prepTimerText.setText(`${ss}с`);
     } else {
       this.prepTimerText.setVisible(false);
     }
@@ -1406,7 +1716,8 @@ export default class BattleScene extends Phaser.Scene {
     const result = this.battleState?.result ?? null;
 
     const isBattleView = (phase === 'battle') || (result != null);
-    const showEnemy = isBattleView && kings.enemy?.visible !== false;
+    const isEntryEnemyKingUi = (phase === 'entry') && !!this.entryEnemyKingUiVisible;
+    const showEnemy = (isBattleView || isEntryEnemyKingUi) && kings.enemy?.visible !== false;
 
     if (showEnemy) {
       drawBar('enemy', this.kingRight, this.kingRightHpBg, this.kingRightHpLagFill, this.kingRightHpFill, kings.enemy);
@@ -1851,7 +2162,15 @@ export default class BattleScene extends Phaser.Scene {
 
     const phase = this.battleState?.phase ?? 'prep';
     const result = this.battleState?.result ?? null;
-    vu._abilityCdUiEnabled = (phase === 'battle' && !result && core.zone === 'board' && !core.dead);
+    const canShowEntryEnemyAbilityUi =
+      phase === 'entry' &&
+      !result &&
+      core.team === 'enemy' &&
+      !!this.entryEnemyUnitsUiVisible;
+    vu._abilityCdUiEnabled =
+      ((phase === 'battle' && !result) || canShowEntryEnemyAbilityUi) &&
+      core.zone === 'board' &&
+      !core.dead;
     vu._abilityCdDurationMs = cooldownMs;
 
     const nowMs = Number(this.time?.now ?? 0);
@@ -1948,7 +2267,12 @@ export default class BattleScene extends Phaser.Scene {
     const phase = this.battleState?.phase ?? 'prep';
     const result = this.battleState?.result ?? null;
     if (!isActiveAbility || cooldownMs <= 0) return NaN;
-    if (phase !== 'battle' || !!result || core.zone !== 'board' || core.dead) return NaN;
+    const canShowEntryEnemyAbilityUi =
+      phase === 'entry' &&
+      !result &&
+      core.team === 'enemy' &&
+      !!this.entryEnemyUnitsUiVisible;
+    if ((phase !== 'battle' && !canShowEntryEnemyAbilityUi) || !!result || core.zone !== 'board' || core.dead) return NaN;
 
     const nowMs = Number(this.time?.now ?? 0);
     const castStartAtMs = Number(vu._abilityCastStartAtMs ?? NaN);
@@ -2787,6 +3111,7 @@ export default class BattleScene extends Phaser.Scene {
     const aliveIds = new Set();
     for (const u of (this.battleState?.units ?? [])) {
       if (!this.testSceneActive && phase === 'prep' && u.team === 'enemy') continue;
+      if (!this.testSceneActive && phase === 'entry' && u.team === 'enemy' && !this.entryEnemyUnitsVisible) continue;
       visibleUnits.push(u);
       aliveIds.add(u.id);
     }
@@ -2810,7 +3135,17 @@ export default class BattleScene extends Phaser.Scene {
     // 2) удалить тех, кого нет в core state
     for (const vu of this.unitSys.state.units.slice()) {
       if (!aliveIds.has(vu.id)) {
-        this.trashRemoveAnimatingIds?.delete?.(vu.id);
+        const pendingAutoSellFx = this.pendingServerAutoSellFxIds?.has?.(Number(vu.id));
+        if (pendingAutoSellFx && !this.trashRemoveAnimatingIds?.has?.(vu.id)) {
+          this.playTrashCoinBurstFx?.();
+          this.playTrashRemoveFx?.(vu.id, () => {
+            this.unitSys?.destroyUnit?.(vu.id);
+            this.pendingServerAutoSellFxIds?.delete?.(Number(vu.id));
+          });
+          continue;
+        }
+        // Keep units alive while trash animation is running (server-side auto-sell / manual sell FX).
+        if (this.trashRemoveAnimatingIds?.has?.(vu.id)) continue;
         if (this.mergeAbsorbAnimatingIds?.has(vu.id)) continue;
 
         const mergeTarget = this.findLikelyMergeTargetForMissingVisual(vu, visibleUnits, currentVisualById);
@@ -2960,7 +3295,11 @@ export default class BattleScene extends Phaser.Scene {
           created.benchSlot = null;
           // Новый юнит может появиться сразу на поле из магазина в prep:
           // сразу выставляем корректную видимость hp/rank, чтобы не мигал HP-бар.
-          if (created.hpBar) created.hpBar.setVisible(phase !== 'prep');
+          const canShowEntryEnemyUnitUi =
+            phase !== 'entry' ||
+            u.team !== 'enemy' ||
+            !!this.entryEnemyUnitsUiVisible;
+          if (created.hpBar) created.hpBar.setVisible((phase !== 'prep') && canShowEntryEnemyUnitUi);
           if (created.rankIcon) created.rankIcon.setVisible((phase === 'prep') && !u.dead);
           updateHpBar(this, created);
         }
@@ -2997,6 +3336,11 @@ export default class BattleScene extends Phaser.Scene {
       if (u.zone === 'bench') {
         const slot = Number.isInteger(u.benchSlot) ? u.benchSlot : 0;
         const p = this.benchSlotToScreen(slot);
+        const isEntryAutoBenchFx =
+          !this.testSceneActive &&
+          phase === 'entry' &&
+          u.team === 'player' &&
+          this.entryAutoBenchAnimatingIds?.has?.(u.id);
 
         if (vu.zone === 'board') {
           for (const c of getBoardCellsForUnit(vu)) {
@@ -3006,15 +3350,19 @@ export default class BattleScene extends Phaser.Scene {
         vu.zone = 'bench';
         vu.benchSlot = slot;
 
-        if (vu?.sprite) vu.sprite.setPosition(p.x, p.y);
-        if (vu?.dragHandle) vu.dragHandle.setPosition(p.x, p.y);
-        const lift = getUnitGroundLiftPx(u.type);
-        if (vu?.art) vu.art.setPosition(p.x + getUnitArtOffsetXPx(u.type, u.team), p.y + this.hexSize - lift);
-        if (vu?.footShadow) {
-          const shadowCfg = getUnitFootShadowConfig(u.type);
-          vu.footShadow.setPosition(p.x + shadowCfg.offsetXPx, p.y + shadowCfg.offsetYPx);
+        if (isEntryAutoBenchFx && prevZone === 'board' && !vu._entryBenchAnimating) {
+          this.playEntryAutoBenchArc?.(vu, u);
+        } else if (!vu._entryBenchAnimating) {
+          if (vu?.sprite) vu.sprite.setPosition(p.x, p.y);
+          if (vu?.dragHandle) vu.dragHandle.setPosition(p.x, p.y);
+          const lift = getUnitGroundLiftPx(u.type);
+          if (vu?.art) vu.art.setPosition(p.x + getUnitArtOffsetXPx(u.type, u.team), p.y + this.hexSize - lift);
+          if (vu?.footShadow) {
+            const shadowCfg = getUnitFootShadowConfig(u.type);
+            vu.footShadow.setPosition(p.x + shadowCfg.offsetXPx, p.y + shadowCfg.offsetYPx);
+          }
+          if (vu?.label) vu.label.setPosition(p.x, p.y);
         }
-        if (vu?.label) vu.label.setPosition(p.x, p.y);
 
         if (vu?.hpBar) vu.hpBar.setVisible(false);
         if (vu?.rankIcon) vu.rankIcon.setVisible(!u.dead);
@@ -3048,7 +3396,11 @@ export default class BattleScene extends Phaser.Scene {
         this.unitSys.setUnitPos(u.id, u.q, u.r, { tweenMs });
 
         // На доске показываем HP только вне prep (в prep скрываем по запросу).
-        if (vu?.hpBar) vu.hpBar.setVisible(phase !== 'prep');
+        const canShowEntryEnemyUnitUi =
+          phase !== 'entry' ||
+          u.team !== 'enemy' ||
+          !!this.entryEnemyUnitsUiVisible;
+        if (vu?.hpBar) vu.hpBar.setVisible((phase !== 'prep') && canShowEntryEnemyUnitUi);
         if (vu?.rankIcon) vu.rankIcon.setVisible((phase === 'prep') && !u.dead);
         const fromBenchToBoard = prevZone === 'bench';
         const shouldBounceOnPlace =
@@ -3447,15 +3799,18 @@ export default class BattleScene extends Phaser.Scene {
     const g = this.gDynamic ?? this.g;
     g.clear();
     this.resetRangePenaltyIcons?.();
+    const isEntryPhase = !this.testSceneActive && this.battleState?.phase === 'entry';
     const isBattlePhase = !this.testSceneActive && this.battleState?.phase === 'battle';
     const isReplayBattle =
       isBattlePhase &&
       !this.battleState?.result &&
       !!this.serverReplayPlayback?.active;
     const isBattleResultPhase = isBattlePhase && !!this.battleState?.result;
-    const showBoardOccupancyShadow = isBattleResultPhase
+    const showBoardOccupancyShadowBase = isBattleResultPhase
       ? !!this.debugShowHexShadowDuringBattle
       : (!isReplayBattle || !!this.debugShowHexShadowDuringBattle);
+    // Entry reveal should not have occupancy gray fill under units.
+    const showBoardOccupancyShadow = isEntryPhase ? false : showBoardOccupancyShadowBase;
 
     // затемнение занятых гексов (доска + скамейка)
     for (const u of (this.battleState?.units ?? [])) {
