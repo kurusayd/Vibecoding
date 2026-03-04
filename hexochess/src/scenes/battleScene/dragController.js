@@ -4,7 +4,8 @@ import { getUnitArtOffsetXPx, getUnitFootShadowConfig, getUnitGroundLiftPx } fro
 function getUnitCellSpanX(unitLike) {
   const raw = Number(unitLike?.cellSpanX ?? NaN);
   if (Number.isFinite(raw)) return Math.max(1, Math.floor(raw));
-  if (String(unitLike?.type ?? '') === 'Headless') return 2;
+  const type = String(unitLike?.type ?? '');
+  if (type === 'Headless' || type === 'Worm' || type === 'Knight') return 2;
   return 1;
 }
 

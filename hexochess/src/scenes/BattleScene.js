@@ -108,6 +108,21 @@ const ABILITY_DESC_BY_KEY = {
   ghost_evasion: '50% шанс увернуться от любой успешно попавшей атаки.',
   undertaker_active: 'Раз в 4 секунды призывает Simple Skeleton в ближайшую свободную соседнюю клетку.',
 };
+const UNIT_INFO_MODAL_MIN_W = 280;
+const UNIT_INFO_MODAL_MAX_W = 440;
+const UNIT_INFO_MODAL_H = 286;
+const INFO_FIGURE_ICON_BY_POWER_TYPE = {
+  'Пешка': 'figure_pawn_shine',
+  'Конь': 'figure_knight_shine',
+  'Слон': 'figure_bishop_shine',
+  'Ладья': 'figure_rook_shine',
+  'Ферзь': 'figure_queen_shine',
+  PAWN: 'figure_pawn_shine',
+  KNIGHT: 'figure_knight_shine',
+  BISHOP: 'figure_bishop_shine',
+  ROOK: 'figure_rook_shine',
+  QUEEN: 'figure_queen_shine',
+};
 const MISS_HINT_TEXT = 'miss';
 const MISS_HINT_RISE_PX = 34;
 const MISS_HINT_DURATION_MS = 520;
@@ -131,6 +146,7 @@ const UNIT_FUN_LINES_BY_TYPE = {
   Vampire: ['Пьет кровь, но налоги не пьет.', 'Ночной KPI всегда выше дневного.'],
   Angel: ['Летает быстро, но совесть все равно догоняет.', 'Баффает мораль одним присутствием.'],
   Devil: ['Улыбается вежливо, планирует агрессивно.', 'Подписывает сделки огнем.'],
+  Knight: ['Занимает две клетки, чтобы эго тоже поместилось.', 'Влетает в бой как начальник в понедельник: громко и не по графику.'],
   default: ['В бою серьезный, вне боя делает вид, что так и задумано.', 'Если победил, значит это был "план".'],
 };
 
@@ -171,6 +187,7 @@ function getUnitShortLabel(type) {
   if (t === 'swordsman' || t === 'swordmen') return 'S';
   if (t === 'undertaker') return 'U';
   if (t === 'vampire') return 'V';
+  if (t === 'worm') return 'W';
   if (t === 'zombie') return 'Z';
   return '?';
 }
@@ -178,7 +195,8 @@ function getUnitShortLabel(type) {
 function getUnitCellSpanX(unitLike) {
   const raw = Number(unitLike?.cellSpanX ?? NaN);
   if (Number.isFinite(raw)) return Math.max(1, Math.floor(raw));
-  if (String(unitLike?.type ?? '') === 'Headless') return 2;
+  const type = String(unitLike?.type ?? '');
+  if (type === 'Headless' || type === 'Worm' || type === 'Knight') return 2;
   return 1;
 }
 
@@ -213,6 +231,11 @@ export default class BattleScene extends Phaser.Scene {
     this.load.image('figure_bishop', '/assets/icons/figures/bishop.png');
     this.load.image('figure_rook', '/assets/icons/figures/rook.png');
     this.load.image('figure_queen', '/assets/icons/figures/queen.png');
+    this.load.image('figure_pawn_shine', '/assets/icons/figures/pawn_shine.png');
+    this.load.image('figure_knight_shine', '/assets/icons/figures/knight_shine.png');
+    this.load.image('figure_bishop_shine', '/assets/icons/figures/bishop_shine.png');
+    this.load.image('figure_rook_shine', '/assets/icons/figures/rook_shine.png');
+    this.load.image('figure_queen_shine', '/assets/icons/figures/queen_shine.png');
     this.load.image('rank1', '/assets/icons/rank1.png');
     this.load.image('rank2', '/assets/icons/rank2.png');
     this.load.image('rank3', '/assets/icons/rank3.png');
@@ -1996,6 +2019,10 @@ export default class BattleScene extends Phaser.Scene {
 
     const type = coreUnitLike?.type ?? fallbackVu?.type ?? null;
     const team = coreUnitLike?.team ?? fallbackVu?.team ?? null;
+    const span = getUnitCellSpanX(coreUnitLike ?? fallbackVu);
+    const artOffsetX = span > 1
+      ? getUnitArtOffsetXPx(type, false)
+      : getUnitArtOffsetXPx(type, team);
     const lift = getUnitGroundLiftPx(type);
 
     if ((coreUnitLike?.zone === 'bench') || (!coreUnitLike && fallbackVu)) {
@@ -2005,20 +2032,20 @@ export default class BattleScene extends Phaser.Scene {
 
       if (slot != null) {
         const p = this.benchSlotToScreen(slot);
-        return { x: p.x, y: p.y, artX: p.x + getUnitArtOffsetXPx(type, team), artY: p.y + this.hexSize - lift };
+        return { x: p.x, y: p.y, artX: p.x + artOffsetX, artY: p.y + this.hexSize - lift };
       }
     }
 
     if (coreUnitLike && coreUnitLike.zone === 'board') {
       const p = this.hexToPixel(coreUnitLike.q, coreUnitLike.r);
       const g = this.hexToGroundPixel(coreUnitLike.q, coreUnitLike.r, lift);
-      return { x: p.x, y: p.y, artX: g.x + getUnitArtOffsetXPx(type, team), artY: g.y };
+      return { x: p.x, y: p.y, artX: g.x + artOffsetX, artY: g.y };
     }
 
     if (fallbackVu?.sprite) {
       const x = fallbackVu.sprite.x;
       const y = fallbackVu.sprite.y;
-      return { x, y, artX: x + getUnitArtOffsetXPx(type, team), artY: y + this.hexSize - lift };
+      return { x, y, artX: x + artOffsetX, artY: y + this.hexSize - lift };
     }
 
     return null;
@@ -2027,7 +2054,9 @@ export default class BattleScene extends Phaser.Scene {
   setUnitVisualFacingTowardX(vu, targetX) {
     if (!vu?.art?.active) return;
 
-    const currentX = Number(vu.art.x ?? vu.sprite?.x ?? 0);
+    // Determine facing by logical unit center, not art offset.
+    // For large units art can be heavily shifted, which can zero-out dx on some moves.
+    const currentX = Number(vu.sprite?.x ?? vu.art.x ?? 0);
     const dx = Number(targetX) - currentX;
     if (!Number.isFinite(dx) || Math.abs(dx) < 1) return;
 
@@ -2040,7 +2069,11 @@ export default class BattleScene extends Phaser.Scene {
     if (Number.isFinite(vu.q) && Number.isFinite(vu.r)) {
       const lift = getUnitGroundLiftPx(vu.type);
       const g = this.hexToGroundPixel(vu.q, vu.r, lift);
-      vu.art.setX(g.x + getUnitArtOffsetXPx(vu.type, mirrored));
+      const span = getUnitCellSpanX(vu);
+      const offsetX = span > 1
+        ? getUnitArtOffsetXPx(vu.type, false)
+        : getUnitArtOffsetXPx(vu.type, mirrored);
+      vu.art.setX(g.x + offsetX);
     }
   }
 
@@ -2048,7 +2081,7 @@ export default class BattleScene extends Phaser.Scene {
     if (!vu || !targetCoreUnit) return;
     const targetPos = this.getUnitScreenAnchor(targetCoreUnit);
     if (!targetPos) return;
-    this.setUnitVisualFacingTowardX(vu, targetPos.artX ?? targetPos.x);
+    this.setUnitVisualFacingTowardX(vu, targetPos.x);
   }
 
   findClosestOpponentForFacing(sourceCoreUnit) {
@@ -2417,8 +2450,8 @@ export default class BattleScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setVisible(false);
 
-    const w = 280;
-    const h = 286;
+    const w = UNIT_INFO_MODAL_MIN_W;
+    const h = UNIT_INFO_MODAL_H;
     const shadow = this.add.rectangle(4, 6, w, h, 0x000000, 0.38).setOrigin(0.5, 0.5);
     const bg = this.add.rectangle(0, 0, w, h, 0x1f1410, 0.95).setOrigin(0.5, 0.5).setStrokeStyle(2, 0xc18a42, 0.95);
     const portraitPanel = this.add.rectangle(-86, -82, 116, 116, 0x0f0f0f, 0.9).setOrigin(0.5, 0.5).setStrokeStyle(1, 0x6f5d3a, 0.9);
@@ -2444,6 +2477,10 @@ export default class BattleScene extends Phaser.Scene {
       fontStyle: 'bold',
       wordWrap: { width: 180, useAdvancedWrap: true },
     }).setOrigin(0, 0);
+    const titleFigureIcon = this.add.image(-18, -120, 'figure_pawn_shine')
+      .setOrigin(0.5, 0.5)
+      .setDisplaySize(20, 20)
+      .setVisible(false);
 
     const stats = this.add.text(-18, -106, '', {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
@@ -2494,14 +2531,17 @@ export default class BattleScene extends Phaser.Scene {
     }).setOrigin(0, 0);
 
     const hit = this.add.zone(0, 0, w, h).setOrigin(0.5, 0.5).setInteractive();
-    modal.add([shadow, bg, portraitPanel, portrait, portraitFallback, portraitRankIcon, raceUnderPortrait, title, stats, abilityKind, abilityDesc, funLine1, funLine2, hit]);
+    modal.add([shadow, bg, portraitPanel, portrait, portraitFallback, portraitRankIcon, raceUnderPortrait, title, titleFigureIcon, stats, abilityKind, abilityDesc, funLine1, funLine2, hit]);
 
     this.unitInfoModal = modal;
+    this.unitInfoModalBg = bg;
+    this.unitInfoModalShadow = shadow;
     this.unitInfoHit = hit;
     this.unitInfoPortrait = portrait;
     this.unitInfoPortraitRankIcon = portraitRankIcon;
     this.unitInfoPortraitFallback = portraitFallback;
     this.unitInfoTitle = title;
+    this.unitInfoTitleFigureIcon = titleFigureIcon;
     this.unitInfoStats = stats;
     this.unitInfoRaceUnderPortrait = raceUnderPortrait;
     this.unitInfoAbilityKind = abilityKind;
@@ -2516,6 +2556,31 @@ export default class BattleScene extends Phaser.Scene {
       if (!overModal) this.hideUnitInfoModal?.();
     };
     this.input.on('pointerdown', this._unitInfoOutsideTapHandler);
+  }
+
+  updateUnitInfoModalAdaptiveSize(hasFigureIcon = false) {
+    const modal = this.unitInfoModal;
+    const bg = this.unitInfoModalBg;
+    const shadow = this.unitInfoModalShadow;
+    const hit = this.unitInfoHit;
+    const title = this.unitInfoTitle;
+    if (!modal || !bg || !shadow || !hit || !title) return;
+
+    const minHalfW = Math.floor(UNIT_INFO_MODAL_MIN_W / 2);
+    const maxHalfW = Math.floor(UNIT_INFO_MODAL_MAX_W / 2);
+    const titleX = Number(title.x ?? -18);
+    const titleW = Number(title.width ?? 0);
+    const iconExtra = hasFigureIcon ? 24 : 0;
+    const rightNeed = Math.ceil(titleX + titleW + iconExtra + 16);
+    const leftNeed = 146; // keeps left portrait + text paddings safe
+    const nextHalfW = Phaser.Math.Clamp(Math.max(minHalfW, rightNeed, leftNeed), minHalfW, maxHalfW);
+    const nextW = nextHalfW * 2;
+
+    bg.setSize(nextW, UNIT_INFO_MODAL_H);
+    shadow.setSize(nextW, UNIT_INFO_MODAL_H);
+    hit.setSize(nextW, UNIT_INFO_MODAL_H);
+    this.unitInfoModalHalfW = nextHalfW;
+    this.unitInfoModalHalfH = Math.floor(UNIT_INFO_MODAL_H / 2);
   }
 
   getUnitAbilityInfo(core) {
@@ -2538,8 +2603,8 @@ export default class BattleScene extends Phaser.Scene {
       ? vu.art.getBounds?.()
       : (vu?.sprite?.active ? vu.sprite.getBounds?.() : null);
     const anchor = this.getUnitScreenAnchor(core) ?? { x: this.scale.width * 0.5, y: this.scale.height * 0.5 };
-    const halfW = 140;
-    const halfH = 143;
+    const halfW = Number(this.unitInfoModalHalfW ?? 140);
+    const halfH = Number(this.unitInfoModalHalfH ?? 143);
     const margin = 14;
     const rightEdge = Number(bounds?.right ?? (anchor.x ?? this.scale.width * 0.5) + this.hexSize);
     const leftEdge = Number(bounds?.left ?? (anchor.x ?? this.scale.width * 0.5) - this.hexSize);
@@ -2582,6 +2647,25 @@ export default class BattleScene extends Phaser.Scene {
     const abilityCooldown = Math.max(0, Number(core.abilityCooldown ?? 0));
 
     this.unitInfoTitle?.setText(String(core.type ?? 'UNKNOWN').toUpperCase());
+    const powerTypeKey = String(core.powerType ?? '').trim();
+    const figureIconKey = INFO_FIGURE_ICON_BY_POWER_TYPE[powerTypeKey] ?? null;
+    const hasFigureIcon = !!(this.unitInfoTitleFigureIcon && figureIconKey && this.textures?.exists?.(figureIconKey));
+    this.updateUnitInfoModalAdaptiveSize?.(hasFigureIcon);
+    if (hasFigureIcon) {
+      const titleX = Number(this.unitInfoTitle?.x ?? -18);
+      const titleY = Number(this.unitInfoTitle?.y ?? -130);
+      const titleW = Number(this.unitInfoTitle?.width ?? 0);
+      const titleH = Number(this.unitInfoTitle?.height ?? 0);
+      const iconHalfH = Math.max(0, Number(this.unitInfoTitleFigureIcon?.displayHeight ?? 20) * 0.5);
+      const iconX = titleX + titleW + 14;
+      const iconY = titleY + titleH - iconHalfH - 3;
+      this.unitInfoTitleFigureIcon
+        .setTexture(figureIconKey)
+        .setPosition(iconX, iconY)
+        .setVisible(true);
+    } else {
+      this.unitInfoTitleFigureIcon?.setVisible(false);
+    }
     const statsLines = [
       `HP: ${hp}/${maxHp}`,
       `ATK: ${atk}`,

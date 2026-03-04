@@ -68,6 +68,16 @@ export const UNIT_ATLAS_DEFS = [
     framePrefix: 'psd_anim',
   },
   {
+    type: 'Knight',
+    atlasKey: 'knight_atlas',
+    atlasPath: '/assets/units/human/knight/atlas/knight_atlas',
+    idleAnim: 'knight_idle',
+    walkAnim: 'knight_walk',
+    attackAnim: 'knight_attack',
+    deadAnim: 'knight_dead',
+    framePrefix: 'psd_anim',
+  },
+  {
     type: 'Priest',
     atlasKey: 'priest_atlas',
     atlasPath: '/assets/units/human/priest/atlas/priest_atlas',
@@ -135,6 +145,16 @@ export const UNIT_ATLAS_DEFS = [
     walkAnim: 'headless_walk',
     attackAnim: 'headless_attack',
     deadAnim: 'headless_dead',
+    framePrefix: 'psd_anim',
+  },
+  {
+    type: 'Worm',
+    atlasKey: 'worm_atlas',
+    atlasPath: '/assets/units/undead/worm/worm_atlas',
+    idleAnim: 'worm_idle',
+    walkAnim: 'worm_walk',
+    attackAnim: 'worm_attack',
+    deadAnim: 'worm_dead',
     framePrefix: 'psd_anim',
   },
   {

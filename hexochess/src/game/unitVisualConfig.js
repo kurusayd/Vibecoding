@@ -63,6 +63,17 @@ export const UNIT_VISUAL_CONFIG_BY_TYPE = {
     footShadowOffsetXPx: 0,
     footShadowOffsetYPx: 11,
   },
+  Knight: {
+    // Large 2-cell human unit; keep rendering profile close to Headless.
+    groundLiftPx: 125,
+    artTargetPx: 250,
+    artOffsetXPx: -20,
+    hpUiLiftPx: 95,
+    footShadowWidthPx: 118,
+    footShadowHeightPx: 24,
+    footShadowOffsetXPx: -38,
+    footShadowOffsetYPx: 11,
+  },
   Devil: {
     groundLiftPx: 110,
     artTargetPx: 180,
@@ -88,6 +99,17 @@ export const UNIT_VISUAL_CONFIG_BY_TYPE = {
     groundLiftPx: 115,
     artTargetPx: 230,
     artOffsetXPx: -38,
+    hpUiLiftPx: 95,
+    footShadowWidthPx: 118,
+    footShadowHeightPx: 24,
+    footShadowOffsetXPx: -38,
+    footShadowOffsetYPx: 11,
+  },
+  Worm: {
+    // Large 2-cell undead queen-profile unit. Keep visuals aligned with Headless.
+    groundLiftPx: 125,
+    artTargetPx: 230,
+    artOffsetXPx: -25,
     hpUiLiftPx: 95,
     footShadowWidthPx: 118,
     footShadowHeightPx: 24,

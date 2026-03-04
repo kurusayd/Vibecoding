@@ -11,7 +11,8 @@ export function cellKey(q, r) {
 function getUnitCellSpanX(unitLike) {
   const raw = Number(unitLike?.cellSpanX ?? NaN);
   if (Number.isFinite(raw)) return Math.max(1, Math.floor(raw));
-  if (String(unitLike?.type ?? '') === 'Headless') return 2;
+  const type = String(unitLike?.type ?? '');
+  if (type === 'Headless' || type === 'Worm' || type === 'Knight') return 2;
   return 1;
 }
 
@@ -147,7 +148,13 @@ function getArtFacingMirrored(unitLike) {
 }
 
 function getUnitArtOffsetByFacing(unitLike) {
-  return getUnitArtOffsetXPx(unitLike?.type, getArtFacingMirrored(unitLike));
+  const type = unitLike?.type;
+  const mirrored = getArtFacingMirrored(unitLike);
+  const span = getUnitCellSpanX(unitLike);
+  if (span > 1) {
+    return getUnitArtOffsetXPx(type, false);
+  }
+  return getUnitArtOffsetXPx(type, mirrored);
 }
 
 export function createUnitSystem(scene) {
@@ -212,7 +219,12 @@ export function createUnitSystem(scene) {
       const g = scene.hexToGroundPixel(q, r, getUnitGroundLiftPx(opts.type));
       const p = scene.hexToPixel(q, r);
       footShadow = createFootShadow(scene, p.x, p.y, opts.type);
-      art = scene.add.sprite(g.x + getUnitArtOffsetXPx(opts.type, opts.team === 'enemy'), g.y, atlasKey, idleFrame)
+      art = scene.add.sprite(
+        g.x + (cellSpanX > 1 ? getUnitArtOffsetXPx(opts.type, false) : getUnitArtOffsetXPx(opts.type, opts.team === 'enemy')),
+        g.y,
+        atlasKey,
+        idleFrame
+      )
         .setDepth(UNIT_ART_DEPTH_LIVE)
         .setOrigin(0.5, 1);
 
@@ -325,7 +337,12 @@ export function createUnitSystem(scene) {
     if (atlasCfg && scene.textures.exists(atlasKey)) {
       const lift = getUnitGroundLiftPx(opts.type);
       footShadow = createFootShadow(scene, x, y, opts.type);
-      art = scene.add.sprite(x + getUnitArtOffsetXPx(opts.type, opts.team === 'enemy'), y + scene.hexSize - lift, atlasKey, idleFrame)
+      art = scene.add.sprite(
+        x + (cellSpanX > 1 ? getUnitArtOffsetXPx(opts.type, false) : getUnitArtOffsetXPx(opts.type, opts.team === 'enemy')),
+        y + scene.hexSize - lift,
+        atlasKey,
+        idleFrame
+      )
         .setDepth(UNIT_ART_DEPTH_LIVE)
         .setOrigin(0.5, 1);
 

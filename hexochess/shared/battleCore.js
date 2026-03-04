@@ -17,7 +17,7 @@ function normalizeCellSpanX(value, type) {
     return Math.max(1, Math.floor(Number(value)));
   }
   // Backward-safe fallback for older state snapshots without explicit span.
-  if (String(type ?? '') === 'Headless') return 2;
+  if (String(type ?? '') === 'Headless' || String(type ?? '') === 'Worm' || String(type ?? '') === 'Knight') return 2;
   return DEFAULT_CELL_SPAN_X;
 }
 
