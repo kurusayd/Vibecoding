@@ -18,6 +18,7 @@ const ABILITY_CD_BAR_FILL_ALPHA = 0.96;
 const ABILITY_CD_BAR_BORDER = 0x241b0a;
 const ABILITY_CD_BAR_BORDER_ALPHA = 0.85;
 const ABILITY_CD_READY_FLASH_MS = 260;
+const LARGE_UNIT_HP_BAR_WIDTH_MUL = 1.5;
 
 export function updateHpBar(scene, unit) {
   // Tween callbacks can still fire during scene teardown/restart.
@@ -34,7 +35,7 @@ export function updateHpBar(scene, unit) {
   const hpLag = clamp(unit.hpLag ?? hpInstant, 0, maxHp);
 
   // СЂР°Р·РјРµСЂС‹ Р±Р°СЂР°
-  const w = Math.floor(scene.hexSize * 1.1);                 // С€РёСЂРёРЅР°
+  const baseW = Math.floor(scene.hexSize * 1.1);             // С€РёСЂРёРЅР° для обычных юнитов
   const h = Math.max(6, Math.floor(scene.hexSize * 0.15));   // РІС‹СЃРѕС‚Р°
 
   // РїРѕР·РёС†РёСЏ РѕС‚РЅРѕСЃРёС‚РµР»СЊРЅРѕ СЋРЅРёС‚Р° (РІРЅРёР·Сѓ РіРµРєСЃР°)
@@ -44,6 +45,9 @@ export function updateHpBar(scene, unit) {
     scene.coreUnitsById?.get?.(unit.id) ??
     (scene.battleState?.units ?? []).find((u) => u.id === unit.id);
   const cellSpanX = Math.max(1, Math.floor(Number(coreUnit?.cellSpanX ?? (unit?.cellSpanX ?? 1))));
+  const w = (cellSpanX > 1)
+    ? Math.round(baseW * LARGE_UNIT_HP_BAR_WIDTH_MUL)
+    : baseW;
   const uiCx = (() => {
     const unitZone = String(coreUnit?.zone ?? unit?.zone ?? '');
     if (unitZone !== 'board' || cellSpanX <= 1) return cx;
