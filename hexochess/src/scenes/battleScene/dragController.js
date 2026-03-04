@@ -1,13 +1,6 @@
 import { updateHpBar } from '../../game/hpbar.js';
 import { getUnitArtOffsetXPx, getUnitFootShadowConfig, getUnitGroundLiftPx } from '../../game/unitVisualConfig.js';
-
-function getUnitCellSpanX(unitLike) {
-  const raw = Number(unitLike?.cellSpanX ?? NaN);
-  if (Number.isFinite(raw)) return Math.max(1, Math.floor(raw));
-  const type = String(unitLike?.type ?? '');
-  if (type === 'Headless' || type === 'Worm' || type === 'Knight') return 2;
-  return 1;
-}
+import { getUnitCellSpanX } from './unitFootprint.js';
 
 export function installBattleSceneDrag(BattleScene) {
   Object.assign(BattleScene.prototype, {

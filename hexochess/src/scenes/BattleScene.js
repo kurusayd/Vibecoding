@@ -25,9 +25,14 @@ import { installBattleSceneKingDamageFx } from './battleScene/kingDamageFx.js';
 import { installBattleSceneKingHudUi } from './battleScene/kingHudUi.js';
 import { installBattleSceneStateSync } from './battleScene/stateSync.js';
 import { installBattleSceneLifecycle } from './battleScene/lifecycle.js';
-
-const PLAYER_KING_DISPLAY_NAME = 'Devis J. Jones';
-const ENEMY_KING_DISPLAY_NAME = 'Enemy King';
+import {
+  PLAYER_KING_DISPLAY_NAME,
+  ENEMY_KING_DISPLAY_NAME,
+  UI_TEXT,
+  ABILITY_KIND_LABEL,
+  ABILITY_DESC_BY_KEY,
+} from './battleScene/battleText.js';
+import { getUnitCellSpanX, getBoardCellsForUnit } from './battleScene/unitFootprint.js';
 
 const EXTRA_PORTRAIT_ASSETS = [
   { key: 'bot_bishop', path: '/assets/bots/bot_bishop.png' },
@@ -73,23 +78,6 @@ const KING_XP_BAR_UI = {
   fillColor: 0xc9a7ff,   // светло-фиолетовая заливка
   fillAlpha: 0.95,
 };
-const UI_TEXT = {
-  START_GAME: '\u041d\u0410\u0427\u0410\u0422\u042c \u0418\u0413\u0420\u0423',
-  TEST_SCENE: '\u0422\u0435\u0441\u0442\u043e\u0432\u0430\u044f \u0441\u0446\u0435\u043d\u0430',
-  ROUND: '\u0420\u0430\u0443\u043d\u0434',
-  PREP: '\u041f\u043e\u0434\u0433\u043e\u0442\u043e\u0432\u043a\u0430',
-  BATTLE: '\u0421\u0440\u0430\u0436\u0435\u043d\u0438\u0435',
-  VICTORY: '\u041f\u041e\u0411\u0415\u0414\u0410',
-  DEFEAT: '\u041f\u041e\u0420\u0410\u0416\u0415\u041d\u0418\u0415',
-  DRAW: '\u041d\u0418\u0427\u042c\u042f',
-  COIN_INCOME: '\u0414\u043e\u0445\u043e\u0434 \u0437\u0430 \u0440\u0430\u0443\u043d\u0434',
-  WIN_BONUS: '\u0411\u043e\u043d\u0443\u0441 \u0437\u0430 \u043f\u043e\u0431\u0435\u0434\u0443',
-  WIN_STREAK_BONUS: '\u0411\u043e\u043d\u0443\u0441 \u0437\u0430 \u0441\u0435\u0440\u0438\u044e \u043f\u043e\u0431\u0435\u0434',
-  LOSE_STREAK_BONUS: '\u0411\u043e\u043d\u0443\u0441 \u0437\u0430 \u0441\u0435\u0440\u0438\u044e \u043f\u043e\u0440\u0430\u0436\u0435\u043d\u0438\u0439',
-  EXPECTED_ROUND_INCOME: '\u041e\u0436\u0438\u0434\u0430\u0435\u043c\u044b\u0439 \u0434\u043e\u0445\u043e\u0434 \u0440\u0430\u0443\u043d\u0434\u0430',
-  FROM_NEXT_WIN: '(\u0441\u043e \u0441\u043b\u0435\u0434\u0443\u044e\u0449\u0435\u0439 \u043f\u043e\u0431\u0435\u0434\u043e\u0439)',
-  FROM_NEXT_LOSS: '(\u0441\u043e \u0441\u043b\u0435\u0434\u0443\u044e\u0449\u0435\u0433\u043e \u043f\u043e\u0440\u0430\u0436\u0435\u043d\u0438\u044f)',
-};
 
 const INFO_PORTRAIT_ATLAS_KEY = 'unitPortraitsAtlas';
 const INFO_PORTRAIT_FRAME_PREFIX = 'ALL PORTRAITS/PREPEARE for Atlas/';
@@ -97,17 +85,6 @@ const INFO_PORTRAIT_TYPE_ALIASES = {
   Swordsman: 'swordman',
 };
 
-const ABILITY_KIND_LABEL = {
-  active: 'АКТИВНАЯ',
-  passive: 'ПАССИВНАЯ',
-  none: 'БЕЗ СПОСОБНОСТИ',
-};
-
-const ABILITY_DESC_BY_KEY = {
-  skeleton_archer_bounce: 'Попадание отскакивает в еще одну цель в радиусе 2 клеток и наносит 50% урона.',
-  ghost_evasion: '50% шанс увернуться от любой успешно попавшей атаки.',
-  undertaker_active: 'Раз в 4 секунды призывает Simple Skeleton в ближайшую свободную соседнюю клетку.',
-};
 const UNIT_INFO_MODAL_MIN_W = 280;
 const UNIT_INFO_MODAL_MAX_W = 440;
 const UNIT_INFO_MODAL_H = 286;
@@ -190,24 +167,6 @@ function getUnitShortLabel(type) {
   if (t === 'worm') return 'W';
   if (t === 'zombie') return 'Z';
   return '?';
-}
-
-function getUnitCellSpanX(unitLike) {
-  const raw = Number(unitLike?.cellSpanX ?? NaN);
-  if (Number.isFinite(raw)) return Math.max(1, Math.floor(raw));
-  const type = String(unitLike?.type ?? '');
-  if (type === 'Headless' || type === 'Worm' || type === 'Knight') return 2;
-  return 1;
-}
-
-function getBoardCellsForUnit(unitLike) {
-  const span = getUnitCellSpanX(unitLike);
-  const q = Number(unitLike?.q ?? 0);
-  const r = Number(unitLike?.r ?? 0);
-  const out = [];
-  // Anchor is the rightmost cell for horizontal multi-cell units.
-  for (let i = 0; i < span; i++) out.push({ q: q - i, r });
-  return out;
 }
 
 export default class BattleScene extends Phaser.Scene {
