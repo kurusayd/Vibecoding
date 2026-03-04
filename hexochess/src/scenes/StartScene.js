@@ -19,6 +19,29 @@ const MENU_BUTTON_SHADOW_ALPHA = 0.32;
 const MENU_BUTTON_SHADOW_WIDTH_MUL = 0.96;
 const MENU_BLOCK_OFFSET_X = 280; // move whole menu block on X
 const MENU_BLOCK_OFFSET_Y = 80; // move whole menu block on Y
+const TG_ICON_TEXTURE_KEY = 'telegramIcon';
+const TG_URL = 'https://t.me/StationOfHorror';
+const X_ICON_TEXTURE_KEY = 'xIcon';
+const X_URL = 'https://x.com/DevisJJones';
+const SOCIAL_BLOCK_OFFSET_X = 0;
+const SOCIAL_BLOCK_OFFSET_Y = 60;
+const TG_ICON_SCALE = 0.4;
+const TG_ICON_OFFSET_X = 0;
+const TG_ICON_OFFSET_Y = 0;
+const X_ICON_SCALE = 0.35;
+const X_ICON_OFFSET_X = 0;
+const X_ICON_OFFSET_Y = 60;
+const X_ICON_ALPHA = 0.78;
+const JOIN_TEXT = 'Join';
+const JOIN_TEXT_FONT_SIZE_PX = 24;
+const JOIN_TEXT_OFFSET_X = 0;
+const JOIN_TEXT_OFFSET_Y = -6;
+const JOIN_BG_COLOR = 0x000000;
+const JOIN_BG_EDGE_ALPHA = 0.03;
+const JOIN_BG_CENTER_ALPHA = 0.05;
+const JOIN_BG_RADIUS_PX = 7;
+const JOIN_BG_BLUR_STEPS = 6;
+const JOIN_BG_PADDING_X_PX = 3;
 
 export default class StartScene extends Phaser.Scene {
   constructor() {
@@ -28,6 +51,8 @@ export default class StartScene extends Phaser.Scene {
   preload() {
     this.load.image('menuMainBg', '/assets/menu/main.png');
     this.load.image(MENU_BUTTON_TEXTURE_KEY, '/assets/buttons/bt_menu.png');
+    this.load.image(TG_ICON_TEXTURE_KEY, '/assets/icons/social/tg.png');
+    this.load.image(X_ICON_TEXTURE_KEY, '/assets/icons/social/x.png');
   }
 
   create() {
@@ -132,10 +157,22 @@ export default class StartScene extends Phaser.Scene {
 
     createFullscreenButton(this);
     positionFullscreenButton(this);
+    this.createTelegramCta();
+    this.positionTelegramCta();
 
     this.scale.on('resize', this.onResize, this);
+    this.scale.on('enterfullscreen', this.positionTelegramCta, this);
+    this.scale.on('leavefullscreen', this.positionTelegramCta, this);
     this.events.once('shutdown', () => this.scale.off('resize', this.onResize, this));
     this.events.once('destroy', () => this.scale.off('resize', this.onResize, this));
+    this.events.once('shutdown', () => {
+      this.scale.off('enterfullscreen', this.positionTelegramCta, this);
+      this.scale.off('leavefullscreen', this.positionTelegramCta, this);
+    });
+    this.events.once('destroy', () => {
+      this.scale.off('enterfullscreen', this.positionTelegramCta, this);
+      this.scale.off('leavefullscreen', this.positionTelegramCta, this);
+    });
   }
 
   onMenuClick(label) {
@@ -164,6 +201,7 @@ export default class StartScene extends Phaser.Scene {
       btn?.text?.setPosition(cx, y + MENU_BUTTON_TEXT_OFFSET_Y);
     });
     positionFullscreenButton(this);
+    this.positionTelegramCta();
   }
 
   resizeBackground() {
@@ -174,5 +212,86 @@ export default class StartScene extends Phaser.Scene {
     const scaleY = designH / this.bg.height;
     const scale = Math.max(scaleX, scaleY);
     this.bg.setScale(scale);
+  }
+
+  createTelegramCta() {
+    if (this.telegramCtaBlock) return;
+
+    this.telegramJoinBg = this.add.graphics();
+
+    this.telegramJoinText = this.add.text(0, 0, JOIN_TEXT, {
+      fontFamily: 'CormorantSC-SemiBold, CormorantSC-Regular, Georgia, serif',
+      fontSize: `${JOIN_TEXT_FONT_SIZE_PX}px`,
+      color: '#ffffff',
+    })
+      .setOrigin(0.5, 1)
+      .setStroke('#53b9ff', 1);
+    this.telegramJoinText.setPosition(JOIN_TEXT_OFFSET_X, JOIN_TEXT_OFFSET_Y);
+
+    this.telegramIcon = this.add.image(0, 0, TG_ICON_TEXTURE_KEY)
+      .setOrigin(0.5, 0)
+      .setScale(TG_ICON_SCALE)
+      .setInteractive({ useHandCursor: true });
+    this.telegramIcon.setPosition(TG_ICON_OFFSET_X, TG_ICON_OFFSET_Y);
+
+    this.telegramIcon.on('pointerup', () => {
+      window.open(TG_URL, '_blank', 'noopener,noreferrer');
+    });
+
+    this.xIcon = this.add.image(0, 0, X_ICON_TEXTURE_KEY)
+      .setOrigin(0.5, 0)
+      .setScale(X_ICON_SCALE)
+      .setAlpha(X_ICON_ALPHA)
+      .setInteractive({ useHandCursor: true });
+    this.xIcon.setPosition(X_ICON_OFFSET_X, X_ICON_OFFSET_Y);
+
+    this.xIcon.on('pointerup', () => {
+      window.open(X_URL, '_blank', 'noopener,noreferrer');
+    });
+
+    this.telegramCtaBlock = this.add.container(0, 0, [
+      this.telegramJoinBg,
+      this.telegramJoinText,
+      this.telegramIcon,
+      this.xIcon,
+    ])
+      .setDepth(9998)
+      .setScrollFactor(0);
+    this.refreshTelegramJoinBackdrop();
+  }
+
+  positionTelegramCta() {
+    if (!this.fsBtn || !this.telegramCtaBlock) return;
+    this.refreshTelegramJoinBackdrop();
+    const fsBounds = this.fsBtn.getBounds();
+    const fsCenterX = fsBounds.centerX;
+    const blockY = fsBounds.bottom + SOCIAL_BLOCK_OFFSET_Y;
+    this.telegramCtaBlock.setPosition(fsCenterX + SOCIAL_BLOCK_OFFSET_X, blockY);
+  }
+
+  refreshTelegramJoinBackdrop() {
+    if (!this.telegramJoinBg || !this.telegramJoinText) return;
+
+    this.telegramJoinBg.clear();
+
+    const textW = Math.max(1, Math.ceil(Number(this.telegramJoinText.width ?? 1))) + (JOIN_BG_PADDING_X_PX * 2);
+    const textH = Math.max(1, Math.ceil(Number(this.telegramJoinText.height ?? 1)));
+    const left = JOIN_TEXT_OFFSET_X - (textW * 0.5);
+    const top = JOIN_TEXT_OFFSET_Y - textH;
+    const steps = Math.max(1, Math.floor(JOIN_BG_BLUR_STEPS));
+
+    for (let i = 0; i < steps; i++) {
+      const t = steps <= 1 ? 1 : (i / (steps - 1));
+      const alpha = Phaser.Math.Linear(JOIN_BG_EDGE_ALPHA, JOIN_BG_CENTER_ALPHA, t * t);
+      const inset = Math.floor((1 - t) * Math.min(steps - 1, Math.floor(Math.min(textW, textH) * 0.25)));
+      const w = Math.max(1, textW - inset * 2);
+      const h = Math.max(1, textH - inset * 2);
+      const x = left + inset;
+      const y = top + inset;
+      const radius = Math.max(1, JOIN_BG_RADIUS_PX - Math.floor(inset * 0.5));
+
+      this.telegramJoinBg.fillStyle(JOIN_BG_COLOR, alpha);
+      this.telegramJoinBg.fillRoundedRect(x, y, w, h, radius);
+    }
   }
 }
