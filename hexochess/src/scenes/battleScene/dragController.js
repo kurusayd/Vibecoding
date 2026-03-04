@@ -15,6 +15,7 @@ export function installBattleSceneDrag(BattleScene) {
       this.dragBoardHover = null; // { q, r }
       this.dragBenchHoverSlot = null; // number
       this.hoverPickupCell = null; // { area: 'board'|'bench', q?, r?, slot?, unitId }
+      this.dragMainCellOffsetX = 0; // 0 = right anchor (default), 1 = left cell as temporary main (for span=2)
     },
 
     bindDragHandlers() {
@@ -30,20 +31,7 @@ export function installBattleSceneDrag(BattleScene) {
           return;
         }
 
-        const canUsePreferred = (() => {
-          if (!preferredCell || !pointer) return false;
-          if (preferredCell.area === 'board') {
-            const hit = this.tryPickBoard(pointer.worldX, pointer.worldY);
-            return !!hit && Number(hit.q) === Number(preferredCell.q) && Number(hit.r) === Number(preferredCell.r);
-          }
-          if (preferredCell.area === 'bench' && Number.isInteger(preferredCell.slot)) {
-            const hitBench = this.tryPickBench(pointer.worldX, pointer.worldY);
-            return !!hitBench && Number(hitBench.row) === Number(preferredCell.slot);
-          }
-          return false;
-        })();
-
-        if (canUsePreferred) {
+        if (preferredCell) {
           this.hoverPickupCell = { ...preferredCell, unitId: core.id };
           return;
         }
@@ -73,23 +61,44 @@ export function installBattleSceneDrag(BattleScene) {
         if (!isPlayerBench && !isPrepManage) return;
         if (core.zone !== 'board' && core.zone !== 'bench') return;
 
+        const vu = this.unitSys.findUnit(uid);
         this.draggingUnitId = uid;
+        this.dragMainCellOffsetX = 0;
         this.hoverPickupCell = null;
+        const span = getUnitCellSpanX(core);
+        if (span > 1) {
+          const rawHit = this.tryPickBoard(pointer.worldX, pointer.worldY);
+          if (rawHit && Number(rawHit.r) === Number(core.r) && Number(rawHit.q) === Number(core.q) - 1) {
+            this.dragMainCellOffsetX = 1;
+          } else {
+            const pRight = this.hexToPixel(Number(core.q), Number(core.r));
+            const pLeft = this.hexToPixel(Number(core.q) - 1, Number(core.r));
+            const stepX = Number(pRight?.x) - Number(pLeft?.x);
+            if (Number.isFinite(stepX) && pointer.worldX < (Number(vu?.sprite?.x ?? pRight?.x ?? 0) - stepX * 0.5)) {
+              this.dragMainCellOffsetX = 1;
+            }
+          }
+        }
         if (!this.testSceneActive) {
           const hitBench = this.tryPickBench(pointer.worldX, pointer.worldY);
           this.dragBenchHoverSlot = hitBench ? hitBench.row : null;
           this.dragBoardHover = null;
           if (!hitBench) {
-            const hit = this.tryPickBoard(pointer.worldX, pointer.worldY, { unitLike: core });
+            const hit = this.tryPickBoard(pointer.worldX, pointer.worldY, {
+              unitLike: core,
+              anchorOffsetX: this.dragMainCellOffsetX,
+            });
             this.dragBoardHover = hit ? { q: hit.q, r: hit.r } : null;
           }
         } else {
           this.dragBenchHoverSlot = null;
-          const hit = this.tryPickBoard(pointer.worldX, pointer.worldY, { unitLike: core });
+          const hit = this.tryPickBoard(pointer.worldX, pointer.worldY, {
+            unitLike: core,
+            anchorOffsetX: this.dragMainCellOffsetX,
+          });
           this.dragBoardHover = hit ? { q: hit.q, r: hit.r } : null;
         }
 
-        const vu = this.unitSys.findUnit(uid);
         if (vu?._moveTween) {
           try { vu._moveTween.stop(); } catch {}
           vu._moveTween = null;
@@ -138,12 +147,18 @@ export function installBattleSceneDrag(BattleScene) {
             this.dragBenchHoverSlot = hitBench.row;
             this.dragBoardHover = null;
           } else {
-            const hit = this.tryPickBoard(pointer.worldX, pointer.worldY, { unitLike: core });
+            const hit = this.tryPickBoard(pointer.worldX, pointer.worldY, {
+              unitLike: core,
+              anchorOffsetX: this.dragMainCellOffsetX,
+            });
             this.dragBoardHover = hit ? { q: hit.q, r: hit.r } : this.dragBoardHover;
             this.dragBenchHoverSlot = null;
           }
         } else {
-          const hit = this.tryPickBoard(pointer.worldX, pointer.worldY, { unitLike: core });
+          const hit = this.tryPickBoard(pointer.worldX, pointer.worldY, {
+            unitLike: core,
+            anchorOffsetX: this.dragMainCellOffsetX,
+          });
           this.dragBoardHover = hit ? { q: hit.q, r: hit.r } : this.dragBoardHover;
         }
         this.drawGrid();
@@ -152,6 +167,7 @@ export function installBattleSceneDrag(BattleScene) {
       this.input.on('dragend', (pointer, gameObject) => {
         const uid = gameObject?.data?.get?.('unitId');
         const draggedId = this.draggingUnitId;
+        const dragMainCellOffsetX = Number(this.dragMainCellOffsetX ?? 0);
         this._unitInfoSuppressUntil = Number(this.time?.now ?? 0) + 180;
         this.draggingUnitId = null;
         this.dragBoardHover = null;
@@ -233,8 +249,12 @@ export function installBattleSceneDrag(BattleScene) {
           return;
         }
 
-        const hit = this.tryPickBoard(pointer.worldX, pointer.worldY, { unitLike: core });
+        const hit = this.tryPickBoard(pointer.worldX, pointer.worldY, {
+          unitLike: core,
+          anchorOffsetX: dragMainCellOffsetX,
+        });
         if (!hit) {
+          this.dragMainCellOffsetX = 0;
           this.renderFromState();
           restoreHoverAfterDrop(pointer, uid);
           this.drawGrid();
@@ -251,6 +271,7 @@ export function installBattleSceneDrag(BattleScene) {
             this.renderFromState();
             restoreHoverAfterDrop(pointer, uid, { area: 'board', q: hit.q, r: hit.r });
             this.drawGrid();
+            this.dragMainCellOffsetX = 0;
             return;
           }
         } else {
@@ -273,15 +294,18 @@ export function installBattleSceneDrag(BattleScene) {
             }
             restoreHoverAfterDrop(pointer, uid, { area: 'board', q: hit.q, r: hit.r });
             this.drawGrid();
+            this.dragMainCellOffsetX = 0;
             return;
           }
 
           restoreHoverAfterDrop(pointer, uid, { area: 'board', q: hit.q, r: hit.r });
           this.drawGrid();
+          this.dragMainCellOffsetX = 0;
           this.ws?.sendIntentSetStart(uid, hit.q, hit.r);
           return;
         }
 
+        this.dragMainCellOffsetX = 0;
         this.renderFromState();
         restoreHoverAfterDrop(pointer, uid);
         this.drawGrid();
@@ -304,16 +328,21 @@ export function installBattleSceneDrag(BattleScene) {
 
       const unitLike = opts?.unitLike ?? null;
       if (unitLike) {
+        const rawOffset = Number(opts?.anchorOffsetX ?? 0);
+        const anchorOffsetX = Number.isFinite(rawOffset) ? Math.max(0, Math.floor(rawOffset)) : 0;
+        const anchorQ = q + anchorOffsetX;
         const span = getUnitCellSpanX(unitLike);
         const maxPrepCols = Math.min(this.gridCols, 6);
         for (let i = 0; i < span; i++) {
-          const qq = q - i;
+          const qq = anchorQ - i;
           const rr = r;
           const cc = qq + Math.floor(rr / 2);
           if (rr < 0 || rr >= this.gridRows) return null;
           if (cc < 0 || cc >= this.gridCols) return null;
           if (!this.testSceneActive && this.battleState?.phase === 'prep' && cc >= maxPrepCols) return null;
         }
+        const anchorCol = anchorQ + Math.floor(row / 2);
+        return { q: anchorQ, r, row, col: anchorCol };
       } else if (!this.testSceneActive && this.battleState?.phase === 'prep' && col >= 6) {
         return null;
       }

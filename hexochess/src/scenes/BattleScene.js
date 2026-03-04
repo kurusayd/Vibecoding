@@ -3190,13 +3190,11 @@ export default class BattleScene extends Phaser.Scene {
         const r = this.dragBoardHover.r;
         const p = this.hexToPixel(q, r);
         this.drawHexFilledOn(g, p.x, p.y, 0x000000, 0.55);
-        this.drawHexOn(g, p.x, p.y, 0xffffff, 0.85);
       }
     }
     if (Number.isInteger(this.dragBenchHoverSlot)) {
       const p = this.benchSlotToScreen(this.dragBenchHoverSlot);
       this.drawHexFilledOn(g, p.x, p.y, 0x000000, 0.55);
-      this.drawHexOn(g, p.x, p.y, 0xffcc66, 0.95);
     }
 
     // Hover highlight: which unit will be picked up on pointer down.

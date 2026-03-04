@@ -2314,39 +2314,75 @@ function handleIntent(clientId, msg, ws) {
       benchSlot: me.benchSlot,
     };
 
-    const occupied = findBlockingUnitAtPlacement(state, me, q, r, requestedUnitId);
+    const targetBlockers = (() => {
+      const ids = new Map();
+      for (const c of getBoardCellsForUnitAnchor(me, q, r)) {
+        const b = getUnitAt(state, c.q, c.r);
+        if (!b) continue;
+        if (Number(b.id) === Number(requestedUnitId)) continue;
+        ids.set(Number(b.id), b);
+      }
+      return Array.from(ids.values());
+    })();
+    const occupied = targetBlockers[0] ?? null;
     if (occupied && occupied.id !== requestedUnitId) {
-      // Large units use strict occupancy (no swaps for multi-cell footprint).
-      if (getUnitCellSpanX(me) > 1 || getUnitCellSpanX(occupied) > 1) {
+      // Swap only when all blocked target cells belong to one own unit.
+      if (targetBlockers.length > 1) {
         ws.send(JSON.stringify(makeErrorMessage('OCCUPIED', 'Target footprint is occupied')));
         return;
       }
-      // вњ… swap С‚РѕР»СЊРєРѕ РµСЃР»Рё Р·Р°РЅСЏС‚Рѕ РњРћРРњ СЋРЅРёС‚РѕРј
       if (occupied.team !== 'player' || !owned.has(occupied.id)) {
         ws.send(JSON.stringify(makeErrorMessage('OCCUPIED', 'Cell is occupied')));
         return;
       }
 
-      // me -> target cell
+      const meSpan = getUnitCellSpanX(me);
+      const occupiedSpan = getUnitCellSpanX(occupied);
+      // For large-vs-large swaps always snap to occupied anchor,
+      // regardless of which single occupied cell player aimed at.
+      const swapTargetQ = (meSpan > 1 && occupiedSpan > 1)
+        ? Number(occupied.q)
+        : q;
+      const swapTargetR = (meSpan > 1 && occupiedSpan > 1)
+        ? Number(occupied.r)
+        : r;
+
+      // Ensure the other unit can fit into my previous place (important for large-unit swaps).
+      if (prev.zone === 'board') {
+        const prevBlockers = (() => {
+          const ids = new Map();
+          for (const c of getBoardCellsForUnitAnchor(occupied, prev.q, prev.r)) {
+            const b = getUnitAt(state, c.q, c.r);
+            if (!b) continue;
+            if (Number(b.id) === Number(me.id) || Number(b.id) === Number(occupied.id)) continue;
+            ids.set(Number(b.id), b);
+          }
+          return Array.from(ids.values());
+        })();
+        if (prevBlockers.length > 0) {
+          ws.send(JSON.stringify(makeErrorMessage('OCCUPIED', 'Cannot swap: previous board cell is blocked')));
+          return;
+        }
+      }
+
+      // me -> target
       me.zone = 'board';
       me.benchSlot = null;
-      me.q = q;
-      me.r = r;
+      me.q = swapTargetQ;
+      me.r = swapTargetR;
 
-      // occupied -> old place of me
+      // occupied -> my previous place
       if (prev.zone === 'board') {
         occupied.zone = 'board';
         occupied.benchSlot = null;
         occupied.q = prev.q;
         occupied.r = prev.r;
       } else {
-        // me Р±С‹Р» РЅР° bench в†’ occupied СѓРµР·Р¶Р°РµС‚ РЅР° РµРіРѕ СЃР»РѕС‚
         occupied.zone = 'bench';
         occupied.benchSlot = prev.benchSlot;
       }
 
       applyMergesForClient(clientId, requestedUnitId);
-
       broadcast(makeStateMessage(state));
       return;
     }

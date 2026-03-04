@@ -45,7 +45,14 @@ const FOOT_SHADOW_STROKE_COLOR = 0x000000;
 const FOOT_SHADOW_STROKE_ALPHA = 0.22;
 const FOOT_SHADOW_STROKE_WIDTH_PX = 1;
 
-function makeHexHitArea(scene, w, h) {
+function makeHexHitArea(scene, w, h, cellSpanX = 1) {
+  const span = Math.max(1, Math.floor(Number(cellSpanX ?? 1)));
+  if (span > 1) {
+    // For wide units (e.g. 2 cells), expand hit area left so the unit can be grabbed from both occupied hexes.
+    const extraLeft = Math.round(scene.hexSize * 1.9 * (span - 1));
+    return new Phaser.Geom.Rectangle(-extraLeft, 0, w + extraLeft, h);
+  }
+
   const s = scene.hexSize;
   const cx = w / 2;
   const cy = h / 2;
@@ -177,8 +184,11 @@ export function createUnitSystem(scene) {
     const dragHandle = scene.add.zone(p.x, p.y, w, h).setDepth(1100);
     dragHandle.setDataEnabled();
 
-    const hexArea = makeHexHitArea(scene, w, h);
-    dragHandle.setInteractive(hexArea, Phaser.Geom.Polygon.Contains);
+    const hexArea = makeHexHitArea(scene, w, h, cellSpanX);
+    const hitTestCb = (hexArea instanceof Phaser.Geom.Rectangle)
+      ? Phaser.Geom.Rectangle.Contains
+      : Phaser.Geom.Polygon.Contains;
+    dragHandle.setInteractive(hexArea, hitTestCb);
     scene.input.setDraggable(dragHandle, true);
 
     let art = null;
@@ -287,8 +297,11 @@ export function createUnitSystem(scene) {
     const dragHandle = scene.add.zone(x, y, w, h).setDepth(1100);
     dragHandle.setDataEnabled();
 
-    const hexArea = makeHexHitArea(scene, w, h);
-    dragHandle.setInteractive(hexArea, Phaser.Geom.Polygon.Contains);
+    const hexArea = makeHexHitArea(scene, w, h, cellSpanX);
+    const hitTestCb = (hexArea instanceof Phaser.Geom.Rectangle)
+      ? Phaser.Geom.Rectangle.Contains
+      : Phaser.Geom.Polygon.Contains;
+    dragHandle.setInteractive(hexArea, hitTestCb);
     scene.input.setDraggable(dragHandle, true);
 
     let art = null;
