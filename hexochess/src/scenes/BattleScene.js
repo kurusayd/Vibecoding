@@ -735,7 +735,18 @@ export default class BattleScene extends Phaser.Scene {
       ? `${WS_HOST}:${WS_PORT}`
       : location.host;
 
-    const wsUrl = `${wsProto}://${wsHost}`;
+    let soloMatchId = null;
+    try {
+      soloMatchId = localStorage.getItem('hexochess_match_id');
+      if (!soloMatchId) {
+        soloMatchId = (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+        localStorage.setItem('hexochess_match_id', soloMatchId);
+      }
+    } catch {
+      soloMatchId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
+
+    const wsUrl = `${wsProto}://${wsHost}?matchId=${encodeURIComponent(soloMatchId)}`;
     this.ws = new WSClient(wsUrl);
 
     // --- START GAME BUTTON (debug) ---

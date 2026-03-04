@@ -32,7 +32,7 @@ const DEFAULT_MATCH_ID = 'default';
 const matchStore = new Map();
 
 // ---- game state (authoritative) ----
-const state = createBattleState();
+let state = createBattleState();
 let nextUnitId = 1;
 
 state.battleSecondsLeft = state.battleSecondsLeft ?? 0;
@@ -62,26 +62,101 @@ const SOLO_PLAYER_ID = 'player-1';
 const SOLO_PLAYER_NAME = 'Player';
 const BOT_COUNT = LOBBY_SIZE - 1;
 
-const roomState = {
-  participants: [],
-  pairings: [],
-  hiddenBattles: [],
-  playerOpponentId: null,
-  playerOpponentIsCopy: false,
-  playerOpponentCopySourceId: null,
-};
+function createRoomState() {
+  return {
+    participants: [],
+    pairings: [],
+    hiddenBattles: [],
+    playerOpponentId: null,
+    playerOpponentIsCopy: false,
+    playerOpponentCopySourceId: null,
+  };
+}
+
+let roomState = createRoomState();
+let clientToUnits = new Map(); // clientId -> Set(unitIds)
+let clients = new Map(); // clientId -> ws
+
+let activeMatchId = null;
+
+function createMatchRuntime(matchId = DEFAULT_MATCH_ID) {
+  const runtime = {
+    matchId,
+    state: createBattleState(),
+    nextUnitId: 1,
+    battleCountdownTimer: null,
+    prepTimer: null,
+    prepSnapshot: null,
+    finishTimeout: null,
+    roomState: createRoomState(),
+    clients: new Map(),
+    clientToUnits: new Map(),
+  };
+
+  runtime.state.battleSecondsLeft = runtime.state.battleSecondsLeft ?? 0;
+  runtime.state.round = runtime.state.round ?? 1;
+  runtime.state.prepSecondsLeft = runtime.state.prepSecondsLeft ?? 0;
+  runtime.state.winStreak = runtime.state.winStreak ?? 0;
+  runtime.state.loseStreak = runtime.state.loseStreak ?? 0;
+  runtime.state.shop = runtime.state.shop ?? { offers: [] };
+
+  return runtime;
+}
+
+function saveActiveRuntime() {
+  if (!activeMatchId) return;
+  const rt = matchStore.get(activeMatchId);
+  if (!rt) return;
+  rt.state = state;
+  rt.nextUnitId = nextUnitId;
+  rt.battleCountdownTimer = battleCountdownTimer;
+  rt.prepTimer = prepTimer;
+  rt.prepSnapshot = prepSnapshot;
+  rt.finishTimeout = finishTimeout;
+  rt.roomState = roomState;
+  rt.clients = clients;
+  rt.clientToUnits = clientToUnits;
+}
+
+function bindRuntime(matchId = DEFAULT_MATCH_ID) {
+  let rt = matchStore.get(matchId);
+  if (!rt) {
+    rt = createMatchRuntime(matchId);
+    matchStore.set(matchId, rt);
+  }
+
+  state = rt.state;
+  nextUnitId = rt.nextUnitId;
+  battleCountdownTimer = rt.battleCountdownTimer;
+  prepTimer = rt.prepTimer;
+  prepSnapshot = rt.prepSnapshot;
+  finishTimeout = rt.finishTimeout;
+  roomState = rt.roomState;
+  clients = rt.clients;
+  clientToUnits = rt.clientToUnits;
+  activeMatchId = matchId;
+  return rt;
+}
+
+function withMatchRuntime(matchId, fn) {
+  const prevMatchId = activeMatchId;
+  saveActiveRuntime();
+  bindRuntime(matchId);
+  try {
+    return fn();
+  } finally {
+    saveActiveRuntime();
+    if (prevMatchId && prevMatchId !== matchId) {
+      bindRuntime(prevMatchId);
+    }
+  }
+}
 
 function ensureMatchRuntime(matchId = DEFAULT_MATCH_ID) {
   if (!matchStore.has(matchId)) {
-    matchStore.set(matchId, {
-      matchId,
-      state,
-      roomState,
-      clients,
-      clientToUnits,
-    });
+    matchStore.set(matchId, createMatchRuntime(matchId));
   }
-  return matchStore.get(matchId);
+  return bindRuntime(matchId);
 }
 
 function isAllPlayerOpponentsBots() {
@@ -548,6 +623,7 @@ function prepDurationForRound(round) {
 }
 
 function startPrepCountdown() {
+  const matchId = activeMatchId ?? DEFAULT_MATCH_ID;
   stopPrepTimer();
 
   // РµСЃР»Рё СѓР¶Рµ battle вЂ” РЅРµ СЃС‚Р°СЂС‚СѓРµРј
@@ -564,29 +640,25 @@ function startPrepCountdown() {
   broadcast(makeStateMessage(state));
 
   prepTimer = setInterval(() => {
-    if (state.phase !== 'prep') {
-      stopPrepTimer();
-      return;
-    }
+    withMatchRuntime(matchId, () => {
+      if (state.phase !== 'prep') {
+        stopPrepTimer();
+        return;
+      }
 
-    state.prepSecondsLeft = Math.max(0, Number(state.prepSecondsLeft ?? 0) - 1);
-    broadcast(makeStateMessage(state));
+      state.prepSecondsLeft = Math.max(0, Number(state.prepSecondsLeft ?? 0) - 1);
+      broadcast(makeStateMessage(state));
 
-    if (state.prepSecondsLeft <= 0) {
-      stopPrepTimer();
-      startBattle(); // Р°РІС‚Рѕ-СЃС‚Р°СЂС‚ Р±РѕСЏ
-    }
+      if (state.prepSecondsLeft <= 0) {
+        stopPrepTimer();
+        startBattle(); // Р°РІС‚Рѕ-СЃС‚Р°СЂС‚ Р±РѕСЏ
+      }
+    });
   }, 1000);
 }
 
 
-// РєС‚Рѕ РєР°РєРёРј СЋРЅРёС‚РѕРј СѓРїСЂР°РІР»СЏРµС‚
-/** @type {Map<string, Set<number>>} */
-const clientToUnits = new Map(); // clientId -> Set(unitIds)
-
-// РґРµСЂР¶РёРј СЃРїРёСЃРѕРє СЃРѕРєРµС‚РѕРІ
-/** @type {Map<string, import('ws').WebSocket>} */
-const clients = new Map();
+// РєС‚Рѕ РєР°РєРёРј СЋРЅРёС‚РѕРј СѓРїСЂР°РІР»СЏРµС‚ / active runtime maps.
 
 // ---- board limits (РґРѕР»Р¶РЅС‹ СЃРѕРІРїР°РґР°С‚СЊ СЃ РєР»РёРµРЅС‚РѕРј) ----
 const GRID_COLS = 12;
@@ -1917,6 +1989,7 @@ function resetToPrep() {
 }
 
 function finishBattle(result) {
+  const matchId = activeMatchId ?? DEFAULT_MATCH_ID;
   stopBattleTimers();
   const replayDamage = Number(state?.battleReplay?.winnerDamageByResult?.[result] ?? 0);
   const fallbackDefeatDamage = (result === 'defeat' && !state?.battleReplay)
@@ -1945,11 +2018,14 @@ function finishBattle(result) {
   broadcast(makeStateMessage(state));
 
   finishTimeout = setTimeout(() => {
-    resetToPrep();
+    withMatchRuntime(matchId, () => {
+      resetToPrep();
+    });
   }, 3000);
 }
 
 function startBattle() {
+  const matchId = activeMatchId ?? DEFAULT_MATCH_ID;
   stopPrepTimer();
   if (state.phase === 'battle') return;
   ensureSoloLobbyInitialized();
@@ -2013,24 +2089,28 @@ function startBattle() {
   let lastShownSeconds = Number(state.battleSecondsLeft ?? 0);
 
   battleCountdownTimer = setInterval(() => {
-    if (state.phase !== 'battle') {
-      clearInterval(battleCountdownTimer);
-      battleCountdownTimer = null;
-      return;
-    }
+    withMatchRuntime(matchId, () => {
+      if (state.phase !== 'battle') {
+        clearInterval(battleCountdownTimer);
+        battleCountdownTimer = null;
+        return;
+      }
 
-    const elapsed = Date.now() - startedAt;
-    const remainingMs = Math.max(0, battleDisplayMs - elapsed);
-    const nextSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
-    if (nextSeconds !== lastShownSeconds) {
-      lastShownSeconds = nextSeconds;
-      state.battleSecondsLeft = nextSeconds;
-      broadcast(makeStateMessage(state));
-    }
+      const elapsed = Date.now() - startedAt;
+      const remainingMs = Math.max(0, battleDisplayMs - elapsed);
+      const nextSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
+      if (nextSeconds !== lastShownSeconds) {
+        lastShownSeconds = nextSeconds;
+        state.battleSecondsLeft = nextSeconds;
+        broadcast(makeStateMessage(state));
+      }
+    });
   }, 250);
 
   finishTimeout = setTimeout(() => {
-    finishBattle(replayResult);
+    withMatchRuntime(matchId, () => {
+      finishBattle(replayResult);
+    });
   }, replayFinishMs);
 }
 
@@ -2488,64 +2568,67 @@ const server = http.createServer(app);
 
 const wss = new WebSocketServer({ server });
 
-wss.on('connection', (ws) => {
-  ws.matchId = DEFAULT_MATCH_ID;
-  ensureMatchRuntime(ws.matchId);
-
+wss.on('connection', (ws, req) => {
   const clientId = crypto.randomUUID();
-  clients.set(clientId, ws);
+  const reqUrl = new URL(req?.url ?? '/', 'http://localhost');
+  const requestedMatchId = String(reqUrl.searchParams.get('matchId') ?? '').trim();
+  const matchId = requestedMatchId || `solo-${clientId}`;
+  ws.matchId = matchId;
 
-  // РІС‹РґР°С‘Рј СЋРЅРёС‚ СЌС‚РѕРјСѓ РєР»РёРµРЅС‚Сѓ
-  const unitId = spawnPlayerUnitFor(clientId);
+  withMatchRuntime(matchId, () => {
+    clients.set(clientId, ws);
 
-  if (!state.shop?.offers || state.shop.offers.length !== SHOP_OFFER_COUNT) {
-    generateShopOffers();
-  }
+    const unitId = spawnPlayerUnitFor(clientId);
+    if (!state.shop?.offers || state.shop.offers.length !== SHOP_OFFER_COUNT) {
+      generateShopOffers();
+      ensureSoloLobbyInitialized();
+      syncRoundPairingsForCurrentRound();
+    }
 
-  // init С‚РѕР»СЊРєРѕ РїРѕРґРєР»СЋС‡РёРІС€РµРјСѓСЃСЏ
-  ws.send(JSON.stringify(makeInitMessage({
-    clientId,
-    unitId,
-    state,
-  })));
+    ws.send(JSON.stringify(makeInitMessage({
+      clientId,
+      unitId,
+      state,
+    })));
 
-  // Рё РѕР±РЅРѕРІР»С‘РЅРЅС‹Р№ state РІСЃРµРј (С‡С‚РѕР±С‹ РІСЃРµ РІРёРґРµР»Рё РЅРѕРІРѕРіРѕ РёРіСЂРѕРєР°)
-  broadcast(makeStateMessage(state));
+    broadcast(makeStateMessage(state));
+  });
 
   ws.on('message', (raw) => {
     let msg = null;
     try {
-        msg = JSON.parse(raw.toString());
+      msg = JSON.parse(raw.toString());
     } catch {
-    ws.send(JSON.stringify(makeErrorMessage('BAD_JSON', 'Cannot parse JSON')));
-        return;
+      ws.send(JSON.stringify(makeErrorMessage('BAD_JSON', 'Cannot parse JSON')));
+      return;
     }
 
-    handleIntent(clientId, msg, ws);
+    withMatchRuntime(ws.matchId ?? matchId, () => {
+      handleIntent(clientId, msg, ws);
+    });
   });
 
   ws.on('close', () => {
-    clients.delete(clientId);
-    
-    const owned = clientToUnits.get(clientId);
-    clientToUnits.delete(clientId);
+    const closedMatchId = ws.matchId ?? matchId;
+    withMatchRuntime(closedMatchId, () => {
+      clients.delete(clientId);
 
-    if (owned && owned.size > 0) {
-      state.units = state.units.filter(u => !owned.has(u.id));
-      broadcast(makeStateMessage(state));
-    }
+      const owned = clientToUnits.get(clientId);
+      clientToUnits.delete(clientId);
 
-    // РµСЃР»Рё РЅРёРєРѕРіРѕ РЅРµ РѕСЃС‚Р°Р»РѕСЃСЊ вЂ” РјРѕР¶РЅРѕ РѕСЃС‚Р°РЅРѕРІРёС‚СЊ С‚Р°Р№РјРµСЂС‹
-    const hasPlayers = state.units.some(u => u.team === 'player');
-    if (!hasPlayers) {
-      stopBattleTimers();
-      stopPrepTimer();
-      state.phase = 'prep';
-      state.result = null;
-      state.prepSecondsLeft = 0;
-    }
+      if (owned && owned.size > 0) {
+        state.units = state.units.filter((u) => !owned.has(u.id));
+        broadcast(makeStateMessage(state));
+      }
+
+      if (clients.size === 0) {
+        stopBattleTimers();
+        stopPrepTimer();
+        matchStore.delete(closedMatchId);
+        if (activeMatchId === closedMatchId) activeMatchId = null;
+      }
+    });
   });
-
 });
 
 const PORT = Number(process.env.PORT || 3001);

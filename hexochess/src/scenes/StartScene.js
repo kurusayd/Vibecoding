@@ -1,13 +1,7 @@
-﻿import Phaser from 'phaser';
+import Phaser from 'phaser';
 import { createFullscreenButton, positionFullscreenButton } from '../game/ui.js';
+import { DEFAULT_LOCALE, LOCALE_EN, LOCALE_RU, t } from '../game/localization.js';
 
-const MENU_TEXT = {
-  PLAY: '\u0418\u0433\u0440\u0430\u0442\u044c',
-  SHOP: '\u041c\u0430\u0433\u0430\u0437\u0438\u043d',
-  STORY: '\u0418\u0441\u0442\u043e\u0440\u0438\u044f',
-  COLLECTION: '\u041a\u043e\u043b\u043b\u0435\u043a\u0446\u0438\u044f',
-  TEST_SCENE: '\u0422\u0435\u0441\u0442\u043e\u0432\u0430\u044f',
-};
 const MENU_BUTTON_TEXTURE_KEY = 'menuButtonBg';
 const MENU_BUTTON_VERTICAL_GAP_PX = -25;
 const MENU_BUTTON_SCALE = 0.92;
@@ -19,10 +13,12 @@ const MENU_BUTTON_SHADOW_ALPHA = 0.32;
 const MENU_BUTTON_SHADOW_WIDTH_MUL = 0.96;
 const MENU_BLOCK_OFFSET_X = 280; // move whole menu block on X
 const MENU_BLOCK_OFFSET_Y = 80; // move whole menu block on Y
+
 const TG_ICON_TEXTURE_KEY = 'telegramIcon';
 const TG_URL = 'https://t.me/StationOfHorror';
 const X_ICON_TEXTURE_KEY = 'xIcon';
 const X_URL = 'https://x.com/DevisJJones';
+
 const SOCIAL_BLOCK_OFFSET_X = 0;
 const SOCIAL_BLOCK_OFFSET_Y = 60;
 const TG_ICON_SCALE = 0.4;
@@ -32,7 +28,7 @@ const X_ICON_SCALE = 0.35;
 const X_ICON_OFFSET_X = 0;
 const X_ICON_OFFSET_Y = 60;
 const X_ICON_ALPHA = 0.78;
-const JOIN_TEXT = 'Join';
+
 const JOIN_TEXT_FONT_SIZE_PX = 24;
 const JOIN_TEXT_OFFSET_X = 0;
 const JOIN_TEXT_OFFSET_Y = -6;
@@ -42,6 +38,21 @@ const JOIN_BG_CENTER_ALPHA = 0.05;
 const JOIN_BG_RADIUS_PX = 7;
 const JOIN_BG_BLUR_STEPS = 6;
 const JOIN_BG_PADDING_X_PX = 3;
+
+const LANG_BTN_FONT_SIZE_PX = 22;
+const LANG_BTN_INACTIVE_ALPHA = 0.36;
+const LANG_BTN_ACTIVE_ALPHA = 1;
+const LANG_BTN_GAP_PX = 12;
+const LANG_BTN_MARGIN_RIGHT_PX = 18;
+const LANG_BTN_MARGIN_BOTTOM_PX = 14;
+
+const MENU_ITEMS = [
+  { action: 'PLAY', textKey: 'MENU_PLAY' },
+  { action: 'SHOP', textKey: 'MENU_SHOP' },
+  { action: 'STORY', textKey: 'MENU_STORY' },
+  { action: 'COLLECTION', textKey: 'MENU_COLLECTION' },
+  { action: 'TEST_SCENE', textKey: 'MENU_TEST_SCENE' },
+];
 
 export default class StartScene extends Phaser.Scene {
   constructor() {
@@ -56,6 +67,9 @@ export default class StartScene extends Phaser.Scene {
   }
 
   create() {
+    this.resetSocialRefsIfStale();
+    this.locale = DEFAULT_LOCALE; // default EN on start scene
+
     this.bg = this.add.image(0, 0, 'menuMainBg')
       .setOrigin(0, 0)
       .setDepth(-10);
@@ -63,20 +77,11 @@ export default class StartScene extends Phaser.Scene {
 
     const cx = this.scale.width / 2 + MENU_BLOCK_OFFSET_X;
     const cy = this.scale.height / 2 + MENU_BLOCK_OFFSET_Y;
-    const labels = [
-      MENU_TEXT.PLAY,
-      MENU_TEXT.SHOP,
-      MENU_TEXT.STORY,
-      MENU_TEXT.COLLECTION,
-      MENU_TEXT.TEST_SCENE,
-    ];
-    const btnSource = this.textures.get(MENU_BUTTON_TEXTURE_KEY)?.getSourceImage?.();
-    const btnW = btnSource?.width ?? 300;
-    const btnH = btnSource?.height ?? 64;
+    const btnH = this.textures.get(MENU_BUTTON_TEXTURE_KEY)?.getSourceImage?.()?.height ?? 64;
     const buttonStep = btnH + MENU_BUTTON_VERTICAL_GAP_PX;
-    const yStart = cy - ((labels.length - 1) * buttonStep) / 2;
+    const yStart = cy - ((MENU_ITEMS.length - 1) * buttonStep) / 2;
 
-    this.menuButtons = labels.map((label, idx) => {
+    this.menuButtons = MENU_ITEMS.map((item, idx) => {
       const y = yStart + (idx * buttonStep);
       const btnShadow = this.add.image(cx, y + MENU_BUTTON_SHADOW_OFFSET_Y, MENU_BUTTON_TEXTURE_KEY)
         .setOrigin(0.5, 0.5)
@@ -91,7 +96,7 @@ export default class StartScene extends Phaser.Scene {
         .setScale(MENU_BUTTON_SCALE)
         .setInteractive({ useHandCursor: true });
 
-      const btnText = this.add.text(cx, y + MENU_BUTTON_TEXT_OFFSET_Y, String(label).toUpperCase(), {
+      const btnText = this.add.text(cx, y + MENU_BUTTON_TEXT_OFFSET_Y, this.tr(item.textKey).toUpperCase(), {
         fontFamily: 'CormorantSC-SemiBold, CormorantSC-Regular, Georgia, serif',
         fontSize: '30px',
         color: '#f7dec1',
@@ -142,7 +147,7 @@ export default class StartScene extends Phaser.Scene {
         );
         btnBg.setScale(MENU_BUTTON_SCALE * MENU_BUTTON_HOVER_SCALE_MUL);
         btnText.setScale(MENU_BUTTON_HOVER_SCALE_MUL);
-        this.onMenuClick(label);
+        this.onMenuClick(item.action);
       });
       btnBg.on('pointerupoutside', () => {
         btnShadow.setPosition(cx, y + MENU_BUTTON_SHADOW_OFFSET_Y);
@@ -152,56 +157,77 @@ export default class StartScene extends Phaser.Scene {
         btnBg.setScale(MENU_BUTTON_SCALE);
         btnText.setScale(1);
       });
-      return { shadow: btnShadow, bg: btnBg, text: btnText };
+
+      return { shadow: btnShadow, bg: btnBg, text: btnText, textKey: item.textKey, action: item.action };
     });
 
     createFullscreenButton(this);
     positionFullscreenButton(this);
+
     this.createTelegramCta();
+    this.createLanguageButtons();
+    this.applyLocalizationToStartScene();
     this.positionTelegramCta();
+    this.positionLanguageButtons();
 
     this.scale.on('resize', this.onResize, this);
     this.scale.on('enterfullscreen', this.positionTelegramCta, this);
     this.scale.on('leavefullscreen', this.positionTelegramCta, this);
+
     this.events.once('shutdown', () => this.scale.off('resize', this.onResize, this));
     this.events.once('destroy', () => this.scale.off('resize', this.onResize, this));
+
     this.events.once('shutdown', () => {
       this.scale.off('enterfullscreen', this.positionTelegramCta, this);
       this.scale.off('leavefullscreen', this.positionTelegramCta, this);
+      this.resetSocialRefs();
+      this.langEnBtn = null;
+      this.langRuBtn = null;
     });
+
     this.events.once('destroy', () => {
       this.scale.off('enterfullscreen', this.positionTelegramCta, this);
       this.scale.off('leavefullscreen', this.positionTelegramCta, this);
+      this.resetSocialRefs();
+      this.langEnBtn = null;
+      this.langRuBtn = null;
     });
   }
 
-  onMenuClick(label) {
-    if (label === MENU_TEXT.PLAY) {
+  tr(key) {
+    return t(this.locale, key);
+  }
+
+  onMenuClick(action) {
+    if (action === 'PLAY') {
       this.scene.start('BattleScene', { autoStart: true });
       return;
     }
-    if (label === MENU_TEXT.TEST_SCENE) {
+    if (action === 'TEST_SCENE') {
       this.scene.start('BattleScene', { openTestScene: true });
       return;
     }
-    // placeholders for next iterations
-    console.log(`[StartScene] TODO action: ${label}`);
+    console.log(`[StartScene] TODO action: ${action}`);
   }
 
   onResize() {
     this.resizeBackground();
+
     const cx = this.scale.width / 2 + MENU_BLOCK_OFFSET_X;
     const cy = this.scale.height / 2 + MENU_BLOCK_OFFSET_Y;
     const buttonStep = (this.textures.get(MENU_BUTTON_TEXTURE_KEY)?.getSourceImage?.()?.height ?? 64) + MENU_BUTTON_VERTICAL_GAP_PX;
     const yStart = cy - ((this.menuButtons?.length - 1) * buttonStep) / 2;
+
     this.menuButtons?.forEach?.((btn, idx) => {
       const y = yStart + (idx * buttonStep);
       btn?.shadow?.setPosition(cx, y + MENU_BUTTON_SHADOW_OFFSET_Y);
       btn?.bg?.setPosition(cx, y);
       btn?.text?.setPosition(cx, y + MENU_BUTTON_TEXT_OFFSET_Y);
     });
+
     positionFullscreenButton(this);
     this.positionTelegramCta();
+    this.positionLanguageButtons();
   }
 
   resizeBackground() {
@@ -215,11 +241,12 @@ export default class StartScene extends Phaser.Scene {
   }
 
   createTelegramCta() {
-    if (this.telegramCtaBlock) return;
+    if (this.telegramCtaBlock?.scene?.sys) return;
+    this.resetSocialRefs();
 
     this.telegramJoinBg = this.add.graphics();
 
-    this.telegramJoinText = this.add.text(0, 0, JOIN_TEXT, {
+    this.telegramJoinText = this.add.text(0, 0, this.tr('JOIN_CTA'), {
       fontFamily: 'CormorantSC-SemiBold, CormorantSC-Regular, Georgia, serif',
       fontSize: `${JOIN_TEXT_FONT_SIZE_PX}px`,
       color: '#ffffff',
@@ -233,7 +260,6 @@ export default class StartScene extends Phaser.Scene {
       .setScale(TG_ICON_SCALE)
       .setInteractive({ useHandCursor: true });
     this.telegramIcon.setPosition(TG_ICON_OFFSET_X, TG_ICON_OFFSET_Y);
-
     this.telegramIcon.on('pointerup', () => {
       window.open(TG_URL, '_blank', 'noopener,noreferrer');
     });
@@ -244,7 +270,6 @@ export default class StartScene extends Phaser.Scene {
       .setAlpha(X_ICON_ALPHA)
       .setInteractive({ useHandCursor: true });
     this.xIcon.setPosition(X_ICON_OFFSET_X, X_ICON_OFFSET_Y);
-
     this.xIcon.on('pointerup', () => {
       window.open(X_URL, '_blank', 'noopener,noreferrer');
     });
@@ -257,7 +282,21 @@ export default class StartScene extends Phaser.Scene {
     ])
       .setDepth(9998)
       .setScrollFactor(0);
+
     this.refreshTelegramJoinBackdrop();
+  }
+
+  resetSocialRefsIfStale() {
+    if (this.telegramCtaBlock?.scene?.sys) return;
+    this.resetSocialRefs();
+  }
+
+  resetSocialRefs() {
+    this.telegramCtaBlock = null;
+    this.telegramJoinBg = null;
+    this.telegramJoinText = null;
+    this.telegramIcon = null;
+    this.xIcon = null;
   }
 
   positionTelegramCta() {
@@ -281,9 +320,9 @@ export default class StartScene extends Phaser.Scene {
     const steps = Math.max(1, Math.floor(JOIN_BG_BLUR_STEPS));
 
     for (let i = 0; i < steps; i++) {
-      const t = steps <= 1 ? 1 : (i / (steps - 1));
-      const alpha = Phaser.Math.Linear(JOIN_BG_EDGE_ALPHA, JOIN_BG_CENTER_ALPHA, t * t);
-      const inset = Math.floor((1 - t) * Math.min(steps - 1, Math.floor(Math.min(textW, textH) * 0.25)));
+      const tNorm = steps <= 1 ? 1 : (i / (steps - 1));
+      const alpha = Phaser.Math.Linear(JOIN_BG_EDGE_ALPHA, JOIN_BG_CENTER_ALPHA, tNorm * tNorm);
+      const inset = Math.floor((1 - tNorm) * Math.min(steps - 1, Math.floor(Math.min(textW, textH) * 0.25)));
       const w = Math.max(1, textW - inset * 2);
       const h = Math.max(1, textH - inset * 2);
       const x = left + inset;
@@ -293,5 +332,66 @@ export default class StartScene extends Phaser.Scene {
       this.telegramJoinBg.fillStyle(JOIN_BG_COLOR, alpha);
       this.telegramJoinBg.fillRoundedRect(x, y, w, h, radius);
     }
+  }
+
+  createLanguageButtons() {
+    if (this.langEnBtn?.scene?.sys && this.langRuBtn?.scene?.sys) return;
+
+    this.langEnBtn = this.add.text(0, 0, this.tr('LANG_EN'), {
+      fontFamily: 'CormorantSC-SemiBold, CormorantSC-Regular, Georgia, serif',
+      fontSize: `${LANG_BTN_FONT_SIZE_PX}px`,
+      color: '#ffffff',
+    })
+      .setOrigin(1, 1)
+      .setDepth(9998)
+      .setScrollFactor(0)
+      .setInteractive({ useHandCursor: true });
+
+    this.langRuBtn = this.add.text(0, 0, this.tr('LANG_RU'), {
+      fontFamily: 'CormorantSC-SemiBold, CormorantSC-Regular, Georgia, serif',
+      fontSize: `${LANG_BTN_FONT_SIZE_PX}px`,
+      color: '#ffffff',
+    })
+      .setOrigin(1, 1)
+      .setDepth(9998)
+      .setScrollFactor(0)
+      .setInteractive({ useHandCursor: true });
+
+    this.langEnBtn.on('pointerup', () => this.setLocale(LOCALE_EN));
+    this.langRuBtn.on('pointerup', () => this.setLocale(LOCALE_RU));
+  }
+
+  positionLanguageButtons() {
+    if (!this.langEnBtn || !this.langRuBtn) return;
+    const view = this.scale.getViewPort();
+    const y = view.y + view.height - LANG_BTN_MARGIN_BOTTOM_PX;
+    const ruX = view.x + view.width - LANG_BTN_MARGIN_RIGHT_PX;
+    this.langRuBtn.setPosition(ruX, y);
+    this.langEnBtn.setPosition(ruX - (this.langRuBtn.width ?? 0) - LANG_BTN_GAP_PX, y);
+  }
+
+  setLocale(nextLocale) {
+    this.locale = String(nextLocale ?? DEFAULT_LOCALE).toUpperCase() === LOCALE_RU ? LOCALE_RU : LOCALE_EN;
+    this.applyLocalizationToStartScene();
+  }
+
+  applyLocalizationToStartScene() {
+    this.menuButtons?.forEach?.((btn) => {
+      if (!btn?.text || !btn?.textKey) return;
+      btn.text.setText(this.tr(btn.textKey).toUpperCase());
+    });
+
+    if (this.telegramJoinText) {
+      this.telegramJoinText.setText(this.tr('JOIN_CTA'));
+      this.refreshTelegramJoinBackdrop();
+    }
+
+    if (this.langEnBtn) this.langEnBtn.setText(this.tr('LANG_EN'));
+    if (this.langRuBtn) this.langRuBtn.setText(this.tr('LANG_RU'));
+
+    this.positionLanguageButtons();
+
+    if (this.langEnBtn) this.langEnBtn.setAlpha(this.locale === LOCALE_EN ? LANG_BTN_ACTIVE_ALPHA : LANG_BTN_INACTIVE_ALPHA);
+    if (this.langRuBtn) this.langRuBtn.setAlpha(this.locale === LOCALE_RU ? LANG_BTN_ACTIVE_ALPHA : LANG_BTN_INACTIVE_ALPHA);
   }
 }
