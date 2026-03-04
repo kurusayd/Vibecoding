@@ -82,3 +82,7 @@ export function makeShopRefreshIntent() {
 export function makeResetGameIntent() {
   return { type: 'intent', action: 'resetGame' };
 }
+
+export function makeRemoveUnitIntent(unitId) {
+  return { type: 'intent', action: 'removeUnit', unitId };
+}

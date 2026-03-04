@@ -36,9 +36,9 @@ export function installBattleSceneLifecycle(BattleScene) {
         this.positionDebugUI?.();
         this.positionShop?.();
         this.positionCoinsHUD?.();
+        this.positionTrashUi?.();
       };
       this.scale.on('resize', this._onResizeHandler);
     },
   });
 }
-

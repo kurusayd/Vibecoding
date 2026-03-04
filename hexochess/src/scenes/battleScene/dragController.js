@@ -19,6 +19,14 @@ export function installBattleSceneDrag(BattleScene) {
     },
 
     bindDragHandlers() {
+      const setTrashHoverTint = (unitId, enabled) => {
+        const vu = this.unitSys?.findUnit?.(unitId);
+        const art = vu?.art;
+        if (!art?.active) return;
+        if (enabled) art.setTint(0xff6b6b);
+        else art.clearTint();
+      };
+
       const restoreHoverAfterDrop = (pointer, unitId, preferredCell = null) => {
         if (!unitId) {
           this.hoverPickupCell = null;
@@ -61,8 +69,11 @@ export function installBattleSceneDrag(BattleScene) {
         if (!isPlayerBench && !isPrepManage) return;
         if (core.zone !== 'board' && core.zone !== 'bench') return;
 
+        this.collapseShopUi?.();
         const vu = this.unitSys.findUnit(uid);
         this.draggingUnitId = uid;
+        this.updateTrashVisual?.(true);
+        setTrashHoverTint(uid, false);
         this.dragMainCellOffsetX = 0;
         this.hoverPickupCell = null;
         const span = getUnitCellSpanX(core);
@@ -161,6 +172,9 @@ export function installBattleSceneDrag(BattleScene) {
           });
           this.dragBoardHover = hit ? { q: hit.q, r: hit.r } : this.dragBoardHover;
         }
+        const canTrashDrop = core.team === 'player';
+        const overTrash = canTrashDrop && this.isPointerOverTrash?.(pointer?.worldX, pointer?.worldY);
+        setTrashHoverTint(uid, !!overTrash);
         this.drawGrid();
       });
 
@@ -170,6 +184,8 @@ export function installBattleSceneDrag(BattleScene) {
         const dragMainCellOffsetX = Number(this.dragMainCellOffsetX ?? 0);
         this._unitInfoSuppressUntil = Number(this.time?.now ?? 0) + 180;
         this.draggingUnitId = null;
+        this.updateTrashVisual?.(false);
+        setTrashHoverTint(draggedId ?? uid, false);
         this.dragBoardHover = null;
         const dropBenchSlot = this.dragBenchHoverSlot;
         this.dragBenchHoverSlot = null;
@@ -212,6 +228,21 @@ export function installBattleSceneDrag(BattleScene) {
           this.renderFromState();
           restoreHoverAfterDrop(pointer, uid);
           this.drawGrid();
+          return;
+        }
+
+        if (core.team === 'player' && this.isPointerOverTrash?.(pointer?.worldX, pointer?.worldY)) {
+          this.dragMainCellOffsetX = 0;
+          this.hoverPickupCell = null;
+          this.drawGrid();
+          this.playTrashRemoveFx?.(uid, () => {
+            if (!this.testSceneActive) {
+              this.ws?.sendIntentRemoveUnit?.(uid);
+            } else {
+              this.battleState.units = (this.battleState?.units ?? []).filter((u) => String(u.id) !== String(uid));
+              this.renderFromState();
+            }
+          });
           return;
         }
 

@@ -905,6 +905,34 @@ function makeOfferFromCatalogUnit(base) {
   };
 }
 
+function getBaseShopCostForUnit(unitLike) {
+  const powerTypeFromUnit = String(unitLike?.powerType ?? '').trim();
+  if (powerTypeFromUnit && Number.isFinite(COST_BY_POWER_TYPE[powerTypeFromUnit])) {
+    return Number(COST_BY_POWER_TYPE[powerTypeFromUnit]);
+  }
+
+  const catalogEntry = UNIT_CATALOG.find((u) => String(u?.type ?? '') === String(unitLike?.type ?? ''));
+  const powerTypeFromCatalog = String(catalogEntry?.powerType ?? '').trim();
+  if (powerTypeFromCatalog && Number.isFinite(COST_BY_POWER_TYPE[powerTypeFromCatalog])) {
+    return Number(COST_BY_POWER_TYPE[powerTypeFromCatalog]);
+  }
+
+  return 1;
+}
+
+function getSellPriceMultiplierByRank(rank) {
+  const safeRank = Math.max(1, Math.min(3, Number(rank ?? 1)));
+  if (safeRank === 3) return 5;
+  if (safeRank === 2) return 2;
+  return 1;
+}
+
+function getSellPriceForUnit(unitLike) {
+  const baseCost = Math.max(1, Math.floor(Number(getBaseShopCostForUnit(unitLike) ?? 1)));
+  const mult = getSellPriceMultiplierByRank(unitLike?.rank);
+  return baseCost * mult;
+}
+
 function generateShopOffers() {
   state.shop = state.shop ?? { offers: [] };
   state.shop.offers = [];
@@ -2404,6 +2432,33 @@ function handleIntent(clientId, msg, ws) {
 
     applyMergesForClient(clientId, requestedUnitId);
 
+    broadcast(makeStateMessage(state));
+    return;
+  }
+
+  if (msg.action === 'removeUnit') {
+    if (!requireOwnedUnit()) return;
+
+    const me = findUnitById(requestedUnitId);
+    if (!me) {
+      ws.send(JSON.stringify(makeErrorMessage('NO_UNIT', 'Unit not found')));
+      return;
+    }
+
+    // Outside prep allow only bench management/removal, same as other bench actions.
+    if (state.phase !== 'prep' && me.zone !== 'bench') {
+      ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'Only bench units can be removed outside prep')));
+      return;
+    }
+
+    const sellRefund = getSellPriceForUnit(me);
+    state.kings = state.kings ?? {};
+    state.kings.player = state.kings.player ?? { hp: 100, maxHp: 100, coins: 0, level: 1, xp: 0 };
+    state.kings.player.coins = Number(state.kings.player.coins ?? 0) + sellRefund;
+    clampPlayerCoins();
+
+    removeOwnedUnit(state, owned, requestedUnitId);
+    applyMergesForClient(clientId, null);
     broadcast(makeStateMessage(state));
     return;
   }

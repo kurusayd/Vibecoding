@@ -111,6 +111,14 @@ const ABILITY_DESC_BY_KEY = {
 const MISS_HINT_TEXT = 'miss';
 const MISS_HINT_RISE_PX = 34;
 const MISS_HINT_DURATION_MS = 520;
+const TRASH_ICON_CLOSED_KEY = 'trash_close';
+const TRASH_ICON_OPEN_KEY = 'trash_open';
+const TRASH_ICON_SCALE = 0.33;
+const TRASH_ICON_OFFSET_X_PX = -10; // pixel offset from left king center (X)
+const TRASH_ICON_OFFSET_Y_PX = 220; // pixel offset from bottom edge of left king (Y)
+const TRASH_ICON_DEPTH = 1700;
+const TRASH_ICON_ALPHA_CLOSED = 0.9;
+const TRASH_ICON_ALPHA_OPEN = 1.0;
 
 const UNIT_FUN_LINES_BY_TYPE = {
   SkeletonArcher: ['Нанимался "тихим", но гремит костями на весь ряд.', 'Стреляет метко, жалуется громко.'],
@@ -206,6 +214,8 @@ export default class BattleScene extends Phaser.Scene {
     this.load.image('crownexp', '/assets/icons/crownexp.png');
     this.load.image('updateMarketIcon', '/assets/icons/update_market.png');
     this.load.image('broken_arrow', '/assets/icons/broken_arrow.png');
+    this.load.image(TRASH_ICON_CLOSED_KEY, '/assets/icons/trash/trash_close.png');
+    this.load.image(TRASH_ICON_OPEN_KEY, '/assets/icons/trash/trash_open.png');
     this.load.image('projectile_bone', '/assets/projectiles/bone.png');
 
     for (const asset of EXTRA_PORTRAIT_ASSETS) {
@@ -241,6 +251,7 @@ export default class BattleScene extends Phaser.Scene {
       token: 0,
       timers: [],
     };
+    this.trashRemoveAnimatingIds = new Set();
     this.coreUnitsById = new Map();
     this.kingXpCost = KING_XP_COST;
     this.kingMaxLevel = KING_MAX_LEVEL;
@@ -826,6 +837,8 @@ export default class BattleScene extends Phaser.Scene {
     createFullscreenButton(this);
     positionFullscreenButton(this);
     this.positionCoinsHUD();
+    this.initTrashUi();
+    this.positionTrashUi();
 
     // Debug and test-scene UI are installed by a dedicated UI module.
     this.initDebugUi?.();
@@ -908,6 +921,101 @@ export default class BattleScene extends Phaser.Scene {
     this.positionKings();
     this.drawKingHpBars(); // чтобы бары не остались в старых координатах
     this.positionCoinsHUD();
+    this.positionTrashUi();
+  }
+
+  initTrashUi() {
+    if (this.trashIcon?.scene?.sys) return;
+    this.trashIcon = this.add.image(0, 0, TRASH_ICON_CLOSED_KEY)
+      .setOrigin(0.5, 0.5)
+      .setDepth(TRASH_ICON_DEPTH)
+      .setScale(TRASH_ICON_SCALE)
+      .setAlpha(TRASH_ICON_ALPHA_CLOSED);
+    this.updateTrashVisual(false);
+  }
+
+  positionTrashUi() {
+    if (!this.trashIcon) return;
+    if (this.kingLeft?.active) {
+      this.trashIcon.setPosition(
+        this.kingLeft.x + TRASH_ICON_OFFSET_X_PX,
+        this.kingLeft.y + (this.kingHeight * 0.5) + TRASH_ICON_OFFSET_Y_PX
+      );
+      return;
+    }
+
+    // Fallback for very early lifecycle moments before king init.
+    this.trashIcon.setPosition(
+      90 + TRASH_ICON_OFFSET_X_PX,
+      this.scale.height - 90 + TRASH_ICON_OFFSET_Y_PX
+    );
+  }
+
+  updateTrashVisual(isOpen = false) {
+    if (!this.trashIcon) return;
+    const open = Boolean(isOpen);
+    this.trashIcon.setTexture(open ? TRASH_ICON_OPEN_KEY : TRASH_ICON_CLOSED_KEY);
+    this.trashIcon.setAlpha(open ? TRASH_ICON_ALPHA_OPEN : TRASH_ICON_ALPHA_CLOSED);
+  }
+
+  isPointerOverTrash(worldX, worldY) {
+    if (!this.trashIcon?.active) return false;
+    const b = this.trashIcon.getBounds?.();
+    if (!b) return false;
+    return b.contains(worldX, worldY);
+  }
+
+  playTrashRemoveFx(unitId, onComplete = null) {
+    this.trashRemoveAnimatingIds = this.trashRemoveAnimatingIds ?? new Set();
+    this.trashRemoveAnimatingIds.add(unitId);
+
+    const finish = () => {
+      this.trashRemoveAnimatingIds?.delete?.(unitId);
+      if (typeof onComplete === 'function') onComplete();
+    };
+
+    const vu = this.unitSys?.findUnit?.(unitId);
+    if (!vu || !vu.sprite?.active) {
+      finish();
+      return;
+    }
+
+    const tx = Number(this.trashIcon?.x ?? vu.sprite.x ?? 0);
+    const ty = Number(this.trashIcon?.y ?? vu.sprite.y ?? 0);
+    const targets = [
+      vu.sprite,
+      vu.dragHandle,
+      vu.art,
+      vu.label,
+    ].filter((obj) => obj?.active);
+
+    // Never animate helpers to trash: they may be re-shown by state sync in battle phase.
+    vu.footShadow?.setVisible(false);
+    vu.hpBar?.setVisible(false);
+    vu.rankIcon?.setVisible(false);
+
+    if (targets.length <= 0) {
+      finish();
+      return;
+    }
+
+    for (const obj of targets) {
+      this.tweens.killTweensOf(obj);
+      if (obj?.input) obj.input.enabled = false;
+      obj.setDepth?.(Math.max(Number(obj.depth ?? 0), TRASH_ICON_DEPTH + 2));
+    }
+
+    this.tweens.add({
+      targets,
+      x: tx,
+      y: ty,
+      alpha: 0,
+      scaleX: 0.08,
+      scaleY: 0.08,
+      ease: 'Cubic.In',
+      duration: 170,
+      onComplete: finish,
+    });
   }
 
   applyLocalPlayerKingTexture(textureKey) {
@@ -1212,6 +1320,7 @@ export default class BattleScene extends Phaser.Scene {
       vu._abilityCdStartAtMs = null;
       vu._abilityCdReadyAtMs = null;
       vu._abilityCdDurationMs = null;
+      vu._abilityCdReplayAnchorMs = null;
       vu._abilityCdUiEnabled = false;
       vu._abilityCdReadyFxArmed = false;
       vu._abilityCdReadyFxPlayed = false;
@@ -1368,7 +1477,24 @@ export default class BattleScene extends Phaser.Scene {
       const caster = byId.get(ev.casterId);
       if (caster) {
         if (this.pendingAbilityCastAnimIds) this.pendingAbilityCastAnimIds.add(caster.id);
-        this.startUnitAbilityCastUi?.(caster, Number(ev.castTimeMs ?? 0));
+        const castTimeMs = Math.max(0, Number(ev.castTimeMs ?? 0));
+        this.startUnitAbilityCastUi?.(caster, castTimeMs);
+
+        if (String(ev?.abilityKey ?? '') === 'undertaker_active') {
+          const replayToken = Number(this.serverReplayPlayback?.token ?? 0);
+          if (castTimeMs <= 0) {
+            this.restartUnitAbilityCooldownUi?.(caster);
+          } else {
+            const t = this.time.delayedCall(castTimeMs, () => {
+              if (!this.serverReplayPlayback?.active) return;
+              if (Number(this.serverReplayPlayback?.token ?? -1) !== replayToken) return;
+              const latestCaster = (this.battleState?.units ?? []).find((u) => Number(u?.id) === Number(caster.id));
+              if (!latestCaster || latestCaster.dead) return;
+              this.restartUnitAbilityCooldownUi?.(latestCaster);
+            });
+            this.serverReplayPlayback?.timers?.push?.(t);
+          }
+        }
       }
       return;
     }
@@ -1376,11 +1502,6 @@ export default class BattleScene extends Phaser.Scene {
     if (ev.type === 'spawn') {
       const spawned = ev?.unit ?? null;
       if (!spawned || !Number.isFinite(Number(spawned.id))) return;
-      const sourceCaster = byId.get(Number(ev?.sourceId ?? NaN));
-      if (sourceCaster && String(ev?.sourceAbilityKey ?? '') === 'undertaker_active') {
-        // Start cooldown UI when cast is resolved (spawn happened), not at cast start.
-        this.restartUnitAbilityCooldownUi?.(sourceCaster);
-      }
       const existing = byId.get(spawned.id);
       if (existing) {
         Object.assign(existing, spawned, { zone: 'board', dead: Boolean(spawned.dead ?? false) });
@@ -1587,6 +1708,7 @@ export default class BattleScene extends Phaser.Scene {
       vu._abilityCdStartAtMs = null;
       vu._abilityCdReadyAtMs = null;
       vu._abilityCdDurationMs = null;
+      vu._abilityCdReplayAnchorMs = null;
       vu._abilityCdUiEnabled = false;
       vu._abilityCdReadyFxArmed = false;
       vu._abilityCdReadyFxPlayed = false;
@@ -1605,13 +1727,36 @@ export default class BattleScene extends Phaser.Scene {
     const nowMs = Number(this.time?.now ?? 0);
     const replayStartMs = Number(this.serverReplayPlayback?.startTimeMs ?? nowMs);
     const nextAbilityAtRelMs = Number(core.nextAbilityAt ?? NaN);
+    const replayActive = Boolean(this.serverReplayPlayback?.active) && phase === 'battle' && !result;
+    const startAtMs = Number(vu._abilityCdStartAtMs ?? NaN);
+    const readyAtMs = Number(vu._abilityCdReadyAtMs ?? NaN);
+    const hasValidWindow = Number.isFinite(startAtMs) && Number.isFinite(readyAtMs) && readyAtMs > startAtMs;
+    const sameReplayAnchor = Number(vu._abilityCdReplayAnchorMs ?? NaN) === replayStartMs;
 
+    if (replayActive) {
+      // In replay mode do not continuously override cooldown from core.nextAbilityAt:
+      // snapshots/events may carry stale/static values. Initialize once and then restart on replay cast events.
+      if (!hasValidWindow || !sameReplayAnchor) {
+        const initialReadyAtMs =
+          (Number.isFinite(nextAbilityAtRelMs) && nextAbilityAtRelMs > 0)
+            ? (replayStartMs + nextAbilityAtRelMs)
+            : (replayStartMs + cooldownMs);
+        vu._abilityCdReadyAtMs = initialReadyAtMs;
+        vu._abilityCdStartAtMs = initialReadyAtMs - cooldownMs;
+        vu._abilityCdReplayAnchorMs = replayStartMs;
+      }
+      return;
+    }
+
+    // Non-replay authoritative updates: allow server-provided nextAbilityAt to drive UI.
     if (Number.isFinite(nextAbilityAtRelMs) && nextAbilityAtRelMs > 0) {
-      vu._abilityCdReadyAtMs = replayStartMs + nextAbilityAtRelMs;
+      vu._abilityCdReadyAtMs = nowMs + nextAbilityAtRelMs;
       vu._abilityCdStartAtMs = vu._abilityCdReadyAtMs - cooldownMs;
-    } else {
-      vu._abilityCdReadyAtMs = nowMs;
-      vu._abilityCdStartAtMs = nowMs - cooldownMs;
+      vu._abilityCdReplayAnchorMs = null;
+    } else if (!hasValidWindow) {
+      vu._abilityCdReadyAtMs = nowMs + cooldownMs;
+      vu._abilityCdStartAtMs = nowMs;
+      vu._abilityCdReplayAnchorMs = null;
     }
   }
 
@@ -1626,6 +1771,7 @@ export default class BattleScene extends Phaser.Scene {
     vu._abilityCdDurationMs = cooldownMs;
     vu._abilityCdStartAtMs = nowMs;
     vu._abilityCdReadyAtMs = nowMs + cooldownMs;
+    vu._abilityCdReplayAnchorMs = Number(this.serverReplayPlayback?.startTimeMs ?? nowMs);
     vu._abilityCdUiEnabled = true;
     vu._abilityCdReadyFxArmed = false;
     vu._abilityCdReadyFxPlayed = false;
@@ -1811,8 +1957,17 @@ export default class BattleScene extends Phaser.Scene {
     const dx = Number(targetX) - currentX;
     if (!Number.isFinite(dx) || Math.abs(dx) < 1) return;
 
-    // Атласы в текущем проекте по умолчанию смотрят вправо.
-    vu.art.setFlipX(dx < 0);
+    // Atlases are authored facing right by default.
+    // Keep facing + horizontal art offset in sync, otherwise mirrored turns "slide" sideways.
+    const mirrored = dx < 0;
+    vu._artFacingMirrored = mirrored;
+    vu.art.setFlipX(mirrored);
+
+    if (Number.isFinite(vu.q) && Number.isFinite(vu.r)) {
+      const lift = getUnitGroundLiftPx(vu.type);
+      const g = this.hexToGroundPixel(vu.q, vu.r, lift);
+      vu.art.setX(g.x + getUnitArtOffsetXPx(vu.type, mirrored));
+    }
   }
 
   faceUnitVisualTowardCoreUnit(vu, targetCoreUnit) {
@@ -2331,6 +2486,7 @@ export default class BattleScene extends Phaser.Scene {
 
   showUnitInfoModal(core) {
     if (!core || !this.unitInfoModal) return;
+    this.collapseShopUi?.();
     this.hoverPickupCell = null;
     this.selected = null;
     this.unitInfoUnitId = core.id;
@@ -2463,6 +2619,7 @@ export default class BattleScene extends Phaser.Scene {
     // 2) удалить тех, кого нет в core state
     for (const vu of this.unitSys.state.units.slice()) {
       if (!aliveIds.has(vu.id)) {
+        this.trashRemoveAnimatingIds?.delete?.(vu.id);
         if (this.mergeAbsorbAnimatingIds?.has(vu.id)) continue;
 
         const mergeTarget = this.findLikelyMergeTargetForMissingVisual(vu, visibleUnits, currentVisualById);
@@ -2499,6 +2656,7 @@ export default class BattleScene extends Phaser.Scene {
 
     // 4) создать новых и обновить существующих
     for (const u of visibleUnits) {
+      if (this.trashRemoveAnimatingIds?.has?.(u.id)) continue;
       const existing = byId.get(u.id);
 
       // ---- CREATE ----
@@ -2773,7 +2931,9 @@ export default class BattleScene extends Phaser.Scene {
       // Вне активного боя возвращаем базовый разворот спрайта:
       // player смотрит вправо, enemy — влево.
       if ((phase !== 'battle') || !!result) {
-        vu.art.setFlipX(u.team === 'enemy');
+        const baseMirrored = (u.team === 'enemy');
+        vu._artFacingMirrored = baseMirrored;
+        vu.art.setFlipX(baseMirrored);
       }
 
       const wantWalk =

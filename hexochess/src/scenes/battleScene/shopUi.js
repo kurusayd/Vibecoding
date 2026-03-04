@@ -235,6 +235,14 @@
       this.syncShopUI();
     },
 
+    collapseShopUi() {
+      const canShowShop = !this.testSceneActive && (this.battleState?.phase === 'prep' || this.battleState?.phase === 'battle');
+      if (!canShowShop) return;
+      if (this.shopCollapsed) return;
+      this.shopCollapsed = true;
+      this.syncShopUI?.();
+    },
+
     createShopCard(index) {
       const layout = this.shopCardLayout ?? { width: 132, height: 188 };
       const w = layout.width;

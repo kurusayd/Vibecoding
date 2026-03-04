@@ -12,6 +12,7 @@ import {
   makeShopBuyIntent,
   makeShopRefreshIntent,
   makeResetGameIntent,
+  makeRemoveUnitIntent,
 } from '../../shared/messages.js';
 
 export class WSClient {
@@ -123,6 +124,10 @@ export class WSClient {
 
   sendIntentResetGame() {
     return this.sendIntent(makeResetGameIntent());
+  }
+
+  sendIntentRemoveUnit(unitId) {
+    return this.sendIntent(makeRemoveUnitIntent(unitId));
   }
 
 
