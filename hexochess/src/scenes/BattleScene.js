@@ -117,6 +117,15 @@ const TRASH_COIN_BURST_FLIGHT_MS_MAX = 420;
 const TRASH_COIN_BURST_SCALE_START = 0.11;
 const TRASH_COIN_BURST_SCALE_END = 0.035;
 const TRASH_COIN_BURST_ALPHA = 0.95;
+const KING_RENDER_DEPTH_BASE = 1550;
+const BENCH_FOREGROUND_START_SLOT = 4; // 5th slot from top (0-based)
+const BENCH_DEPTH_SLOT_STEP = 6;
+const BENCH_DEPTH_BACKGROUND_BASE = KING_RENDER_DEPTH_BASE - 40;
+const BENCH_DEPTH_FOREGROUND_BASE = KING_RENDER_DEPTH_BASE + 10;
+// Bench depth invariant:
+// - slots 1..4 (0..3) must stay BELOW king
+// - slots 5..8 (4..7) must stay ABOVE king
+// - inside each group lower slot index renders below higher one (vertical painter order)
 
 const UNIT_FUN_LINES_BY_TYPE = {
   SkeletonArcher: ['Нанимался "тихим", но гремит костями на весь ряд.', 'Стреляет метко, жалуется громко.'],
@@ -285,13 +294,13 @@ export default class BattleScene extends Phaser.Scene {
     this.kingHeight = this.kingSize;
 
     // HP bars
-    this.kingLeftHpBg = this.add.graphics().setDepth(52);
-    this.kingLeftHpLagFill = this.add.graphics().setDepth(53);
-    this.kingLeftHpFill = this.add.graphics().setDepth(53);
+    this.kingLeftHpBg = this.add.graphics().setDepth(KING_RENDER_DEPTH_BASE + 2);
+    this.kingLeftHpLagFill = this.add.graphics().setDepth(KING_RENDER_DEPTH_BASE + 3);
+    this.kingLeftHpFill = this.add.graphics().setDepth(KING_RENDER_DEPTH_BASE + 3);
 
-    this.kingRightHpBg = this.add.graphics().setDepth(52);
-    this.kingRightHpLagFill = this.add.graphics().setDepth(53);
-    this.kingRightHpFill = this.add.graphics().setDepth(53);
+    this.kingRightHpBg = this.add.graphics().setDepth(KING_RENDER_DEPTH_BASE + 2);
+    this.kingRightHpLagFill = this.add.graphics().setDepth(KING_RENDER_DEPTH_BASE + 3);
+    this.kingRightHpFill = this.add.graphics().setDepth(KING_RENDER_DEPTH_BASE + 3);
 
     // king hp animation state: instant value + delayed lag value (like unit hp bars)
     this.kingHpAnim = {
@@ -301,10 +310,10 @@ export default class BattleScene extends Phaser.Scene {
     this.kingHpLock = { player: null, enemy: null };
     this.kingDamageFxToken = 0;
 
-    this.kingLeft = this.add.image(0, 0, 'king').setDepth(50);
+    this.kingLeft = this.add.image(0, 0, 'king').setDepth(KING_RENDER_DEPTH_BASE);
     this.kingLeft.setDisplaySize(this.kingWidth, this.kingHeight);
 
-    this.kingRight = this.add.image(0, 0, 'king').setDepth(50).setFlipX(true);
+    this.kingRight = this.add.image(0, 0, 'king').setDepth(KING_RENDER_DEPTH_BASE).setFlipX(true);
     this.kingRight.setDisplaySize(this.kingWidth, this.kingHeight);
 
     this.localPlayerKingTextureKey = 'king_princess'; // локальный override только для отображения игрока (debug)
@@ -653,12 +662,12 @@ export default class BattleScene extends Phaser.Scene {
     };
 
     this.kingLeftHpText = this.add.text(0, 0, '', hpTextStyle)
-      .setDepth(54)
+      .setDepth(KING_RENDER_DEPTH_BASE + 4)
       .setOrigin(0.5, 0.5)
       .setShadow(0, 0, '#000000', 4, true, true);
 
     this.kingRightHpText = this.add.text(0, 0, '', hpTextStyle)
-      .setDepth(54)
+      .setDepth(KING_RENDER_DEPTH_BASE + 4)
       .setOrigin(0.5, 0.5)
       .setShadow(0, 0, '#000000', 4, true, true);
 
@@ -669,12 +678,12 @@ export default class BattleScene extends Phaser.Scene {
     };
 
     this.kingLeftNameText = this.add.text(0, 0, PLAYER_KING_DISPLAY_NAME, kingNameTextStyle)
-      .setDepth(54)
+      .setDepth(KING_RENDER_DEPTH_BASE + 4)
       .setOrigin(0.5, 1)
       .setShadow(0, 0, '#000000', 4, true, true);
 
     this.kingRightNameText = this.add.text(0, 0, ENEMY_KING_DISPLAY_NAME, kingNameTextStyle)
-      .setDepth(54)
+      .setDepth(KING_RENDER_DEPTH_BASE + 4)
       .setOrigin(0.5, 1)
       .setShadow(0, 0, '#000000', 4, true, true)
       .setVisible(false);
@@ -1450,6 +1459,27 @@ export default class BattleScene extends Phaser.Scene {
         });
       }
     });
+  }
+
+  applyBenchDepthForVisual(vu, slotRaw) {
+    const slotRawNum = Number.isInteger(slotRaw) ? slotRaw : 0;
+    const slot = Phaser.Math.Clamp(slotRawNum, 0, 7);
+    const isForeground = slot >= BENCH_FOREGROUND_START_SLOT;
+    const layerBase = isForeground ? BENCH_DEPTH_FOREGROUND_BASE : BENCH_DEPTH_BACKGROUND_BASE;
+    // Keep vertical painter order on bench inside each layer:
+    // lower slots (bigger index) render above upper ones, while
+    // slots 1-4 stay below king and 5-8 stay above king.
+    const layerSlot = isForeground ? (slot - BENCH_FOREGROUND_START_SLOT) : slot;
+    const base = layerBase + (layerSlot * BENCH_DEPTH_SLOT_STEP);
+
+    // Keep stable local ordering inside bench layer.
+    vu?.footShadow?.setDepth?.(base + 1);
+    vu?.sprite?.setDepth?.(base + 2);
+    vu?.art?.setDepth?.(base + 3);
+    vu?.label?.setDepth?.(base + 4);
+    vu?.rankIcon?.setDepth?.(base + 5);
+    vu?.hpBar?.setDepth?.(base + 6);
+    vu?.dragHandle?.setDepth?.(base + 7);
   }
 
   applyLocalPlayerKingTexture(textureKey) {
@@ -3289,6 +3319,7 @@ export default class BattleScene extends Phaser.Scene {
           if (created.hpBar) created.hpBar.setVisible(false);
           if (created.rankIcon) created.rankIcon.setVisible(!u.dead);
           if (created.footShadow) created.footShadow.setVisible(!u.dead);
+          this.applyBenchDepthForVisual?.(created, slot);
           if (created) updateHpBar(this, created);
         } else {
           created.zone = 'board';
@@ -3306,6 +3337,10 @@ export default class BattleScene extends Phaser.Scene {
 
         byId.set(created.id, created);
         this.unitSys.setUnitDead?.(u.id, !!u.dead);
+        if (u.zone === 'bench') {
+          const slot = Number.isInteger(u.benchSlot) ? u.benchSlot : 0;
+          this.applyBenchDepthForVisual?.(created, slot);
+        }
 
         // Фидбэк появления: новый юнит игрока слегка bounce-ится
         // и на поле, и на скамейке.
@@ -3366,6 +3401,7 @@ export default class BattleScene extends Phaser.Scene {
 
         if (vu?.hpBar) vu.hpBar.setVisible(false);
         if (vu?.rankIcon) vu.rankIcon.setVisible(!u.dead);
+        this.applyBenchDepthForVisual?.(vu, slot);
         const benchPlacementChanged = prevZone !== 'bench' || prevBenchSlot !== Number(slot);
         if (benchPlacementChanged && u.team === 'player' && !u.dead) {
           this.playUnitFeedbackBounce?.(vu, { scaleMul: 1.06, duration: 90 });
@@ -3419,6 +3455,10 @@ export default class BattleScene extends Phaser.Scene {
       // HP
       this.unitSys.setUnitHp(u.id, u.hp, u.maxHp ?? existing.maxHp);
       this.unitSys.setUnitDead?.(u.id, !!u.dead);
+      if (u.zone === 'bench') {
+        const slot = Number.isInteger(u.benchSlot) ? u.benchSlot : 0;
+        this.applyBenchDepthForVisual?.(vu, slot);
+      }
 
       // draggable всем юнитам игрока в prep + обновление буквы
       if (vu?.label) {
