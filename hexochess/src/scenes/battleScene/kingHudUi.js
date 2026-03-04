@@ -20,6 +20,9 @@ export function installBattleSceneKingHudUi(BattleScene) {
       if (this.kingXpBuyBtn) {
         this.kingXpBuyBtn.setPosition(baseX + 222, xpY);
       }
+      if (this.kingUnitCapHud) {
+        this.kingUnitCapHud.setPosition(baseX + 288, xpY);
+      }
 
       const iconW = this.kingLeftCoinIcon.displayWidth || this.coinSize;
       const coinTextReserveW = Number(this.coinHudTextReserveW ?? 42);
@@ -84,6 +87,70 @@ export function installBattleSceneKingHudUi(BattleScene) {
           this.kingXpBuyBtnCostText?.setStroke('#b35a00', 2);
           this.kingXpBuyBtnTopText?.setColor('#fff0cf');
         }
+      }
+
+      if (this.kingUnitCapHud && this.kingUnitCapCurrentText && this.kingUnitCapSlashMaxText) {
+        const phase = this.battleState?.phase ?? 'prep';
+        const result = this.battleState?.result ?? null;
+        // X counts only active board units; bench units are intentionally ignored.
+        const boardUnits = (this.battleState?.units ?? []).filter((u) => (
+          u?.team === 'player' &&
+          u?.zone === 'board' &&
+          !u?.dead
+        ));
+        const liveBoardUnits = Number(boardUnits.length ?? 0);
+        const lockedBoardUnits = Number(this.lockedPlayerBoardUnitCount ?? NaN);
+        const useLockedCount = phase === 'battle' || result != null;
+        const currentUnits = useLockedCount && Number.isFinite(lockedBoardUnits)
+          ? lockedBoardUnits
+          : liveBoardUnits;
+        const allowedUnits = Math.max(1, Number(lvl ?? 1));
+        const isOverflow = currentUnits > allowedUnits;
+
+        this.kingUnitCapCurrentText
+          .setText(`${currentUnits}`)
+          .setColor(isOverflow ? '#ff5f5f' : '#ffffff')
+          .setStroke(isOverflow ? '#6b1212' : '#6e6e6e', 2);
+        this.kingUnitCapSlashMaxText
+          .setText(`\u2009/\u2009${allowedUnits}`)
+          .setColor('#ffffff')
+          .setStroke('#6e6e6e', 2);
+
+        const textGap = 0;
+        const currentW = Number(this.kingUnitCapCurrentText.width ?? 0);
+        this.kingUnitCapCurrentText.setPosition(-textGap / 2, 0);
+        this.kingUnitCapSlashMaxText.setPosition(textGap / 2, 0);
+
+        const suffixW = Number(this.kingUnitCapSlashMaxText.width ?? 0);
+        const currentH = Number(this.kingUnitCapCurrentText.height ?? 13);
+        const suffixH = Number(this.kingUnitCapSlashMaxText.height ?? 13);
+        const totalW = Math.max(1, currentW + textGap + suffixW);
+        const totalH = Math.max(1, Math.max(currentH, suffixH));
+        const bgPadX = 3;
+        const bgW = totalW + bgPadX * 2;
+        const bgH = totalH;
+        const bgLeft = -bgW / 2;
+        const bgTop = -bgH / 2;
+        const blurSteps = 6;
+        const edgeAlpha = 0.03;
+        const centerAlpha = 0.05;
+        const bgRadius = 7;
+        this.kingUnitCapTextBg?.clear?.();
+        for (let i = 0; i < blurSteps; i++) {
+          const tNorm = blurSteps <= 1 ? 1 : (i / (blurSteps - 1));
+          const alpha = Phaser.Math.Linear(edgeAlpha, centerAlpha, tNorm * tNorm);
+          const inset = Math.floor((1 - tNorm) * Math.min(blurSteps - 1, Math.floor(Math.min(bgW, bgH) * 0.25)));
+          const w = Math.max(1, bgW - inset * 2);
+          const h = Math.max(1, bgH - inset * 2);
+          const x = bgLeft + inset;
+          const y = bgTop + inset;
+          const radius = Math.max(1, bgRadius - Math.floor(inset * 0.5));
+          this.kingUnitCapTextBg?.fillStyle?.(0x000000, alpha);
+          this.kingUnitCapTextBg?.fillRoundedRect?.(x, y, w, h, radius);
+        }
+        this.kingUnitCapTextGroup?.setPosition?.(-7, Number(this.kingUnitCapTextGroup.y ?? 30));
+
+        this.kingUnitCapHud.setVisible(!this.testSceneActive);
       }
 
       const phase = this.battleState?.phase ?? 'prep';

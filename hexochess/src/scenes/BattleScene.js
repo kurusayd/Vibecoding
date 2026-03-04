@@ -185,6 +185,7 @@ export default class BattleScene extends Phaser.Scene {
     this.load.image('king', '/assets/kings/king_princess.png');
     this.load.image('coin', '/assets/icons/Coin.png');
     this.load.image('bookExp', '/assets/icons/BookExp.png');
+    this.load.image('unit', '/assets/icons/unit.png');
     this.load.image('figure_pawn', '/assets/icons/figures/pawn.png');
     this.load.image('figure_knight', '/assets/icons/figures/knight.png');
     this.load.image('figure_bishop', '/assets/icons/figures/bishop.png');
@@ -239,6 +240,7 @@ export default class BattleScene extends Phaser.Scene {
       token: 0,
       timers: [],
     };
+    this.lockedPlayerBoardUnitCount = null;
     this.trashRemoveAnimatingIds = new Set();
     this.coreUnitsById = new Map();
     this.kingXpCost = KING_XP_COST;
@@ -478,16 +480,32 @@ export default class BattleScene extends Phaser.Scene {
     const xpBuyCostCoinSize = 14;
     const xpBuyCostBlurCenterX = -8;
     this.kingXpBuyBtnCostBlurSoft = this.add.graphics();
-    this.kingXpBuyBtnCostBlurSoft.fillStyle(0x000000, 0.5);
-    this.kingXpBuyBtnCostBlurSoft.fillRoundedRect(xpBuyCostBlurCenterX - 15, -8, 30, 16, 6);
-    this.kingXpBuyBtnCostBlurSoft.lineStyle(1, 0x1a1a1a, 0.45);
-    this.kingXpBuyBtnCostBlurSoft.strokeRoundedRect(xpBuyCostBlurCenterX - 15, -8, 30, 16, 6);
-    this.kingXpBuyBtnCoin = this.add.image(-12, 0, 'coin')
+    const xpBuyBlurW = 30;
+    const xpBuyBlurH = 16;
+    const xpBuyBlurLeft = xpBuyCostBlurCenterX - 15;
+    const xpBuyBlurTop = -8;
+    const xpBuyBlurSteps = 6;
+    const xpBuyBlurEdgeAlpha = 0.03;
+    const xpBuyBlurCenterAlpha = 0.05;
+    const xpBuyBlurRadius = 7;
+    for (let i = 0; i < xpBuyBlurSteps; i++) {
+      const tNorm = xpBuyBlurSteps <= 1 ? 1 : (i / (xpBuyBlurSteps - 1));
+      const alpha = Phaser.Math.Linear(xpBuyBlurEdgeAlpha, xpBuyBlurCenterAlpha, tNorm * tNorm);
+      const inset = Math.floor((1 - tNorm) * Math.min(xpBuyBlurSteps - 1, Math.floor(Math.min(xpBuyBlurW, xpBuyBlurH) * 0.25)));
+      const w = Math.max(1, xpBuyBlurW - inset * 2);
+      const h = Math.max(1, xpBuyBlurH - inset * 2);
+      const x = xpBuyBlurLeft + inset;
+      const y = xpBuyBlurTop + inset;
+      const radius = Math.max(1, xpBuyBlurRadius - Math.floor(inset * 0.5));
+      this.kingXpBuyBtnCostBlurSoft.fillStyle(0x000000, alpha);
+      this.kingXpBuyBtnCostBlurSoft.fillRoundedRect(x, y, w, h, radius);
+    }
+    this.kingXpBuyBtnCoin = this.add.image(-13, 0, 'coin')
       .setDisplaySize(xpBuyCostCoinSize, xpBuyCostCoinSize)
       .setOrigin(0.5, 0.5);
-    this.kingXpBuyBtnCostText = this.add.text(-4, 0, `${KING_XP_BUY_COST}`, {
+    this.kingXpBuyBtnCostText = this.add.text(-2, 0, `${KING_XP_BUY_COST}`, {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-      fontSize: '13px',
+      fontSize: '12px',
       color: '#ffd85a',
       fontStyle: 'bold',
     })
@@ -534,6 +552,45 @@ export default class BattleScene extends Phaser.Scene {
       this.kingXpBuyBtnTopText,
       this.kingXpBuyBtnCostGroup,
       this.kingXpBuyBtnHit,
+    ]);
+
+    // --- UNIT CAP HUD (icon + current/max units on board) ---
+    this.kingUnitCapHud = this.add.container(0, 0)
+      .setScrollFactor(0)
+      .setDepth(9998);
+    this.kingUnitCapIcon = this.add.image(0, 0, 'unit')
+      .setDisplaySize(50, 50)
+      .setOrigin(0.5, 0.5);
+
+    const unitCapTextGroupY = 30;
+    const unitCapTextGroupScale = 1.5;
+    this.kingUnitCapTextBg = this.add.graphics();
+    this.kingUnitCapCurrentText = this.add.text(0, 0, '1', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '12px',
+      color: '#ffffff',
+      fontStyle: 'bold',
+    })
+      .setOrigin(1, 0.5)
+      .setStroke('#6e6e6e', 2)
+      .setShadow(0, 0, '#000000', 2, true, true);
+    this.kingUnitCapSlashMaxText = this.add.text(0, 0, '\u2009/\u20091', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '12px',
+      color: '#ffffff',
+      fontStyle: 'bold',
+    })
+      .setOrigin(0, 0.5)
+      .setStroke('#6e6e6e', 2)
+      .setShadow(0, 0, '#000000', 2, true, true);
+    this.kingUnitCapTextGroup = this.add.container(0, unitCapTextGroupY, [
+      this.kingUnitCapTextBg,
+      this.kingUnitCapCurrentText,
+      this.kingUnitCapSlashMaxText,
+    ]).setScale(unitCapTextGroupScale);
+    this.kingUnitCapHud.add([
+      this.kingUnitCapIcon,
+      this.kingUnitCapTextGroup,
     ]);
     this.kingXpBuyHintText = this.add.text(0, 0, 'Не хватает', {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',

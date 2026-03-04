@@ -142,8 +142,20 @@ export function installBattleSceneStateSync(BattleScene) {
       }
 
       if (phaseChanged) {
-        if (nextState?.phase === 'battle' && !nextState?.result) this.shopCollapsed = true;
-        if (nextState?.phase === 'prep' && !nextState?.result) this.shopCollapsed = false;
+        if (nextState?.phase === 'battle' && !nextState?.result) {
+          this.shopCollapsed = true;
+          // Freeze X from player board at battle start; bench must not affect this value.
+          const battleStartUnits = (nextState?.units ?? []).filter((u) => (
+            u?.team === 'player' &&
+            u?.zone === 'board' &&
+            !u?.dead
+          ));
+          this.lockedPlayerBoardUnitCount = Number(battleStartUnits.length ?? 0);
+        }
+        if (nextState?.phase === 'prep' && !nextState?.result) {
+          this.shopCollapsed = false;
+          this.lockedPlayerBoardUnitCount = null;
+        }
         if (nextState?.phase !== 'battle') {
           this.kingDamageFxToken += 1;
           this.kingHpLock.player = null;
@@ -169,7 +181,8 @@ export function installBattleSceneStateSync(BattleScene) {
       const needRender = (unitsChanged || phaseChanged || resultChanged);
       const needGrid = needRender;
       const needPhaseUi = phaseUiChanged;
-      const needKingsUi = phaseUiChanged || kingsChanged;
+      // Kings HUD also contains board unit counter (X / Y), so it must refresh on unit moves.
+      const needKingsUi = phaseUiChanged || kingsChanged || unitsChanged;
       const needShopUi = phaseChanged || resultChanged || kingsChanged || shopChanged;
       const needRefreshDraggable = (unitsChanged || phaseChanged || resultChanged);
 
