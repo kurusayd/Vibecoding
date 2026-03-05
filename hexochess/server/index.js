@@ -619,7 +619,7 @@ function resetGameToStart() {
     enemy:  {
       hp: 100, maxHp: 100, coins: 0, visible: false, level: 1, xp: 0,
       name: 'bot 1',
-      visualKey: 'bot_bishop',
+      visualKey: 'black_pawn',
       coinIncomeMultiplier: 1,
     },
   };
@@ -837,6 +837,7 @@ const UNDERTAKER_ABILITY_KEY = 'undertaker_active';
 const UNDERTAKER_CAST_TIME_MS = 1000;
 const WORM_SWALLOW_ABILITY_KEY = 'worm_swallow';
 const WORM_SWALLOW_DIGEST_MS = 6000;
+const WORM_SWALLOW_CHANCE = 0.5;
 const WORM_DIGEST_SPEED_MULT = 0.7; // 30% slower while digesting swallowed unit
 const MAX_ACTIONS_PER_UNIT_PER_TICK = 8;
 const SNAPSHOT_STEP_MS = 100;
@@ -1935,8 +1936,9 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
             !liveTarget.dead &&
             liveTarget.zone === 'board' &&
             tickTimeMs + 1e-6 >= Math.max(0, Number(me.nextAbilityAt ?? 0));
+          const wormSwallowRollOk = Math.random() < WORM_SWALLOW_CHANCE;
 
-          if (canWormSwallowNow) {
+          if (canWormSwallowNow && wormSwallowRollOk) {
             me.nextAttackAt = Math.max(me.nextAttackAt, tickTimeMs) + attackIntervalMs;
             me.attackSeq = Number(me.attackSeq ?? 0) + 1;
             const attackSeq = Number(me.attackSeq ?? 0);

@@ -35,10 +35,10 @@ import {
 import { getUnitCellSpanX, getBoardCellsForUnit } from './battleScene/unitFootprint.js';
 
 const EXTRA_PORTRAIT_ASSETS = [
-  { key: 'bot_bishop', path: '/assets/bots/bot_bishop.png' },
-  { key: 'bot_knight', path: '/assets/bots/bot_knight.png' },
-  { key: 'bot_queen', path: '/assets/bots/bot_queen.png' },
-  { key: 'bot_rook', path: '/assets/bots/bot_rook.png' },
+  { key: 'black_knight', path: '/assets/bots/black_knight.png' },
+  { key: 'black_pawn', path: '/assets/bots/black_pawn.png' },
+  { key: 'white_knight', path: '/assets/bots/white_knight.png' },
+  { key: 'white_pawn', path: '/assets/bots/white_pawn.png' },
   { key: 'king_frog', path: '/assets/kings/king_frog.png' },
   { key: 'king_king', path: '/assets/kings/king_king.png' },
   { key: 'king_princess', path: '/assets/kings/king_princess.png' },

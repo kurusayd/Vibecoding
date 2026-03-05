@@ -7,7 +7,7 @@ export const BOT_PROFILES_BY_INDEX = {
     index: 1,
     id: 'bot-1',
     name: 'bot 1',
-    kingVisualKey: 'bot_bishop',
+    kingVisualKey: 'black_pawn',
     difficulty: { coinIncomeMultiplier: 1.0 },
     armyPreset: [
       cell(6, 4, 'Swordsman'),
@@ -21,7 +21,7 @@ export const BOT_PROFILES_BY_INDEX = {
     index: 2,
     id: 'bot-2',
     name: 'bot 2',
-    kingVisualKey: 'bot_knight',
+    kingVisualKey: 'black_knight',
     difficulty: { coinIncomeMultiplier: 1.0 },
     armyPreset: [
       cell(6, 4, 'Crusader'),
@@ -35,7 +35,7 @@ export const BOT_PROFILES_BY_INDEX = {
     index: 3,
     id: 'bot-3',
     name: 'bot 3',
-    kingVisualKey: 'bot_queen',
+    kingVisualKey: 'white_pawn',
     difficulty: { coinIncomeMultiplier: 1.0 },
     armyPreset: [
       cell(7, 4, 'Zombie'),
@@ -49,7 +49,7 @@ export const BOT_PROFILES_BY_INDEX = {
     index: 4,
     id: 'bot-4',
     name: 'bot 4',
-    kingVisualKey: 'bot_rook',
+    kingVisualKey: 'white_knight',
     difficulty: { coinIncomeMultiplier: 1.0 },
     armyPreset: [
       cell(6, 3, 'Vampire'),
