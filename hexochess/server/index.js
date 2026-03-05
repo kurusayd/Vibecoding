@@ -835,6 +835,9 @@ const GHOST_EVASION_DODGE_CHANCE = 0.5;
 const UNDERTAKER_SUMMON_TYPE = 'SimpleSkeleton';
 const UNDERTAKER_ABILITY_KEY = 'undertaker_active';
 const UNDERTAKER_CAST_TIME_MS = 1000;
+const WORM_SWALLOW_ABILITY_KEY = 'worm_swallow';
+const WORM_SWALLOW_DIGEST_MS = 6000;
+const WORM_DIGEST_SPEED_MULT = 0.7; // 30% slower while digesting swallowed unit
 const MAX_ACTIONS_PER_UNIT_PER_TICK = 8;
 const SNAPSHOT_STEP_MS = 100;
 
@@ -1369,6 +1372,82 @@ function isAttackDodgedByTarget(unit) {
   return Math.random() < GHOST_EVASION_DODGE_CHANCE;
 }
 
+function hasWormSwallowPassive(unit) {
+  if (!unit) return false;
+  return String(unit.abilityType ?? 'none') === 'passive'
+    && String(unit.abilityKey ?? '') === WORM_SWALLOW_ABILITY_KEY;
+}
+
+function releaseWormSwallowedVictimIn(simState, wormId, timeMs, { collectTimeline = false, events = [] } = {}) {
+  const worm = findUnitByIdIn(simState, wormId);
+  if (!worm) return false;
+  const victimId = Number(worm.wormSwallowedUnitId ?? NaN);
+  if (!Number.isFinite(victimId)) return false;
+  const victim = findUnitByIdIn(simState, victimId);
+  if (!victim) {
+    worm.wormSwallowedUnitId = null;
+    worm.wormDigestEndsAt = null;
+    return false;
+  }
+  if (victim.dead || victim.zone !== 'swallowed') {
+    worm.wormSwallowedUnitId = null;
+    worm.wormDigestEndsAt = null;
+    victim.swallowedByUnitId = null;
+    victim.swallowedAtHp = null;
+    return false;
+  }
+
+  const swallowedHp = Math.max(1, Number(victim.swallowedAtHp ?? victim.hp ?? 1));
+  const releaseHp = Math.max(1, Math.floor(swallowedHp * 0.5));
+
+  victim.zone = 'board';
+  victim.benchSlot = null;
+  victim.dead = false;
+  victim.hp = Math.min(Math.max(1, releaseHp), Number(victim.maxHp ?? releaseHp));
+  victim.q = Number(worm.q ?? victim.q ?? 0);
+  victim.r = Number(worm.r ?? victim.r ?? 0);
+  victim.nextAttackAt = Math.max(0, Number(victim.nextAttackAt ?? 0));
+  victim.nextMoveAt = Math.max(0, Number(victim.nextMoveAt ?? 0));
+  victim.nextActionAt = Math.max(0, Number(victim.nextActionAt ?? 0));
+  victim.moveStartAt = -1;
+  victim.moveEndAt = -1;
+  victim.moveFromQ = victim.q;
+  victim.moveFromR = victim.r;
+  victim.swallowedByUnitId = null;
+  victim.swallowedAtHp = null;
+
+  worm.wormSwallowedUnitId = null;
+  worm.wormDigestEndsAt = null;
+
+  if (collectTimeline) {
+    events.push({
+      t: Number(timeMs ?? 0),
+      type: 'worm_release',
+      wormId: Number(worm.id),
+      targetId: Number(victim.id),
+      q: Number(victim.q),
+      r: Number(victim.r),
+      hp: Number(victim.hp ?? 1),
+      maxHp: Number(victim.maxHp ?? victim.hp ?? 1),
+    });
+  }
+  return true;
+}
+
+function releaseSwallowedVictimsFromDeadWormsIn(simState, timeMs, { collectTimeline = false, events = [] } = {}) {
+  let changed = false;
+  for (const u of (simState?.units ?? [])) {
+    if (!u) continue;
+    if (!hasWormSwallowPassive(u)) continue;
+    const swallowedId = Number(u.wormSwallowedUnitId ?? NaN);
+    if (!Number.isFinite(swallowedId)) continue;
+    const wormUnavailable = Boolean(u.dead) || u.zone !== 'board';
+    if (!wormUnavailable) continue;
+    changed = releaseWormSwallowedVictimIn(simState, u.id, timeMs, { collectTimeline, events }) || changed;
+  }
+  return changed;
+}
+
 function pickBestStepTowardIn(simState, attacker, target, timeMs) {
   const attackerPos = getCombatHexAtIn(simState, attacker, timeMs);
   const targetPos = getCombatHexAtIn(simState, target, timeMs);
@@ -1482,6 +1561,7 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
   const snapshots = [];
   const pendingDamageEvents = [];
   const pendingSummonEvents = [];
+  const pendingDigestEvents = [];
   let simNextUnitId = (simState.units ?? []).reduce((mx, u) => Math.max(mx, Number(u?.id ?? 0)), 0) + 1;
   const undertakerSummonBase = UNIT_CATALOG.find((u) => String(u.type ?? '') === UNDERTAKER_SUMMON_TYPE) ?? null;
 
@@ -1592,6 +1672,9 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
             ...(chainMeta ?? {}),
           });
         }
+        if (dmgRes.killed) {
+          releaseWormSwallowedVictimIn(simState, next.targetId, dueAt, { collectTimeline, events });
+        }
       }
     }
 
@@ -1691,6 +1774,42 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
       }
     }
 
+    if (pendingDigestEvents.length > 0) {
+      pendingDigestEvents.sort((a, b) => Number(a?.t ?? 0) - Number(b?.t ?? 0));
+      while (pendingDigestEvents.length > 0) {
+        const next = pendingDigestEvents[0];
+        const dueAt = Number(next?.t ?? Infinity);
+        if (!Number.isFinite(dueAt) || dueAt > tickTimeMs + 1e-6) break;
+        pendingDigestEvents.shift();
+
+        const worm = findUnitByIdIn(simState, next.wormId);
+        const target = findUnitByIdIn(simState, next.targetId);
+        if (!worm || !target) continue;
+        if (worm.dead || worm.zone !== 'board') continue;
+        if (Number(worm.wormSwallowedUnitId ?? NaN) !== Number(target.id)) continue;
+        if (target.zone !== 'swallowed' || target.dead) continue;
+
+        target.hp = 0;
+        target.dead = true;
+        target.zone = 'swallowed';
+        target.swallowedByUnitId = null;
+        target.swallowedAtHp = null;
+        worm.wormSwallowedUnitId = null;
+        worm.wormDigestEndsAt = null;
+        didSomething = true;
+
+        if (collectTimeline) {
+          events.push({
+            t: dueAt,
+            type: 'worm_digest',
+            wormId: Number(worm.id),
+            targetId: Number(target.id),
+          });
+        }
+      }
+    }
+
+    releaseSwallowedVictimsFromDeadWormsIn(simState, tickTimeMs, { collectTimeline, events });
     result = computeResultIn(simState);
     if (result) break;
 
@@ -1708,10 +1827,14 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
 
       const attackSpeed = Math.max(0.1, Number(me.attackSpeed ?? DEFAULT_UNIT_ATTACK_SPEED));
       const moveSpeed = Math.max(0.1, Number(me.moveSpeed ?? DEFAULT_UNIT_MOVE_SPEED));
+      const wormDigestingNow =
+        hasWormSwallowPassive(me) &&
+        Number.isFinite(Number(me.wormSwallowedUnitId ?? NaN));
+      const digestSpeedMult = wormDigestingNow ? WORM_DIGEST_SPEED_MULT : 1;
       const abilityCooldownSec = Math.max(0, Number(me.abilityCooldown ?? 0));
       const abilityIntervalMs = abilityCooldownSec * 1000;
-      const attackIntervalMs = 1000 / attackSpeed;
-      const moveIntervalMs = 1000 / moveSpeed;
+      const attackIntervalMs = 1000 / Math.max(0.1, attackSpeed * digestSpeedMult);
+      const moveIntervalMs = 1000 / Math.max(0.1, moveSpeed * digestSpeedMult);
       me.nextAttackAt = Math.max(0, Number(me.nextAttackAt ?? 0));
       me.nextMoveAt = Math.max(0, Number(me.nextMoveAt ?? 0));
       // Unified action gate:
@@ -1720,8 +1843,9 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
       if (Number.isFinite(Number(me.nextAbilityAt))) {
         me.nextAbilityAt = Math.max(0, Number(me.nextAbilityAt ?? 0));
       } else {
-        // Any active ability starts on cooldown by default.
-        me.nextAbilityAt = abilityIntervalMs;
+        // Active abilities start on cooldown by default, but Worm swallow
+        // must be ready at battle start for gameplay/testing.
+        me.nextAbilityAt = hasWormSwallowPassive(me) ? 0 : abilityIntervalMs;
       }
       const isUndertakerSummoner =
         String(me.abilityType ?? 'none') === 'active'
@@ -1774,6 +1898,74 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
         if (!isUndertakerSummoner && dist <= attackRangeMax) {
           if (tickTimeMs + 1e-6 < me.nextActionAt) break;
           if (tickTimeMs + 1e-6 < me.nextAttackAt) break;
+
+          const canWormSwallowNow =
+            hasWormSwallowPassive(me) &&
+            Number.isFinite(Number(liveTarget?.id)) &&
+            Number(me.wormSwallowedUnitId ?? NaN) !== Number(liveTarget.id) &&
+            !liveTarget.dead &&
+            liveTarget.zone === 'board' &&
+            tickTimeMs + 1e-6 >= Math.max(0, Number(me.nextAbilityAt ?? 0));
+
+          if (canWormSwallowNow) {
+            me.nextAttackAt = Math.max(me.nextAttackAt, tickTimeMs) + attackIntervalMs;
+            me.attackSeq = Number(me.attackSeq ?? 0) + 1;
+            const attackSeq = Number(me.attackSeq ?? 0);
+            const digestAt = tickTimeMs + WORM_SWALLOW_DIGEST_MS;
+            const swallowedHp = Math.max(1, Number(liveTarget.hp ?? 1));
+
+            liveTarget.zone = 'swallowed';
+            liveTarget.benchSlot = null;
+            liveTarget.swallowedByUnitId = Number(me.id);
+            liveTarget.swallowedAtHp = swallowedHp;
+
+            me.wormSwallowedUnitId = Number(liveTarget.id);
+            me.wormDigestEndsAt = digestAt;
+            me.nextAbilityAt = digestAt;
+
+            pendingDigestEvents.push({
+              t: digestAt,
+              wormId: Number(me.id),
+              targetId: Number(liveTarget.id),
+            });
+
+            unitActions += 1;
+            didSomething = true;
+
+            if (collectTimeline) {
+              events.push({
+                t: tickTimeMs,
+                type: 'attack',
+                attackerId: me.id,
+                targetId: liveTarget.id,
+                attackerTeam: me.team,
+                attackSeq,
+                dist: Number(dist),
+                attackRangeMax: Number(attackRangeMax),
+                attackRangeFullDamage: Number(attackRangeMax),
+                isRanged: false,
+                projectileSpeed: 0,
+                projectileTravelMs: 0,
+              });
+              events.push({
+                t: tickTimeMs,
+                type: 'ability_cast',
+                casterId: me.id,
+                abilityKey: WORM_SWALLOW_ABILITY_KEY,
+                castTimeMs: 0,
+              });
+              events.push({
+                t: tickTimeMs,
+                type: 'worm_swallow',
+                wormId: Number(me.id),
+                targetId: Number(liveTarget.id),
+                digestMs: WORM_SWALLOW_DIGEST_MS,
+                targetHp: swallowedHp,
+                targetMaxHp: Number(liveTarget.maxHp ?? swallowedHp),
+              });
+            }
+            break;
+          }
 
           const res = performAttackIn(simState, me.id, liveTarget.id, tickTimeMs);
           me.nextAttackAt = Math.max(me.nextAttackAt, tickTimeMs) + attackIntervalMs;
@@ -1861,6 +2053,9 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
                     damageSource: 'attack',
                   });
                 }
+                if (dmgRes.success && dmgRes.killed) {
+                  releaseWormSwallowedVictimIn(simState, liveTarget.id, tickTimeMs, { collectTimeline, events });
+                }
               }
             }
           }
@@ -1908,10 +2103,12 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
         }
       }
 
+      releaseSwallowedVictimsFromDeadWormsIn(simState, tickTimeMs, { collectTimeline, events });
       result = computeResultIn(simState);
       if (result) break;
     }
 
+    releaseSwallowedVictimsFromDeadWormsIn(simState, tickTimeMs, { collectTimeline, events });
     result = computeResultIn(simState);
     if (result) break;
 
@@ -1966,12 +2163,18 @@ function sanitizeUnitForBattleStart(unit) {
   unit.nextAttackAt = 0;
   unit.nextMoveAt = 0;
   unit.nextActionAt = 0;
-  unit.nextAbilityAt = Math.max(0, Number(unit.abilityCooldown ?? 0) * 1000);
+  unit.nextAbilityAt = hasWormSwallowPassive(unit)
+    ? 0
+    : Math.max(0, Number(unit.abilityCooldown ?? 0) * 1000);
   unit.attackSeq = 0;
   unit.moveStartAt = -1;
   unit.moveEndAt = -1;
   unit.moveFromQ = unit.q;
   unit.moveFromR = unit.r;
+  unit.wormSwallowedUnitId = null;
+  unit.wormDigestEndsAt = null;
+  unit.swallowedByUnitId = null;
+  unit.swallowedAtHp = null;
 }
 
 function clonePlayerUnitForPrep(unit) {
@@ -1986,6 +2189,10 @@ function clonePlayerUnitForPrep(unit) {
   clone.moveFromQ = clone.q;
   clone.moveFromR = clone.r;
   clone.dead = false;
+  clone.wormSwallowedUnitId = null;
+  clone.wormDigestEndsAt = null;
+  clone.swallowedByUnitId = null;
+  clone.swallowedAtHp = null;
   if (Number(clone.hp ?? 0) <= 0) {
     clone.hp = Number(clone.maxHp ?? clone.hp ?? 1);
   }

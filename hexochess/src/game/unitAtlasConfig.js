@@ -158,6 +158,16 @@ export const UNIT_ATLAS_DEFS = [
     framePrefix: 'psd_anim',
   },
   {
+    type: 'WormFat',
+    atlasKey: 'worm_fat_atlas',
+    atlasPath: '/assets/units/undead/worm/fat/worm_fat_atlas',
+    idleAnim: 'worm_fat_idle',
+    walkAnim: 'worm_fat_walk',
+    attackAnim: 'worm_fat_attack',
+    deadAnim: 'worm_fat_dead',
+    framePrefix: 'psd_anim_fat',
+  },
+  {
     type: 'Lich',
     atlasKey: 'lich_atlas',
     atlasPath: '/assets/units/undead/lich/lich_atlas',

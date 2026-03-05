@@ -64,6 +64,7 @@ const areUnitsEqual = (a, b) => {
       x.q !== y.q || x.r !== y.r ||
       x.zone !== y.zone ||
       x.benchSlot !== y.benchSlot ||
+      Number(x.wormSwallowedUnitId ?? 0) !== Number(y.wormSwallowedUnitId ?? 0) ||
       x.team !== y.team ||
       x.type !== y.type ||
       x.rank !== y.rank ||

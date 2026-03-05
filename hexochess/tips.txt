@@ -22,3 +22,10 @@ rs - перезапуск сервера
 
 Держать контекст только по проекту: e:\vibecoding\hexochess
 Смотреть файлы только в папках: public, server, shared, src
+
+Если возникает ошибка при мердже ветки:
+В терминале в папке проекта:
+
+git remote -v
+git fetch --prune
+git branch -r

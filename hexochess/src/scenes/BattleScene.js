@@ -117,6 +117,13 @@ const TRASH_COIN_BURST_FLIGHT_MS_MAX = 420;
 const TRASH_COIN_BURST_SCALE_START = 0.11;
 const TRASH_COIN_BURST_SCALE_END = 0.035;
 const TRASH_COIN_BURST_ALPHA = 0.95;
+const WORM_SWALLOW_ABILITY_KEY = 'worm_swallow';
+const WORM_FAT_ANIMS = {
+  idle: 'worm_fat_idle',
+  walk: 'worm_fat_walk',
+  attack: 'worm_fat_attack',
+  dead: 'worm_fat_dead',
+};
 const KING_RENDER_DEPTH_BASE = 1550;
 const BENCH_FOREGROUND_START_SLOT = 4; // 5th slot from top (0-based)
 const BENCH_DEPTH_SLOT_STEP = 6;
@@ -1947,11 +1954,12 @@ export default class BattleScene extends Phaser.Scene {
     if (ev.type === 'ability_cast') {
       const caster = byId.get(ev.casterId);
       if (caster) {
-        if (this.pendingAbilityCastAnimIds) this.pendingAbilityCastAnimIds.add(caster.id);
         const castTimeMs = Math.max(0, Number(ev.castTimeMs ?? 0));
+        if (castTimeMs > 0 && this.pendingAbilityCastAnimIds) this.pendingAbilityCastAnimIds.add(caster.id);
         this.startUnitAbilityCastUi?.(caster, castTimeMs);
 
-        if (String(ev?.abilityKey ?? '') === 'undertaker_active') {
+        const abilityKey = String(ev?.abilityKey ?? '');
+        if (abilityKey === 'undertaker_active' || abilityKey === WORM_SWALLOW_ABILITY_KEY) {
           const replayToken = Number(this.serverReplayPlayback?.token ?? 0);
           if (castTimeMs <= 0) {
             this.restartUnitAbilityCooldownUi?.(caster);
@@ -1966,6 +1974,51 @@ export default class BattleScene extends Phaser.Scene {
             this.serverReplayPlayback?.timers?.push?.(t);
           }
         }
+      }
+      return;
+    }
+
+    if (ev.type === 'worm_swallow') {
+      const worm = byId.get(ev.wormId);
+      const target = byId.get(ev.targetId);
+      if (worm) {
+        worm.wormSwallowedUnitId = Number(ev.targetId ?? worm.wormSwallowedUnitId ?? 0);
+      }
+      if (target) {
+        target.zone = 'swallowed';
+        target.benchSlot = null;
+        target.dead = false;
+        if (Number.isFinite(Number(ev.targetHp))) target.hp = Number(ev.targetHp);
+        if (Number.isFinite(Number(ev.targetMaxHp))) target.maxHp = Number(ev.targetMaxHp);
+      }
+      return;
+    }
+
+    if (ev.type === 'worm_digest') {
+      const worm = byId.get(ev.wormId);
+      const target = byId.get(ev.targetId);
+      if (worm) worm.wormSwallowedUnitId = null;
+      if (target) {
+        target.hp = 0;
+        target.dead = true;
+        target.zone = 'swallowed';
+        target.benchSlot = null;
+      }
+      return;
+    }
+
+    if (ev.type === 'worm_release') {
+      const worm = byId.get(ev.wormId);
+      const target = byId.get(ev.targetId);
+      if (worm) worm.wormSwallowedUnitId = null;
+      if (target) {
+        target.zone = 'board';
+        target.benchSlot = null;
+        target.dead = false;
+        if (Number.isFinite(Number(ev.q))) target.q = Number(ev.q);
+        if (Number.isFinite(Number(ev.r))) target.r = Number(ev.r);
+        if (Number.isFinite(Number(ev.maxHp))) target.maxHp = Number(ev.maxHp);
+        if (Number.isFinite(Number(ev.hp))) target.hp = Number(ev.hp);
       }
       return;
     }
@@ -2172,10 +2225,12 @@ export default class BattleScene extends Phaser.Scene {
     const vu = visualUnit ?? this.unitSys?.findUnit?.(core?.id);
     if (!core || !vu) return;
 
-    const isActiveAbility = String(core.abilityType ?? 'none') === 'active';
+    const hasCooldownAbility =
+      String(core.abilityType ?? 'none') === 'active' ||
+      this.isWormSwallowAbilityCore?.(core);
     const cooldownSec = Math.max(0, Number(core.abilityCooldown ?? 0));
     const cooldownMs = cooldownSec * 1000;
-    if (!isActiveAbility || cooldownMs <= 0) {
+    if (!hasCooldownAbility || cooldownMs <= 0) {
       vu._abilityCdStartAtMs = null;
       vu._abilityCdReadyAtMs = null;
       vu._abilityCdDurationMs = null;
@@ -2192,6 +2247,9 @@ export default class BattleScene extends Phaser.Scene {
 
     const phase = this.battleState?.phase ?? 'prep';
     const result = this.battleState?.result ?? null;
+    const wormDigestingNow =
+      this.isWormSwallowAbilityCore?.(core) &&
+      Number.isFinite(Number(core.wormSwallowedUnitId ?? NaN));
     const canShowEntryEnemyAbilityUi =
       phase === 'entry' &&
       !result &&
@@ -2200,7 +2258,8 @@ export default class BattleScene extends Phaser.Scene {
     vu._abilityCdUiEnabled =
       ((phase === 'battle' && !result) || canShowEntryEnemyAbilityUi) &&
       core.zone === 'board' &&
-      !core.dead;
+      !core.dead &&
+      (!this.isWormSwallowAbilityCore?.(core) || wormDigestingNow);
     vu._abilityCdDurationMs = cooldownMs;
 
     const nowMs = Number(this.time?.now ?? 0);
@@ -2216,8 +2275,13 @@ export default class BattleScene extends Phaser.Scene {
       // In replay mode do not continuously override cooldown from core.nextAbilityAt:
       // snapshots/events may carry stale/static values. Initialize once and then restart on replay cast events.
       if (!hasValidWindow || !sameReplayAnchor) {
+        const wormReadyNow =
+          this.isWormSwallowAbilityCore?.(core) &&
+          (!Number.isFinite(nextAbilityAtRelMs) || nextAbilityAtRelMs <= 0);
         const initialReadyAtMs =
-          (Number.isFinite(nextAbilityAtRelMs) && nextAbilityAtRelMs > 0)
+          wormReadyNow
+            ? replayStartMs
+            : (Number.isFinite(nextAbilityAtRelMs) && nextAbilityAtRelMs > 0)
             ? (replayStartMs + nextAbilityAtRelMs)
             : (replayStartMs + cooldownMs);
         vu._abilityCdReadyAtMs = initialReadyAtMs;
@@ -2233,10 +2297,28 @@ export default class BattleScene extends Phaser.Scene {
       vu._abilityCdStartAtMs = vu._abilityCdReadyAtMs - cooldownMs;
       vu._abilityCdReplayAnchorMs = null;
     } else if (!hasValidWindow) {
-      vu._abilityCdReadyAtMs = nowMs + cooldownMs;
-      vu._abilityCdStartAtMs = nowMs;
+      if (this.isWormSwallowAbilityCore?.(core)) {
+        vu._abilityCdReadyAtMs = nowMs;
+        vu._abilityCdStartAtMs = nowMs - cooldownMs;
+      } else {
+        vu._abilityCdReadyAtMs = nowMs + cooldownMs;
+        vu._abilityCdStartAtMs = nowMs;
+      }
       vu._abilityCdReplayAnchorMs = null;
     }
+  }
+
+  isWormSwallowAbilityCore(core) {
+    if (!core) return false;
+    return String(core.abilityType ?? 'none') === 'passive'
+      && String(core.abilityKey ?? '') === WORM_SWALLOW_ABILITY_KEY;
+  }
+
+  isWormFatCore(core) {
+    if (!core) return false;
+    if (String(core.type ?? '') !== 'Worm') return false;
+    const swallowedId = Number(core.wormSwallowedUnitId ?? NaN);
+    return Number.isFinite(swallowedId) && swallowedId > 0;
   }
 
   restartUnitAbilityCooldownUi(coreUnitLike) {
@@ -2245,7 +2327,10 @@ export default class BattleScene extends Phaser.Scene {
     if (!core || !vu) return;
     const cooldownSec = Math.max(0, Number(core.abilityCooldown ?? 0));
     const cooldownMs = cooldownSec * 1000;
-    if (String(core.abilityType ?? 'none') !== 'active' || cooldownMs <= 0) return;
+    const hasCooldownAbility =
+      String(core.abilityType ?? 'none') === 'active' ||
+      this.isWormSwallowAbilityCore?.(core);
+    if (!hasCooldownAbility || cooldownMs <= 0) return;
     const nowMs = Number(this.time?.now ?? 0);
     vu._abilityCdDurationMs = cooldownMs;
     vu._abilityCdStartAtMs = nowMs;
@@ -2291,18 +2376,21 @@ export default class BattleScene extends Phaser.Scene {
     const vu = this.unitSys?.findUnit?.(unitId);
     if (!core || !vu) return NaN;
 
-    const isActiveAbility = String(core.abilityType ?? 'none') === 'active';
+    const hasCooldownAbility =
+      String(core.abilityType ?? 'none') === 'active' ||
+      this.isWormSwallowAbilityCore?.(core);
     const cooldownSec = Math.max(0, Number(core.abilityCooldown ?? 0));
     const cooldownMs = cooldownSec * 1000;
     const phase = this.battleState?.phase ?? 'prep';
     const result = this.battleState?.result ?? null;
-    if (!isActiveAbility || cooldownMs <= 0) return NaN;
+    if (!hasCooldownAbility || cooldownMs <= 0) return NaN;
     const canShowEntryEnemyAbilityUi =
       phase === 'entry' &&
       !result &&
       core.team === 'enemy' &&
       !!this.entryEnemyUnitsUiVisible;
     if ((phase !== 'battle' && !canShowEntryEnemyAbilityUi) || !!result || core.zone !== 'board' || core.dead) return NaN;
+    if (this.isWormSwallowAbilityCore?.(core) && !Number.isFinite(Number(core.wormSwallowedUnitId ?? NaN))) return NaN;
 
     const nowMs = Number(this.time?.now ?? 0);
     const castStartAtMs = Number(vu._abilityCastStartAtMs ?? NaN);
@@ -3140,6 +3228,7 @@ export default class BattleScene extends Phaser.Scene {
     const visibleUnits = [];
     const aliveIds = new Set();
     for (const u of (this.battleState?.units ?? [])) {
+      if (u.zone === 'swallowed') continue;
       if (!this.testSceneActive && phase === 'prep' && u.team === 'enemy') continue;
       if (!this.testSceneActive && phase === 'entry' && u.team === 'enemy' && !this.entryEnemyUnitsVisible) continue;
       visibleUnits.push(u);
@@ -3508,7 +3597,12 @@ export default class BattleScene extends Phaser.Scene {
       const vu = byId.get(u.id);
       if (!vu?.art) continue;
       if (this.draggingUnitId != null && String(u.id) === String(this.draggingUnitId)) continue;
-      const animDef = UNIT_ANIMS_BY_TYPE[u.type];
+      const wormFatActive =
+        this.isWormFatCore?.(u) &&
+        this.anims.exists(WORM_FAT_ANIMS.idle);
+      const animDef = wormFatActive
+        ? WORM_FAT_ANIMS
+        : UNIT_ANIMS_BY_TYPE[u.type];
       if (!animDef) continue;
 
       // Вне активного боя возвращаем базовый разворот спрайта:
