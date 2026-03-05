@@ -3527,16 +3527,10 @@ export default class BattleScene extends Phaser.Scene {
         !!vu._moveTween;
       const wantAttack =
         !u.dead &&
-        (phase === 'battle') &&
-        !result &&
-        (u.zone === 'board') &&
         this.anims.exists(animDef.attack) &&
         !!vu._attackAnimPlaying;
       const wantCast =
         !u.dead &&
-        (phase === 'battle') &&
-        !result &&
-        (u.zone === 'board') &&
         !!animDef.spell &&
         this.anims.exists(animDef.spell) &&
         !!vu._castAnimPlaying;

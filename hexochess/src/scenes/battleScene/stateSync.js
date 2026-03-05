@@ -200,13 +200,8 @@ export function installBattleSceneStateSync(BattleScene) {
         }
       }
 
-      if (phaseChanged || resultChanged) {
-        for (const vu of (this.unitSys?.state?.units ?? [])) {
-          vu._attackAnimPlaying = false;
-          vu._attackAnimForceReplay = false;
-        }
-        this.pendingAttackAnimIds?.clear?.();
-      }
+      // Do not hard-reset unit attack/cast playback on phase/result switch:
+      // currently playing animations must finish naturally (animationcomplete).
 
       const needRender = (unitsChanged || phaseChanged || resultChanged);
       const needGrid = needRender;
@@ -222,6 +217,7 @@ export function installBattleSceneStateSync(BattleScene) {
       if (needKingsUi) this.syncKingsUI();
       this.maybeStartKingDamageFx?.(prevState, nextState, { resultChanged });
       if (needShopUi) this.syncShopUI();
+      if (shopChanged) this.shopPendingBuyOfferIndex = null;
       if (needRefreshDraggable) this.refreshAllDraggable();
       this.syncDebugUI?.();
 
@@ -234,6 +230,11 @@ export function installBattleSceneStateSync(BattleScene) {
     handleServerError(err) {
       if (this.testSceneActive) return;
       console.warn('Server error:', err?.code, err?.message || err);
+
+      if (err?.code === 'NO_SPACE') {
+        const idx = Number(this.shopPendingBuyOfferIndex);
+        this.showShopCardHint?.(idx, 'Нет места');
+      }
 
       if (err?.code === 'OCCUPIED' || err?.code === 'MOVE_DENIED' || err?.code === 'NOT_OWNER') {
         this.renderFromState();

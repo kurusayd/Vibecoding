@@ -79,6 +79,7 @@
     initShopUI() {
       this.shopCards = [];
       this.shopCollapsed = false;
+      this.shopPendingBuyOfferIndex = null;
       this.shopRefreshBusy = false;
       this.shopRefreshUnlockTimer = null;
       this.shopRefreshRequestTimer = null;
@@ -346,6 +347,18 @@
         .setOrigin(0.5, 0.5)
         .setInteractive({ useHandCursor: true });
 
+      const failHintText = this.add.text(0, top - 10, 'Нет места', {
+        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+        fontSize: '18px',
+        color: '#ffffff',
+        fontStyle: 'bold',
+        stroke: '#4b0000',
+        strokeThickness: 3,
+      })
+        .setOrigin(0.5, 1)
+        .setAlpha(0)
+        .setVisible(false);
+
       card.container = container;
       card.shadow = shadow;
       card.bg = bg;
@@ -371,6 +384,7 @@
       card.costCoin = costCoin;
       card.costText = costText;
       card.hit = hit;
+      card.failHintText = failHintText;
 
       card.updateCostLayout = () => {
         const textX = SHOP_CARD_COST_TEXT_RIGHT_X + SHOP_CARD_COST_GROUP_OFFSET_X;
@@ -473,6 +487,7 @@
         if (!card.enabled) return;
         card.pressed = true;
         card.refreshVisual();
+        this.shopPendingBuyOfferIndex = Number(index);
         this.ws?.sendIntentShopBuy?.(index);
       });
       hit.on('pointerup', () => {
@@ -500,11 +515,36 @@
         costText,
         border,
         hit,
+        failHintText,
       ]);
 
       card.updateCostLayout();
       card.refreshVisual();
       return card;
+    },
+
+    showShopCardHint(index, text = 'Нет места') {
+      const safeIndex = Number(index);
+      if (!Number.isInteger(safeIndex) || safeIndex < 0) return;
+      const card = this.shopCards?.[safeIndex];
+      const hint = card?.failHintText;
+      if (!hint?.active) return;
+
+      hint.setText(String(text || 'Нет места'));
+      hint.setVisible(true).setAlpha(0).setY((-(card.height ?? 188) / 2) - 10);
+      this.tweens.killTweensOf(hint);
+      this.tweens.add({
+        targets: hint,
+        alpha: 1,
+        y: (-(card.height ?? 188) / 2) - 16,
+        duration: 110,
+        ease: 'Cubic.Out',
+        yoyo: true,
+        hold: 500,
+        onComplete: () => {
+          hint.setVisible(false);
+        },
+      });
     },
 
     positionShop() {

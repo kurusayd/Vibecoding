@@ -1148,6 +1148,14 @@ function findBlockingUnitAtPlacement(simState, unitLike, q, r, ignoreUnitId = nu
   return null;
 }
 
+function getPlayerBoardUnitCap() {
+  return Math.max(1, Math.floor(Number(state?.kings?.player?.level ?? 1)));
+}
+
+function countPlayerBoardUnits() {
+  return state.units.filter((u) => u.team === 'player' && u.zone === 'board' && !u.dead).length;
+}
+
 function canPlaceUnitAtBoard(simState, unitLike, q, r, ignoreUnitId = null) {
   if (!isBoardPlacementInsideForUnit(unitLike, q, r)) return false;
   const blocker = findBlockingUnitAtPlacement(simState, unitLike, q, r, ignoreUnitId);
@@ -2720,10 +2728,13 @@ function handleIntent(clientId, msg, ws) {
     }
 
     const canPlaceOnBoardNow = (state.phase === 'prep') && !state.result;
-    const freeBoardCell = canPlaceOnBoardNow ? findFirstFreeBoardCell(offer) : null;
+    const playerBoardCap = getPlayerBoardUnitCap();
+    const playerBoardCount = countPlayerBoardUnits();
+    const canPlaceByCap = playerBoardCount < playerBoardCap;
+    const freeBoardCell = (canPlaceOnBoardNow && canPlaceByCap) ? findFirstFreeBoardCell(offer) : null;
     const freeSlot = freeBoardCell ? null : findFirstFreeBenchSlot();
     if (!freeBoardCell && freeSlot == null) {
-      ws.send(JSON.stringify(makeErrorMessage('NO_SPACE', 'No free board cell or bench slot')));
+      ws.send(JSON.stringify(makeErrorMessage('NO_SPACE', 'No space')));
       return;
     }
 
