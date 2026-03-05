@@ -967,16 +967,45 @@ function findFirstFreeBenchSlot() {
 }
 
 function findFirstFreeBoardCell(unitLike = null) {
+  // Spawn preference in player prep half:
+  // "4th row from top, 3rd column from left" (1-based UI coordinates).
+  // Converted to 0-based grid: row=3, col=2.
+  const maxPlayerPrepCols = Math.min(GRID_COLS, 6);
+  const preferredRow = Math.max(0, Math.min(GRID_ROWS - 1, 3));
+  const preferredCol = Math.max(0, Math.min(maxPlayerPrepCols - 1, 2));
+  const preferredQ = preferredCol - Math.floor(preferredRow / 2);
+  const preferredR = preferredRow;
+
+  let best = null;
+  let bestDist = Infinity;
+  let bestRowDelta = Infinity;
+  let bestColDelta = Infinity;
+
   for (let r = 0; r < GRID_ROWS; r++) {
-    // Р’ prep РёРіСЂРѕРєСѓ СЂР°Р·СЂРµС€РµРЅР° С‚РѕР»СЊРєРѕ "СЃРІРѕСЏ" РїРѕР»РѕРІРёРЅР° РїРѕР»СЏ (РєР°Рє РЅР° РєР»РёРµРЅС‚Рµ: РїРµСЂРІС‹Рµ 6 РєРѕР»РѕРЅРѕРє).
-    const maxPlayerPrepCols = Math.min(GRID_COLS, 6);
     for (let col = 0; col < maxPlayerPrepCols; col++) {
       const q = col - Math.floor(r / 2);
       if (!canPlaceUnitAtBoard(state, unitLike, q, r)) continue;
-      return { q, r };
+
+      const d = hexDistance(preferredQ, preferredR, q, r);
+      const rowDelta = Math.abs(r - preferredRow);
+      const colDelta = Math.abs(col - preferredCol);
+
+      if (
+        d < bestDist ||
+        (d === bestDist && rowDelta < bestRowDelta) ||
+        (d === bestDist && rowDelta === bestRowDelta && colDelta < bestColDelta) ||
+        (d === bestDist && rowDelta === bestRowDelta && colDelta === bestColDelta && r < Number(best?.r ?? Infinity)) ||
+        (d === bestDist && rowDelta === bestRowDelta && colDelta === bestColDelta && r === Number(best?.r ?? Infinity) && q < Number(best?.q ?? Infinity))
+      ) {
+        bestDist = d;
+        bestRowDelta = rowDelta;
+        bestColDelta = colDelta;
+        best = { q, r };
+      }
     }
   }
-  return null;
+
+  return best;
 }
 
 // ---- BOT ARMY (MVP) ----
