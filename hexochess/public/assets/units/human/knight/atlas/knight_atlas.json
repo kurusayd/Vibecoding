@@ -120,7 +120,7 @@
         "y": 0.5
       }
     },
-    "psd_anim/walk0001.png": {
+    "psd_anim/skill0001.png": {
       "frame": {
         "x": 521,
         "y": 521,
@@ -144,9 +144,57 @@
         "y": 0.5
       }
     },
-    "psd_anim/walk0002.png": {
+    "psd_anim/skill0002.png": {
       "frame": {
         "x": 521,
+        "y": 1039,
+        "w": 512,
+        "h": 512
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 512,
+        "h": 512
+      },
+      "sourceSize": {
+        "w": 512,
+        "h": 512
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    "psd_anim/skill0003.png": {
+      "frame": {
+        "x": 1039,
+        "y": 521,
+        "w": 512,
+        "h": 512
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 512,
+        "h": 512
+      },
+      "sourceSize": {
+        "w": 512,
+        "h": 512
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    "psd_anim/skill0004.png": {
+      "frame": {
+        "x": 1039,
         "y": 1039,
         "w": 512,
         "h": 512

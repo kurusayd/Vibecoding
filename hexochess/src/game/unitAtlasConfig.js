@@ -89,8 +89,8 @@ export const UNIT_ATLAS_DEFS = [
   },
   {
     type: 'Monk',
-    atlasKey: 'lizard_atlas',
-    atlasPath: '/assets/units/lizard/monk/lizard_atlas',
+    atlasKey: 'monk_atlas',
+    atlasPath: '/assets/units/lizard/monk/monk_atlas',
     idleAnim: 'monk_idle',
     walkAnim: 'monk_walk',
     attackAnim: 'monk_attack',

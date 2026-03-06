@@ -2390,6 +2390,29 @@ function startBattleFromPreparedReplay(matchId) {
   }, replayFinishMs);
 }
 
+function startBattleWithoutPlayerUnits(matchId) {
+  if (state.phase !== 'entry') return;
+
+  stopEntryTimer();
+
+  state.phase = 'battle';
+  state.result = null;
+  state.battleSecondsLeft = Math.max(0, Math.ceil(BATTLE_DURATION_SECONDS));
+
+  for (const u of (state.units ?? [])) {
+    if (u?.zone !== 'board') continue;
+    sanitizeUnitForBattleStartImported(u);
+  }
+
+  broadcast(makeStateMessage(state));
+
+  finishTimeout = setTimeout(() => {
+    withMatchRuntime(matchId, () => {
+      finishBattle('defeat');
+    });
+  }, 250);
+}
+
 function startBattle() {
   const matchId = activeMatchId ?? DEFAULT_MATCH_ID;
   stopPrepTimer();
@@ -2466,13 +2489,6 @@ function startBattle() {
     .filter(u => u.team === 'player')
     .map((u) => clonePlayerUnitForPrep(u));
 
-  // 2) Р•СЃР»Рё РЅР° РґРѕСЃРєРµ РЅРµС‚ РёРіСЂРѕРєРѕРІ вЂ” РјРіРЅРѕРІРµРЅРЅРѕРµ РїРѕСЂР°Р¶РµРЅРёРµ
-  const hasPlayersOnBoard = state.units.some(u => u.team === 'player' && u.zone === 'board');
-  if (!hasPlayersOnBoard) {
-    finishBattle('defeat');
-    return;
-  }
-
   // Entry phase between prep and battle.
   state.phase = 'entry';
   state.result = null;
@@ -2521,6 +2537,11 @@ function startBattle() {
       broadcast(makeStateMessage(state));
 
       if (state.entrySecondsLeft <= 0) {
+        const hasPlayersOnBoardNow = state.units.some((u) => u.team === 'player' && u.zone === 'board' && !u.dead);
+        if (!hasPlayersOnBoardNow) {
+          startBattleWithoutPlayerUnits(matchId);
+          return;
+        }
         if (!state.battleReplay) {
           finishBattle('draw');
           return;

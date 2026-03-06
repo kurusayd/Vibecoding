@@ -65,10 +65,10 @@ export const UNIT_VISUAL_CONFIG_BY_TYPE = {
   },
   Knight: {
     // Large 2-cell human unit; keep rendering profile close to Headless.
-    groundLiftPx: 125,
-    artTargetPx: 250,
-    artOffsetXPx: -20,
-    hpUiLiftPx: 95,
+    groundLiftPx: 165,
+    artTargetPx: 320,
+    artOffsetXPx: 10,
+    hpUiLiftPx: 105,
     footShadowWidthPx: 118,
     footShadowHeightPx: 24,
     footShadowOffsetXPx: -38,
