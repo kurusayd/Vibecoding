@@ -81,6 +81,302 @@ test('performAttackIn reports ranged projectile travel time from hex distance', 
   assert.equal(res.projectileTravelMs, 600);
 });
 
+test('crossbowman cannot shoot target outside straight hex line', () => {
+  const simState = createSimState([
+    makeUnit({
+      id: 1,
+      type: 'Crossbowman',
+      attackMode: 'ranged',
+      projectileSpeed: 7.5,
+      attackRangeMax: 20,
+      attackRangeFullDamage: 5,
+      abilityType: 'passive',
+      abilityKey: 'crossbowman_line_shot',
+    }),
+    makeUnit({ id: 2, q: 1, r: 1, team: 'enemy' }),
+  ]);
+
+  const res = withRandomSequence([0], () => performAttackIn(simState, 1, 2, 0));
+
+  assert.equal(res.success, false);
+  assert.equal(res.reason, 'OUT_OF_LINE');
+});
+
+test('crossbowman cannot shoot vertically after diagonal-line removal', () => {
+  const simState = createSimState([
+    makeUnit({
+      id: 1,
+      type: 'Crossbowman',
+      attackMode: 'ranged',
+      projectileSpeed: 10,
+      attackRangeMax: 20,
+      attackRangeFullDamage: 5,
+      abilityType: 'passive',
+      abilityKey: 'crossbowman_line_shot',
+    }),
+    makeUnit({ id: 2, q: 0, r: 2, team: 'enemy' }),
+  ]);
+
+  const res = withRandomSequence([0], () => performAttackIn(simState, 1, 2, 0));
+
+  assert.equal(res.success, false);
+  assert.equal(res.reason, 'OUT_OF_LINE');
+});
+
+test('crossbowman moves to nearest firing line before attacking', () => {
+  const simState = createSimState([
+    makeUnit({
+      id: 1,
+      type: 'Crossbowman',
+      atk: 25,
+      attackMode: 'ranged',
+      projectileSpeed: 10,
+      attackRangeMax: 20,
+      attackRangeFullDamage: 20,
+      moveSpeed: 10,
+      attackSpeed: 1,
+      abilityType: 'passive',
+      abilityKey: 'crossbowman_line_shot',
+    }),
+    makeUnit({
+      id: 2,
+      q: 1,
+      r: 1,
+      team: 'enemy',
+      hp: 40,
+      maxHp: 40,
+      atk: 0,
+      moveSpeed: 0.1,
+    }),
+  ]);
+
+  const replay = withRandomSequence([0, 0, 0], () => simulateBattleReplayFromState(simState, {
+    tickMs: 100,
+    maxBattleMs: 1000,
+    collectSnapshots: false,
+  }));
+
+  const move = replay.events.find((e) => e.type === 'move' && e.unitId === 1);
+  const attack = replay.events.find((e) => e.type === 'attack' && e.attackerId === 1);
+
+  assert.ok(move);
+  assert.ok(attack);
+  assert.ok(move.t <= attack.t);
+  assert.equal(move.q, 0);
+  assert.equal(move.r, 1);
+});
+
+test('crossbowman prefers rear diagonal firing hex over front diagonal one', () => {
+  const simState = createSimState([
+    makeUnit({
+      id: 1,
+      q: 4,
+      r: 4,
+      type: 'Crossbowman',
+      atk: 25,
+      attackMode: 'ranged',
+      projectileSpeed: 10,
+      attackRangeMax: 20,
+      attackRangeFullDamage: 20,
+      moveSpeed: 10,
+      attackSpeed: 1,
+      abilityType: 'passive',
+      abilityKey: 'crossbowman_line_shot',
+    }),
+    makeUnit({
+      id: 2,
+      q: 6,
+      r: 3,
+      team: 'enemy',
+      hp: 40,
+      maxHp: 40,
+      atk: 0,
+      moveSpeed: 0.1,
+    }),
+  ]);
+
+  const replay = withRandomSequence([0, 0, 0], () => simulateBattleReplayFromState(simState, {
+    tickMs: 100,
+    maxBattleMs: 500,
+    collectSnapshots: false,
+  }));
+
+  const move = replay.events.find((e) => e.type === 'move' && e.unitId === 1);
+
+  assert.ok(move);
+  assert.equal(move.q, 4);
+  assert.equal(move.r, 3);
+});
+
+test('crossbowman prioritizes a target already on the firing line over a nearer off-line enemy', () => {
+  const simState = createSimState([
+    makeUnit({
+      id: 1,
+      type: 'Crossbowman',
+      atk: 25,
+      attackMode: 'ranged',
+      projectileSpeed: 10,
+      attackRangeMax: 20,
+      attackRangeFullDamage: 2,
+      attackSpeed: 1,
+      moveSpeed: 10,
+      abilityType: 'passive',
+      abilityKey: 'crossbowman_line_shot',
+    }),
+    makeUnit({ id: 2, q: 1, r: 1, team: 'enemy', hp: 40, maxHp: 40, moveSpeed: 0.1, atk: 0 }),
+    makeUnit({ id: 3, q: 4, r: 0, team: 'enemy', hp: 40, maxHp: 40, moveSpeed: 0.1, atk: 0 }),
+  ]);
+
+  const replay = withRandomSequence([0, 0, 0], () => simulateBattleReplayFromState(simState, {
+    tickMs: 100,
+    maxBattleMs: 500,
+    collectSnapshots: false,
+  }));
+
+  const move = replay.events.find((e) => e.type === 'move' && e.unitId === 1);
+  const attack = replay.events.find((e) => e.type === 'attack' && e.attackerId === 1);
+
+  assert.equal(move, undefined);
+  assert.ok(attack);
+  assert.equal(attack.targetId, 3);
+  assert.equal(attack.dist, 4);
+});
+
+test('crossbowman attack metadata includes all pierced targets on firing line', () => {
+  const simState = createSimState([
+    makeUnit({
+      id: 1,
+      type: 'Crossbowman',
+      atk: 25,
+      attackMode: 'ranged',
+      projectileSpeed: 10,
+      attackRangeMax: 20,
+      attackRangeFullDamage: 20,
+      abilityType: 'passive',
+      abilityKey: 'crossbowman_line_shot',
+    }),
+    makeUnit({ id: 2, q: 2, r: 0, team: 'enemy', hp: 40, maxHp: 40 }),
+    makeUnit({ id: 3, q: 4, r: 0, team: 'enemy', hp: 40, maxHp: 40 }),
+  ]);
+
+  const res = withRandomSequence([0], () => performAttackIn(simState, 1, 2, 0));
+
+  assert.equal(res.success, true);
+  assert.equal(res.projectilePierce, true);
+  assert.deepEqual(res.pierceTargets, [
+    { unitId: 2, dist: 2 },
+    { unitId: 3, dist: 4 },
+  ]);
+  assert.equal(res.projectileTravelMs, 200);
+  assert.equal(res.projectileTravelMsTotal, 200);
+});
+
+test('crossbowman single-target shot still stays piercing and exits the board', () => {
+  const simState = createSimState([
+    makeUnit({
+      id: 1,
+      type: 'Crossbowman',
+      atk: 25,
+      attackMode: 'ranged',
+      projectileSpeed: 10,
+      attackRangeMax: 20,
+      attackRangeFullDamage: 20,
+      abilityType: 'passive',
+      abilityKey: 'crossbowman_line_shot',
+    }),
+    makeUnit({ id: 2, q: 2, r: 0, team: 'enemy', hp: 40, maxHp: 40 }),
+  ]);
+
+  const res = withRandomSequence([0], () => performAttackIn(simState, 1, 2, 0));
+
+  assert.equal(res.success, true);
+  assert.equal(res.projectilePierce, true);
+  assert.equal(res.projectileForceStraight, true);
+  assert.ok(Array.isArray(res.projectileRayCells));
+  assert.ok(res.projectileRayCells.length > 0);
+  assert.equal(res.projectileTravelMs, 200);
+  assert.equal(res.projectileTravelMsTotal, 200);
+});
+
+test('crossbowman piercing shot damages every enemy on the firing line', () => {
+  const simState = createSimState([
+    makeUnit({
+      id: 1,
+      type: 'Crossbowman',
+      atk: 25,
+      attackMode: 'ranged',
+      projectileSpeed: 10,
+      attackRangeMax: 20,
+      attackRangeFullDamage: 20,
+      attackSpeed: 1,
+      abilityType: 'passive',
+      abilityKey: 'crossbowman_line_shot',
+    }),
+    makeUnit({ id: 2, q: 2, r: 0, team: 'enemy', hp: 40, maxHp: 40 }),
+    makeUnit({ id: 3, q: 4, r: 0, team: 'enemy', hp: 40, maxHp: 40 }),
+  ]);
+
+  const replay = withRandomSequence([0, 0, 0], () => simulateBattleReplayFromState(simState, {
+    tickMs: 100,
+    maxBattleMs: 800,
+    collectSnapshots: false,
+  }));
+
+  const damages = replay.events.filter((e) => e.type === 'damage' && e.attackerId === 1);
+  const targets = damages.map((e) => e.targetId);
+
+  assert.deepEqual(targets, [2, 3]);
+  assert.equal(damages[0].damageSource, 'projectile_pierce');
+  assert.equal(damages[1].damageSource, 'projectile_pierce');
+  assert.equal(damages[0].t, 200);
+  assert.equal(damages[1].t, 200);
+});
+
+test('crossbowman bolt keeps a fixed target cell and hits occupancy on the flight line', () => {
+  const simState = createSimState([
+    makeUnit({
+      id: 1,
+      type: 'Crossbowman',
+      atk: 25,
+      attackMode: 'ranged',
+      projectileSpeed: 1,
+      attackRangeMax: 20,
+      attackRangeFullDamage: 20,
+      attackSpeed: 0.1,
+      abilityType: 'passive',
+      abilityKey: 'crossbowman_line_shot',
+    }),
+    makeUnit({
+      id: 2,
+      q: 3,
+      r: 0,
+      team: 'enemy',
+      hp: 40,
+      maxHp: 40,
+      moveSpeed: 10,
+    }),
+  ]);
+
+  const replay = withRandomSequence([0, 0, 0, 0], () => simulateBattleReplayFromState(simState, {
+    tickMs: 100,
+    maxBattleMs: 3500,
+    collectSnapshots: false,
+  }));
+
+  const openingAttack = replay.events.find((e) => e.type === 'attack' && e.attackerId === 1);
+  const earlyMove = replay.events.find((e) => e.type === 'move' && e.unitId === 2);
+  const openingDamage = replay.events.find((e) => e.type === 'damage' && e.attackerId === 1);
+
+  assert.ok(openingAttack);
+  assert.equal(openingAttack.projectileTargetQ, 3);
+  assert.equal(openingAttack.projectileTargetR, 0);
+  assert.equal(openingAttack.projectileTravelMs, 200);
+  assert.ok(earlyMove);
+  assert.ok(openingDamage);
+  assert.equal(openingDamage.targetId, 2);
+  assert.equal(openingDamage.t, 200);
+});
+
 test('skeleton archer bounce schedules secondary projectile damage', () => {
   const simState = createSimState([
     makeUnit({

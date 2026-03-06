@@ -26,6 +26,7 @@ const WORM_SWALLOW_DIGEST_MS = 6000;
 const WORM_SWALLOW_CHANCE = 0.5;
 const WORM_DIGEST_SPEED_MULT = 0.7;
 const MAX_ACTIONS_PER_UNIT_PER_TICK = 8;
+const CROSSBOWMAN_IMPACT_DELAY_MS = 200;
 
 export const SNAPSHOT_STEP_MS = 100;
 
@@ -48,6 +49,20 @@ function cloneStateForBattleReplay(sourceState) {
 
 function findUnitByIdIn(simState, id) {
   return simState.units.find((u) => u.id === id) ?? null;
+}
+
+function getUnitAtTimeIn(simState, q, r, timeMs, team = null) {
+  for (const u of simState.units ?? []) {
+    if (!u || u.zone !== 'board' || u.dead) continue;
+    if (team != null && u.team !== team) continue;
+    const pos = getCombatHexAtIn(simState, u, timeMs);
+    if (!pos) continue;
+    const cells = getBoardCellsForUnitAnchor(u, pos.q, pos.r);
+    if (cells.some((c) => Number(c.q) === Number(q) && Number(c.r) === Number(r))) {
+      return u;
+    }
+  }
+  return null;
 }
 
 function isInsideBoard(q, r) {
@@ -129,6 +144,56 @@ function findClosestOpponentIn(simState, attacker, timeMs) {
   return best;
 }
 
+function findBestCrossbowmanTargetIn(simState, attacker, timeMs) {
+  if (!attacker || attacker.dead) return null;
+  const attackerPos = getCombatHexAtIn(simState, attacker, timeMs);
+  if (!attackerPos) return null;
+  const opponentTeam = attacker.team === 'player' ? 'enemy' : 'player';
+
+  let bestShootNow = null;
+  let bestShootNowDist = Infinity;
+  let bestShootNowFootDist = Infinity;
+
+  let bestReposition = null;
+  let bestRepositionMoveDist = Infinity;
+  let bestRepositionFootDist = Infinity;
+
+  for (const u of simState.units ?? []) {
+    if (!u || u.dead || u.zone !== 'board' || u.team !== opponentTeam) continue;
+
+    const lineShotMeta = getCrossbowmanLineShotMetaIn(simState, attacker, u, timeMs);
+    const footDist = unitDistanceByFootprintAtTime(simState, attacker, u, timeMs);
+    if (lineShotMeta?.canShoot) {
+      const shotDist = Number(lineShotMeta.dist ?? Infinity);
+      if (
+        shotDist < bestShootNowDist ||
+        (shotDist === bestShootNowDist && footDist < bestShootNowFootDist) ||
+        (shotDist === bestShootNowDist && footDist === bestShootNowFootDist && Number(u.id) < Number(bestShootNow?.id ?? Infinity))
+      ) {
+        bestShootNow = u;
+        bestShootNowDist = shotDist;
+        bestShootNowFootDist = footDist;
+      }
+      continue;
+    }
+
+    const desiredHex = findBestCrossbowmanFiringHexIn(simState, attacker, u, timeMs);
+    if (!desiredHex) continue;
+    const moveDist = hexDistance(attackerPos.q, attackerPos.r, Number(desiredHex.q), Number(desiredHex.r));
+    if (
+      moveDist < bestRepositionMoveDist ||
+      (moveDist === bestRepositionMoveDist && footDist < bestRepositionFootDist) ||
+      (moveDist === bestRepositionMoveDist && footDist === bestRepositionFootDist && Number(u.id) < Number(bestReposition?.id ?? Infinity))
+    ) {
+      bestReposition = u;
+      bestRepositionMoveDist = moveDist;
+      bestRepositionFootDist = footDist;
+    }
+  }
+
+  return bestShootNow ?? bestReposition ?? null;
+}
+
 function applyDamageToUnitIn(simState, targetId, damageRaw) {
   const target = findUnitByIdIn(simState, targetId);
   if (!target) return { success: false, reason: 'NO_TARGET' };
@@ -152,6 +217,143 @@ function isRangedAttackUnit(unitLike) {
   return String(unitLike?.attackMode ?? DEFAULT_UNIT_ATTACK_MODE).toLowerCase() === 'ranged';
 }
 
+function hasCrossbowmanLineShotPassive(unit) {
+  return !!unit
+    && String(unit.abilityType ?? 'none') === 'passive'
+    && String(unit.abilityKey ?? '') === 'crossbowman_line_shot';
+}
+
+function areHexesOnSameLine(aq, ar, bq, br) {
+  const dr = Number(br) - Number(ar);
+  return dr === 0;
+}
+
+function getHexLineStep(aq, ar, bq, br) {
+  const dq = Number(bq) - Number(aq);
+  const dr = Number(br) - Number(ar);
+  if (dr === 0 && dq !== 0) return { dq: Math.sign(dq), dr: 0 };
+  return null;
+}
+
+function getCrossbowmanLineShotMetaIn(simState, attackerLike, targetLike, timeMs, attackerAnchorOverride = null) {
+  const attacker = attackerLike ? { ...attackerLike } : null;
+  const target = targetLike ?? null;
+  if (!attacker || !target) return { hasAlignedLine: false, canShoot: false, dist: Infinity };
+
+  const targetPos = getCombatHexAtIn(simState, target, timeMs);
+  if (!targetPos) return { hasAlignedLine: false, canShoot: false, dist: Infinity };
+
+  const attackerQ = attackerAnchorOverride?.q ?? attacker.q;
+  const attackerR = attackerAnchorOverride?.r ?? attacker.r;
+  const attackerCells = getBoardCellsForUnitAnchor(attacker, attackerQ, attackerR);
+  const targetCells = getBoardCellsForUnitAnchor(target, targetPos.q, targetPos.r);
+  const attackRangeMax = Math.max(1, Number(attacker.attackRangeMax ?? 1));
+
+  let bestAlignedDist = Infinity;
+  let bestAlignedPair = null;
+  for (const ac of attackerCells) {
+    for (const tc of targetCells) {
+      if (!areHexesOnSameLine(ac.q, ac.r, tc.q, tc.r)) continue;
+      const d = hexDistance(ac.q, ac.r, tc.q, tc.r);
+      if (d < bestAlignedDist) {
+        bestAlignedDist = d;
+        bestAlignedPair = { attackerCell: ac, targetCell: tc };
+      }
+    }
+  }
+
+  return {
+    hasAlignedLine: Number.isFinite(bestAlignedDist),
+    canShoot: Number.isFinite(bestAlignedDist) && bestAlignedDist <= attackRangeMax,
+    dist: bestAlignedDist,
+    ...(bestAlignedPair ?? {}),
+  };
+}
+
+function getCrossbowmanPierceTargetsIn(simState, attacker, target, timeMs, lineShotMeta = null) {
+  const meta = lineShotMeta ?? getCrossbowmanLineShotMetaIn(simState, attacker, target, timeMs);
+  if (!meta?.canShoot || !meta?.attackerCell || !meta?.targetCell) return [];
+
+  const step = getHexLineStep(meta.attackerCell.q, meta.attackerCell.r, meta.targetCell.q, meta.targetCell.r);
+  if (!step) return [];
+
+  const attackRangeMax = Math.max(1, Number(attacker.attackRangeMax ?? 1));
+  const hits = [];
+  for (const u of simState.units ?? []) {
+    if (!u || u.dead || u.zone !== 'board') continue;
+    if (Number(u.id) === Number(attacker.id)) continue;
+    if (u.team === attacker.team) continue;
+
+    const cells = getBoardCellsForUnitAnchor(u, Number(u.q), Number(u.r));
+    let bestRayDist = Infinity;
+    for (const c of cells) {
+      const relQ = Number(c.q) - Number(meta.attackerCell.q);
+      const relR = Number(c.r) - Number(meta.attackerCell.r);
+      let k = null;
+      if (step.dq === 0) {
+        if (relQ !== 0) continue;
+        k = relR / step.dr;
+      } else if (step.dr === 0) {
+        if (relR !== 0) continue;
+        k = relQ / step.dq;
+      } else {
+        if (relQ !== (k = relQ / step.dq) * step.dq) continue;
+        if (relR !== k * step.dr) continue;
+      }
+      if (!Number.isFinite(k) || k <= 0 || Math.floor(k) !== k) continue;
+      const rayDist = Number(k);
+      if (rayDist > attackRangeMax) continue;
+      if (rayDist < bestRayDist) bestRayDist = rayDist;
+    }
+    if (Number.isFinite(bestRayDist)) {
+      hits.push({ unitId: Number(u.id), dist: bestRayDist });
+    }
+  }
+
+  hits.sort((a, b) => Number(a.dist) - Number(b.dist) || Number(a.unitId) - Number(b.unitId));
+  return hits;
+}
+
+function getProjectileExitTravelMsIn(simState, attacker, target, timeMs, lineShotMeta = null) {
+  const meta = lineShotMeta ?? getCrossbowmanLineShotMetaIn(simState, attacker, target, timeMs);
+  if (!meta?.attackerCell || !meta?.targetCell) return 0;
+  const step = getHexLineStep(meta.attackerCell.q, meta.attackerCell.r, meta.targetCell.q, meta.targetCell.r);
+  const projectileSpeed = Math.max(0, Number(attacker?.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED));
+  if (!step || projectileSpeed <= 0) return 0;
+
+  let rayDist = 0;
+  let q = Number(meta.attackerCell.q);
+  let r = Number(meta.attackerCell.r);
+  while (true) {
+    q += step.dq;
+    r += step.dr;
+    rayDist += 1;
+    if (!isInsideBoard(q, r)) break;
+  }
+  return (rayDist / projectileSpeed) * 1000;
+}
+
+function getCrossbowmanRayCellsIn(simState, attacker, target, timeMs, lineShotMeta = null) {
+  const meta = lineShotMeta ?? getCrossbowmanLineShotMetaIn(simState, attacker, target, timeMs);
+  if (!meta?.attackerCell || !meta?.targetCell) return [];
+  const step = getHexLineStep(meta.attackerCell.q, meta.attackerCell.r, meta.targetCell.q, meta.targetCell.r);
+  if (!step) return [];
+
+  const cells = [];
+  let q = Number(meta.attackerCell.q);
+  let r = Number(meta.attackerCell.r);
+  let dist = 0;
+  const attackRangeMax = Math.max(1, Number(attacker.attackRangeMax ?? 1));
+  while (dist < attackRangeMax) {
+    q += step.dq;
+    r += step.dr;
+    dist += 1;
+    if (!isInsideBoard(q, r)) break;
+    cells.push({ q, r, dist });
+  }
+  return cells;
+}
+
 export function performAttackIn(simState, attackerId, targetId, timeMs) {
   const attacker = findUnitByIdIn(simState, attackerId);
   const target = findUnitByIdIn(simState, targetId);
@@ -166,7 +368,18 @@ export function performAttackIn(simState, attackerId, targetId, timeMs) {
   if (!Number.isFinite(dist)) return { success: false, reason: 'NO_POSITION' };
   const attackRangeMax = Math.max(1, Number(attacker.attackRangeMax ?? 1));
   const attackRangeFullDamage = Math.max(1, Number(attacker.attackRangeFullDamage ?? attackRangeMax));
-  if (dist > attackRangeMax) return { success: false, reason: 'OUT_OF_RANGE', dist, attackRangeMax };
+  let lineShotMeta = null;
+  if (hasCrossbowmanLineShotPassive(attacker)) {
+    lineShotMeta = getCrossbowmanLineShotMetaIn(simState, attacker, target, timeMs);
+    if (!lineShotMeta.hasAlignedLine) {
+      return { success: false, reason: 'OUT_OF_LINE', dist, attackRangeMax };
+    }
+    if (!lineShotMeta.canShoot) {
+      return { success: false, reason: 'OUT_OF_RANGE', dist: lineShotMeta.dist, attackRangeMax };
+    }
+  } else if (dist > attackRangeMax) {
+    return { success: false, reason: 'OUT_OF_RANGE', dist, attackRangeMax };
+  }
 
   const baseDamage = Math.max(0, Number(attacker.atk ?? 0));
   const damageMultiplier = dist > attackRangeFullDamage ? 0.5 : 1;
@@ -175,11 +388,24 @@ export function performAttackIn(simState, attackerId, targetId, timeMs) {
   const isHit = Math.random() < accuracy;
   const projectileSpeed = Math.max(0, Number(attacker.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED));
   const isRanged = isRangedAttackUnit(attacker);
-  const projectileTravelMs = isRanged && projectileSpeed > 0 ? (dist / projectileSpeed) * 1000 : 0;
+  const isCrossbowmanShot = hasCrossbowmanLineShotPassive(attacker);
+  const actualDist = lineShotMeta?.canShoot ? Number(lineShotMeta.dist) : dist;
+  const projectileTravelMs = isCrossbowmanShot
+    ? CROSSBOWMAN_IMPACT_DELAY_MS
+    : (isRanged && projectileSpeed > 0 ? (actualDist / projectileSpeed) * 1000 : 0);
+  const pierceTargets = isCrossbowmanShot
+    ? getCrossbowmanPierceTargetsIn(simState, attacker, target, timeMs, lineShotMeta)
+    : [];
+  const projectileRayCells = isCrossbowmanShot
+    ? getCrossbowmanRayCellsIn(simState, attacker, target, timeMs, lineShotMeta)
+    : [];
+  const projectileTravelMsTotal = isCrossbowmanShot
+    ? CROSSBOWMAN_IMPACT_DELAY_MS
+    : projectileTravelMs;
   return {
     success: true,
     damage,
-    dist,
+    dist: actualDist,
     attackRangeMax,
     attackRangeFullDamage,
     accuracy,
@@ -187,6 +413,13 @@ export function performAttackIn(simState, attackerId, targetId, timeMs) {
     isRanged,
     projectileSpeed,
     projectileTravelMs,
+    projectileTravelMsTotal,
+    pierceTargets,
+    projectileRayCells,
+    projectilePierce: isCrossbowmanShot,
+    projectileForceStraight: isCrossbowmanShot,
+    projectileTargetQ: Number(lineShotMeta?.targetCell?.q ?? target.q ?? 0),
+    projectileTargetR: Number(lineShotMeta?.targetCell?.r ?? target.r ?? 0),
   };
 }
 
@@ -303,6 +536,40 @@ const NEIGHBORS = [
   { dq: 0, dr: 1 },
 ];
 
+function getCrossbowmanStepPriority(unitLike, step) {
+  const dq = Number(step?.dq ?? 0);
+  const dr = Number(step?.dr ?? 0);
+  const isEnemy = String(unitLike?.team ?? '') === 'enemy';
+
+  if (!isEnemy) {
+    if (dq === -1 && dr === 1) return 0;  // rear-lower
+    if (dq === 0 && dr === -1) return 1;  // rear-upper
+    if (dq === 1 && dr === -1) return 2;  // front-upper
+    if (dq === 0 && dr === 1) return 3;   // front-lower
+    if (dq === -1 && dr === 0) return 4;  // rear
+    if (dq === 1 && dr === 0) return 5;   // front
+    return 99;
+  }
+
+  if (dq === 1 && dr === -1) return 0;    // rear-lower (mirrored for enemy side)
+  if (dq === 0 && dr === 1) return 1;     // rear-upper
+  if (dq === 0 && dr === -1) return 2;    // front-upper
+  if (dq === -1 && dr === 1) return 3;    // front-lower
+  if (dq === 1 && dr === 0) return 4;     // rear
+  if (dq === -1 && dr === 0) return 5;    // front
+  return 99;
+}
+
+function getBoardColumnForHex(q, r) {
+  return Number(q) + Math.floor(Number(r) / 2);
+}
+
+function getCrossbowmanBoardBackPriority(unitLike, q, r) {
+  const col = getBoardColumnForHex(q, r);
+  const isEnemy = String(unitLike?.team ?? '') === 'enemy';
+  return isEnemy ? -col : col;
+}
+
 function pickBestStepTowardIn(simState, attacker, target, timeMs) {
   const attackerPos = getCombatHexAtIn(simState, attacker, timeMs);
   const targetPos = getCombatHexAtIn(simState, target, timeMs);
@@ -322,6 +589,77 @@ function pickBestStepTowardIn(simState, attacker, target, timeMs) {
     }
     if (d < bestDist) {
       bestDist = d;
+      best = { q: nq, r: nr };
+    }
+  }
+  return best;
+}
+
+function findBestCrossbowmanFiringHexIn(simState, attacker, target, timeMs) {
+  const attackerPos = getCombatHexAtIn(simState, attacker, timeMs);
+  if (!attackerPos) return null;
+
+  let best = null;
+  let bestMoveDist = Infinity;
+  let bestShotDist = Infinity;
+  let bestBackPriority = Infinity;
+
+  for (let row = 0; row < GRID_ROWS; row++) {
+    const rowShift = Math.floor(row / 2);
+    for (let col = 0; col < GRID_COLS; col++) {
+      const q = col - rowShift;
+      const r = row;
+      if (!canPlaceUnitAtBoard(simState, attacker, q, r, attacker.id)) continue;
+
+      const lineShotMeta = getCrossbowmanLineShotMetaIn(simState, attacker, target, timeMs, { q, r });
+      if (!lineShotMeta.canShoot) continue;
+
+      const moveDist = hexDistance(attackerPos.q, attackerPos.r, q, r);
+      const shotDist = Number(lineShotMeta.dist ?? Infinity);
+      const backPriority = getCrossbowmanBoardBackPriority(attacker, q, r);
+      if (
+        moveDist < bestMoveDist ||
+        (moveDist === bestMoveDist && backPriority < bestBackPriority) ||
+        (moveDist === bestMoveDist && backPriority === bestBackPriority && shotDist < bestShotDist) ||
+        (moveDist === bestMoveDist && backPriority === bestBackPriority && shotDist === bestShotDist && r < Number(best?.r ?? Infinity)) ||
+        (moveDist === bestMoveDist && backPriority === bestBackPriority && shotDist === bestShotDist && r === Number(best?.r ?? Infinity) && q < Number(best?.q ?? Infinity))
+      ) {
+        bestMoveDist = moveDist;
+        bestBackPriority = backPriority;
+        bestShotDist = shotDist;
+        best = { q, r };
+      }
+    }
+  }
+
+  return best;
+}
+
+function pickBestStepTowardCrossbowmanShotIn(simState, attacker, target, timeMs) {
+  const attackerPos = getCombatHexAtIn(simState, attacker, timeMs);
+  if (!attackerPos) return null;
+
+  const desiredHex = findBestCrossbowmanFiringHexIn(simState, attacker, target, timeMs);
+  if (!desiredHex) return pickBestStepTowardIn(simState, attacker, target, timeMs);
+  if (desiredHex.q === attackerPos.q && desiredHex.r === attackerPos.r) return null;
+
+  let best = null;
+  let bestDist = Infinity;
+  let bestPriority = Infinity;
+  for (const n of NEIGHBORS) {
+    const nq = attackerPos.q + n.dq;
+    const nr = attackerPos.r + n.dr;
+    if (!canPlaceUnitAtBoard(simState, attacker, nq, nr, attacker.id)) continue;
+    const d = hexDistance(nq, nr, desiredHex.q, desiredHex.r);
+    const stepPriority = getCrossbowmanStepPriority(attacker, n);
+    if (
+      d < bestDist ||
+      (d === bestDist && stepPriority < bestPriority) ||
+      (d === bestDist && stepPriority === bestPriority && nr < Number(best?.r ?? Infinity)) ||
+      (d === bestDist && stepPriority === bestPriority && nr === Number(best?.r ?? Infinity) && nq < Number(best?.q ?? Infinity))
+    ) {
+      bestDist = d;
+      bestPriority = stepPriority;
       best = { q: nq, r: nr };
     }
   }
@@ -408,6 +746,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
   const pendingDamageEvents = [];
   const pendingSummonEvents = [];
   const pendingDigestEvents = [];
+  const projectileHitRegistry = new Map();
   let simNextUnitId = (simState.units ?? []).reduce((mx, u) => Math.max(mx, Number(u?.id ?? 0)), 0) + 1;
   const undertakerSummonBase = UNIT_CATALOG.find((u) => String(u.type ?? '') === UNDERTAKER_SUMMON_TYPE) ?? null;
 
@@ -431,7 +770,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
               t: dueAt,
               type: 'miss',
               attackerId: next.attackerId,
-              targetId: next.targetId,
+              targetId: Number(next.targetId ?? 0),
               attackerTeam: next.attackerTeam,
               attackSeq: Number(next.attackSeq ?? 0),
               missSource: next.damageSource ?? 'attack',
@@ -440,15 +779,29 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
           continue;
         }
 
-        const liveTarget = findUnitByIdIn(simState, next.targetId);
+        const liveTarget = Number.isFinite(Number(next.targetCellQ)) && Number.isFinite(Number(next.targetCellR))
+          ? getUnitAtTimeIn(
+            simState,
+            Number(next.targetCellQ),
+            Number(next.targetCellR),
+            dueAt,
+            next.attackerTeam === 'player' ? 'enemy' : 'player',
+          )
+          : findUnitByIdIn(simState, next.targetId);
         if (!liveTarget || liveTarget.dead || liveTarget.zone !== 'board') continue;
+        if (next.projectileId != null) {
+          const hitSet = projectileHitRegistry.get(next.projectileId) ?? new Set();
+          if (hitSet.has(Number(liveTarget.id))) continue;
+          hitSet.add(Number(liveTarget.id));
+          projectileHitRegistry.set(next.projectileId, hitSet);
+        }
         if (isAttackDodgedByTarget(liveTarget)) {
           if (collectTimeline) {
             events.push({
               t: dueAt,
               type: 'miss',
               attackerId: next.attackerId,
-              targetId: next.targetId,
+              targetId: Number(liveTarget.id),
               attackerTeam: next.attackerTeam,
               attackSeq: Number(next.attackSeq ?? 0),
               missSource: 'ghost_evasion',
@@ -457,17 +810,17 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
           continue;
         }
 
-        const dmgRes = applyDamageToUnitIn(simState, next.targetId, next.damage);
+        const dmgRes = applyDamageToUnitIn(simState, liveTarget.id, next.damage);
         if (!dmgRes.success) continue;
 
         let chainMeta = null;
         if (next.enableSkeletonArcherBounce === true) {
-          const primaryTarget = findUnitByIdIn(simState, next.targetId);
+          const primaryTarget = liveTarget;
           const fromQ = Number(primaryTarget?.q ?? NaN);
           const fromR = Number(primaryTarget?.r ?? NaN);
           const projectileSpeed = Math.max(0, Number(next.projectileSpeed ?? 0));
           if (Number.isFinite(fromQ) && Number.isFinite(fromR) && projectileSpeed > 0) {
-            const bounceTarget = findBounceTargetIn(simState, fromQ, fromR, next.attackerTeam, [next.targetId]);
+            const bounceTarget = findBounceTargetIn(simState, fromQ, fromR, next.attackerTeam, [liveTarget.id]);
             if (bounceTarget) {
               const bounceCells = getBoardCellsForUnitAnchor(bounceTarget, Number(bounceTarget.q), Number(bounceTarget.r));
               let bounceDist = Infinity;
@@ -487,7 +840,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
                 enableSkeletonArcherBounce: false,
               });
               chainMeta = {
-                chainFromTargetId: Number(next.targetId),
+                chainFromTargetId: Number(liveTarget.id),
                 chainTargetId: Number(bounceTarget.id),
                 chainTravelMs: Math.max(0, Number(bounceTravelMs ?? 0)),
               };
@@ -500,7 +853,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
             t: dueAt,
             type: 'damage',
             attackerId: next.attackerId,
-            targetId: next.targetId,
+            targetId: Number(liveTarget.id),
             attackerTeam: next.attackerTeam,
             attackSeq: Number(next.attackSeq ?? 0),
             damage: Number(dmgRes.damage ?? 0),
@@ -513,7 +866,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
         }
 
         if (dmgRes.killed) {
-          releaseWormSwallowedVictimIn(simState, next.targetId, dueAt, { collectTimeline, events });
+          releaseWormSwallowedVictimIn(simState, liveTarget.id, dueAt, { collectTimeline, events });
         }
       }
     }
@@ -658,7 +1011,9 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
       const me = findUnitByIdIn(simState, actor.id);
       if (!me || me.dead || me.zone !== 'board') continue;
 
-      const target = findClosestOpponentIn(simState, me, tickTimeMs);
+      const target = hasCrossbowmanLineShotPassive(me)
+        ? findBestCrossbowmanTargetIn(simState, me, tickTimeMs)
+        : findClosestOpponentIn(simState, me, tickTimeMs);
       if (!target) continue;
 
       const attackSpeed = Math.max(0.1, Number(me.attackSpeed ?? DEFAULT_UNIT_ATTACK_SPEED));
@@ -681,7 +1036,9 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
 
       let unitActions = 0;
       while (unitActions < MAX_ACTIONS_PER_UNIT_PER_TICK) {
-        const liveTarget = findClosestOpponentIn(simState, me, tickTimeMs);
+        const liveTarget = hasCrossbowmanLineShotPassive(me)
+          ? findBestCrossbowmanTargetIn(simState, me, tickTimeMs)
+          : findClosestOpponentIn(simState, me, tickTimeMs);
         if (!liveTarget) break;
 
         const mePos = getCombatHexAtIn(simState, me, tickTimeMs);
@@ -689,6 +1046,18 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
         if (!mePos || !targetPos) break;
         const dist = hexDistance(mePos.q, mePos.r, targetPos.q, targetPos.r);
         const attackRangeMax = Math.max(1, Number(me.attackRangeMax ?? 1));
+        const crossbowmanLineShotMeta = hasCrossbowmanLineShotPassive(me)
+          ? getCrossbowmanLineShotMetaIn(simState, me, liveTarget, tickTimeMs)
+          : null;
+        const canAttackTargetNow = isUndertakerSummoner
+          ? false
+          : (
+            dist <= attackRangeMax &&
+            (
+              !hasCrossbowmanLineShotPassive(me) ||
+              crossbowmanLineShotMeta?.canShoot === true
+            )
+          );
 
         if (
           isUndertakerSummoner &&
@@ -717,7 +1086,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
           }
         }
 
-        if (!isUndertakerSummoner && dist <= attackRangeMax) {
+        if (canAttackTargetNow) {
           if (tickTimeMs + 1e-6 < me.nextActionAt || tickTimeMs + 1e-6 < me.nextAttackAt) break;
 
           const canWormSwallowNow =
@@ -801,6 +1170,11 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
                 isRanged: Boolean(res.isRanged),
                 projectileSpeed: Number(res.projectileSpeed ?? 0),
                 projectileTravelMs: Number(res.projectileTravelMs ?? 0),
+                projectileTravelMsTotal: Number(res.projectileTravelMsTotal ?? res.projectileTravelMs ?? 0),
+                projectilePierce: Boolean(res.projectilePierce),
+                projectileForceStraight: Boolean(res.projectileForceStraight),
+                projectileTargetQ: Number(res.projectileTargetQ ?? liveTarget.q ?? 0),
+                projectileTargetR: Number(res.projectileTargetR ?? liveTarget.r ?? 0),
               });
             }
 
@@ -809,18 +1183,50 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
               String(me.abilityKey ?? '') === 'skeleton_archer_bounce';
 
             if (Boolean(res.isRanged) && Number(res.projectileTravelMs ?? 0) > 0) {
-              pendingDamageEvents.push({
-                t: tickTimeMs + Number(res.projectileTravelMs ?? 0),
-                attackerId: me.id,
-                targetId: liveTarget.id,
-                attackerTeam: me.team,
-                attackSeq,
-                damage: Number(res.damage ?? 1),
-                damageSource: 'projectile',
-                projectileSpeed: Number(res.projectileSpeed ?? 0),
-                missed: res.isHit !== true,
-                enableSkeletonArcherBounce: hasSkeletonArcherBounce,
-              });
+              const pierceTargets = Array.isArray(res.pierceTargets) ? res.pierceTargets : [];
+              const projectileRayCells = Array.isArray(res.projectileRayCells) ? res.projectileRayCells : [];
+              if (Boolean(res.projectilePierce) && projectileRayCells.length > 0) {
+                const projectileId = `${me.id}:${attackSeq}:${tickTimeMs}`;
+                for (const cell of projectileRayCells) {
+                  const hitDist = Math.max(0, Number(cell?.dist ?? res.dist ?? 0));
+                  const hitTravelMs = hasCrossbowmanLineShotPassive(me)
+                    ? CROSSBOWMAN_IMPACT_DELAY_MS
+                    : (
+                      Number(res.projectileSpeed ?? 0) > 0
+                        ? (hitDist / Math.max(0.0001, Number(res.projectileSpeed ?? 0))) * 1000
+                        : Number(res.projectileTravelMs ?? 0)
+                    );
+                  const hitDamageMultiplier = hitDist > Number(res.attackRangeFullDamage ?? attackRangeMax) ? 0.5 : 1;
+                  pendingDamageEvents.push({
+                    t: tickTimeMs + hitTravelMs,
+                    attackerId: me.id,
+                    targetId: liveTarget.id,
+                    attackerTeam: me.team,
+                    attackSeq,
+                    projectileId,
+                    targetCellQ: Number(cell.q),
+                    targetCellR: Number(cell.r),
+                    damage: Math.max(1, Math.round(Number(me.atk ?? 0) * hitDamageMultiplier)),
+                    damageSource: 'projectile_pierce',
+                    projectileSpeed: Number(res.projectileSpeed ?? 0),
+                    missed: res.isHit !== true,
+                    enableSkeletonArcherBounce: false,
+                  });
+                }
+              } else {
+                pendingDamageEvents.push({
+                  t: tickTimeMs + Number(res.projectileTravelMs ?? 0),
+                  attackerId: me.id,
+                  targetId: liveTarget.id,
+                  attackerTeam: me.team,
+                  attackSeq,
+                  damage: Number(res.damage ?? 1),
+                  damageSource: 'projectile',
+                  projectileSpeed: Number(res.projectileSpeed ?? 0),
+                  missed: res.isHit !== true,
+                  enableSkeletonArcherBounce: hasSkeletonArcherBounce,
+                });
+              }
             } else if (res.isHit !== true) {
               if (collectTimeline) {
                 events.push({
@@ -874,7 +1280,11 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
 
         const step = isUndertakerSummoner
           ? pickBestStepAwayFromClosestEnemyIn(simState, me, tickTimeMs)
-          : pickBestStepTowardIn(simState, me, liveTarget, tickTimeMs);
+          : (
+            hasCrossbowmanLineShotPassive(me)
+              ? pickBestStepTowardCrossbowmanShotIn(simState, me, liveTarget, tickTimeMs)
+              : pickBestStepTowardIn(simState, me, liveTarget, tickTimeMs)
+          );
         if (!step) break;
 
         const from = { q: me.q, r: me.r };

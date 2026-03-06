@@ -103,6 +103,7 @@ const INFO_FIGURE_ICON_BY_POWER_TYPE = {
 const MISS_HINT_TEXT = 'miss';
 const MISS_HINT_RISE_PX = 34;
 const MISS_HINT_DURATION_MS = 520;
+const MISS_HINT_THROTTLE_MS = 200;
 const TRASH_ICON_CLOSED_KEY = 'trash_close';
 const TRASH_ICON_OPEN_KEY = 'trash_open';
 const TRASH_ICON_SCALE = 0.33;
@@ -222,6 +223,7 @@ export default class BattleScene extends Phaser.Scene {
     this.load.image(TRASH_ICON_CLOSED_KEY, '/assets/icons/trash/trash_close.png');
     this.load.image(TRASH_ICON_OPEN_KEY, '/assets/icons/trash/trash_open.png');
     this.load.image('projectile_bone', '/assets/projectiles/bone.png');
+    this.load.image('projectile_bolt', '/assets/projectiles/bolt.png');
 
     for (const asset of EXTRA_PORTRAIT_ASSETS) {
       this.load.image(asset.key, asset.path);
@@ -1908,18 +1910,25 @@ export default class BattleScene extends Phaser.Scene {
         attacker.attackSeq = Number(ev.attackSeq ?? (Number(attacker.attackSeq ?? 0) + 1));
         if (pendingAttackAnimIds) pendingAttackAnimIds.add(attacker.id);
       }
-      if (attacker && target) {
-        if (Boolean(ev?.isRanged) === true) {
-          this.pendingRangedBeamFx = this.pendingRangedBeamFx ?? [];
-          this.pendingRangedBeamFx.push({
-            attackerId: attacker.id,
-            targetId: target.id,
-            projectileTravelMs: Number(ev.projectileTravelMs ?? 0),
-            dist: Number(ev.dist ?? NaN),
-            attackRangeFullDamage: Number(ev.attackRangeFullDamage ?? NaN),
-          });
+        if (attacker && target) {
+          if (Boolean(ev?.isRanged) === true) {
+            const isCrossbowmanShot = this.isCrossbowmanLineShotUnit?.(attacker) === true;
+            this.pendingRangedBeamFx = this.pendingRangedBeamFx ?? [];
+            this.pendingRangedBeamFx.push({
+              attackerId: attacker.id,
+              targetId: target.id,
+              targetQ: isCrossbowmanShot ? Number(ev.projectileTargetQ ?? target.q ?? 0) : null,
+              targetR: isCrossbowmanShot ? Number(ev.projectileTargetR ?? target.r ?? 0) : null,
+              projectileTravelMs: Number(ev.projectileTravelMs ?? 0),
+              projectileTravelMsTotal: Number(ev.projectileTravelMsTotal ?? ev.projectileTravelMs ?? 0),
+              projectilePierce: Boolean(ev.projectilePierce),
+              forceStraight: Boolean(ev.projectileForceStraight) || isCrossbowmanShot,
+              textureKey: isCrossbowmanShot ? 'projectile_bolt' : undefined,
+              dist: Number(ev.dist ?? NaN),
+              attackRangeFullDamage: Number(ev.attackRangeFullDamage ?? NaN),
+            });
+          }
         }
-      }
       return;
     }
 
@@ -2091,11 +2100,61 @@ export default class BattleScene extends Phaser.Scene {
     return null;
   }
 
+  getBoardCellVisualCenter(q, r) {
+    const p = this.hexToPixel(Number(q), Number(r));
+    return p ? { x: Number(p.x ?? 0), y: Number(p.y ?? 0) } : null;
+  }
+
+  getUnitBoardCellVisualCenter(coreUnitLike) {
+    if (!coreUnitLike) return null;
+    return this.getBoardCellVisualCenter(Number(coreUnitLike.q ?? 0), Number(coreUnitLike.r ?? 0));
+  }
+
   getRangedProjectileTextureKey(attackerCore, fx = null) {
     if (fx?.textureKey) return String(fx.textureKey);
+    if (this.isCrossbowmanLineShotUnit?.(attackerCore)) return 'projectile_bolt';
     const t = String(attackerCore?.type ?? '').toLowerCase();
     if (t === 'skeletonarcher' || t === 'skeleton_archer') return 'projectile_bone';
+    if (t === 'crossbowman' || t === 'crossbow') return 'projectile_bolt';
     return null;
+  }
+
+  getProjectileRotationOffset(textureKey) {
+    const key = String(textureKey ?? '');
+    if (key === 'projectile_bolt') return Math.PI;
+    return 0;
+  }
+
+  hasExplicitProjectileTargetCell(fx = null) {
+    return fx?.targetQ != null
+      && fx?.targetR != null
+      && Number.isFinite(Number(fx.targetQ))
+      && Number.isFinite(Number(fx.targetR));
+  }
+
+  getCrossbowmanVisualProjectileDurationMs(attackerCore, fx, start, initialTarget, lockedStraightTo) {
+    if (!attackerCore || !fx || !start || !initialTarget || !lockedStraightTo) return null;
+    const projectileSpeed = Math.max(0, Number(attackerCore.projectileSpeed ?? 0));
+    if (!(projectileSpeed > 0)) return null;
+
+    const targetQ = Number.isFinite(Number(fx?.targetQ)) ? Number(fx.targetQ) : Number(attackerCore.q ?? 0);
+    const targetR = Number.isFinite(Number(fx?.targetR)) ? Number(fx.targetR) : Number(attackerCore.r ?? 0);
+    const targetHexDist = Math.max(1, hexDistance(
+      Number(attackerCore.q ?? 0),
+      Number(attackerCore.r ?? 0),
+      targetQ,
+      targetR,
+    ));
+    const targetPixelDist = Phaser.Math.Distance.Between(start.x, start.y, initialTarget.x, initialTarget.y);
+    if (!(targetPixelDist > 1e-3)) return null;
+
+    const pixelsPerHex = targetPixelDist / targetHexDist;
+    if (!(pixelsPerHex > 1e-3)) return null;
+
+    const totalPixelDist = Phaser.Math.Distance.Between(start.x, start.y, lockedStraightTo.x, lockedStraightTo.y);
+    if (!(totalPixelDist > 1e-3)) return null;
+
+    return Math.max(120, (totalPixelDist / (projectileSpeed * pixelsPerHex)) * 1000);
   }
 
   playRangedProjectileFx(attackerCore, targetCore, fx = null) {
@@ -2103,14 +2162,63 @@ export default class BattleScene extends Phaser.Scene {
     const textureKey = this.getRangedProjectileTextureKey(attackerCore, fx);
     if (!textureKey || !this.textures?.exists?.(textureKey)) return false;
 
-    const start = this.getUnitVisualCenter(attackerCore);
+    const isCrossbowmanShot = this.isCrossbowmanLineShotUnit?.(attackerCore) === true;
+    const attackerBoardCenter = this.getUnitBoardCellVisualCenter(attackerCore);
+    const attackerVisualCenter = this.getUnitVisualCenter(attackerCore);
+    const crossbowmanLiftY = isCrossbowmanShot && attackerBoardCenter && attackerVisualCenter
+      ? Number(attackerVisualCenter.y) - Number(attackerBoardCenter.y)
+      : 0;
+    const applyCrossbowmanLift = (point) => {
+      if (!point) return null;
+      if (!isCrossbowmanShot) return point;
+      return {
+        x: Number(point.x ?? 0),
+        y: Number(point.y ?? 0) + crossbowmanLiftY,
+      };
+    };
+    const start = isCrossbowmanShot
+      ? (attackerVisualCenter ?? attackerBoardCenter)
+      : attackerVisualCenter;
     if (!start) return false;
-    const durationMs = Math.max(60, Number(fx?.projectileTravelMs ?? 0));
+    const shouldFlyStraight = Boolean(fx?.forceStraight) || isCrossbowmanShot;
+    const initialTargetRaw = this.hasExplicitProjectileTargetCell?.(fx)
+      ? this.getBoardCellVisualCenter(Number(fx.targetQ), Number(fx.targetR))
+      : this.getUnitVisualCenter(targetCore);
+    const initialTarget = applyCrossbowmanLift(initialTargetRaw);
+    if (!initialTarget) return false;
+    const lockedStraightTo = (() => {
+      if (!shouldFlyStraight) return null;
+      if (!fx?.projectilePierce) return { x: initialTarget.x, y: initialTarget.y };
+
+      const dx = initialTarget.x - start.x;
+      const dy = initialTarget.y - start.y;
+      const len = Math.hypot(dx, dy);
+      if (len <= 1e-3) return { x: initialTarget.x, y: initialTarget.y };
+      const ux = dx / len;
+      const uy = dy / len;
+      const extra = Math.max(this.scale.width, this.scale.height) * 1.25;
+      return {
+        x: start.x + (ux * (len + extra)),
+        y: start.y + (uy * (len + extra)),
+      };
+    })();
+    const durationMs = isCrossbowmanShot
+      ? (
+        this.getCrossbowmanVisualProjectileDurationMs?.(
+          attackerCore,
+          fx,
+          start,
+          initialTarget,
+          lockedStraightTo ?? initialTarget,
+        )
+        ?? Math.max(60, Number(fx?.projectileTravelMsTotal ?? fx?.projectileTravelMs ?? 0))
+      )
+      : Math.max(60, Number(fx?.projectileTravelMsTotal ?? fx?.projectileTravelMs ?? 0));
 
     const sprite = this.add.image(start.x, start.y, textureKey).setDepth(1605);
     sprite.setScale(0.48);
     const spinClockwise = Boolean(fx?.spinClockwise);
-    const shouldFlyStraight = Boolean(fx?.forceStraight);
+    const rotationOffset = Number(this.getProjectileRotationOffset?.(textureKey) ?? 0);
     if (spinClockwise) {
       const rotationsPerSecond = 4.5;
       const deltaAngle = 360 * rotationsPerSecond * (durationMs / 1000);
@@ -2130,7 +2238,18 @@ export default class BattleScene extends Phaser.Scene {
       ease: 'Linear',
       onUpdate: () => {
         const liveTarget = (this.battleState?.units ?? []).find((u) => u.id === targetCore.id) ?? targetCore;
-        const to = this.getUnitVisualCenter(liveTarget) ?? this.getUnitVisualCenter(targetCore);
+        const targetCenter = shouldFlyStraight
+          ? null
+          : (
+            applyCrossbowmanLift(
+              (this.hasExplicitProjectileTargetCell?.(fx)
+                ? this.getBoardCellVisualCenter(Number(fx.targetQ), Number(fx.targetR))
+                : null)
+              ?? this.getUnitVisualCenter(liveTarget)
+              ?? this.getUnitVisualCenter(targetCore)
+            )
+          );
+        const to = shouldFlyStraight ? lockedStraightTo : targetCenter;
         if (!to) return;
 
         const t = Phaser.Math.Clamp(drive.t, 0, 1);
@@ -2159,7 +2278,7 @@ export default class BattleScene extends Phaser.Scene {
         sprite.setPosition(nx, ny);
 
         if (!spinClockwise) {
-          sprite.setRotation(Math.atan2(dy, dx));
+          sprite.setRotation(Math.atan2(dy, dx) + rotationOffset);
         }
       },
       onComplete: () => sprite.destroy(),
@@ -2414,6 +2533,14 @@ export default class BattleScene extends Phaser.Scene {
 
   showCombatMissHint(coreUnitLike) {
     if (!coreUnitLike) return;
+    const unitId = Number(coreUnitLike?.id ?? NaN);
+    const nowMs = Number(this.time?.now ?? 0);
+    this.missHintLastShownAtByUnitId = this.missHintLastShownAtByUnitId ?? new Map();
+    if (Number.isFinite(unitId)) {
+      const lastShownAt = Number(this.missHintLastShownAtByUnitId.get(unitId) ?? -Infinity);
+      if ((nowMs - lastShownAt) < MISS_HINT_THROTTLE_MS) return;
+      this.missHintLastShownAtByUnitId.set(unitId, nowMs);
+    }
     const pos = this.getUnitVisualCenter(coreUnitLike);
     if (!pos) return;
     const t = this.add.text(pos.x, pos.y - 46, MISS_HINT_TEXT, {
@@ -3862,6 +3989,17 @@ export default class BattleScene extends Phaser.Scene {
     stroke(1, 0xfff4cd, 0.95);
   }
 
+  isCrossbowmanLineShotUnit(unitLike) {
+    return !!unitLike
+      && String(unitLike.abilityType ?? 'none') === 'passive'
+      && String(unitLike.abilityKey ?? '') === 'crossbowman_line_shot';
+  }
+
+  isHexOnLineFrom(originQ, originR, targetQ, targetR) {
+    const dr = Number(targetR) - Number(originR);
+    return dr === 0;
+  }
+
   drawFootprintGlowOn(g, cells = []) {
     const occupied = new Set((cells ?? []).map((c) => `${Number(c.q)},${Number(c.r)}`));
     if (occupied.size <= 0) return;
@@ -4006,6 +4144,12 @@ export default class BattleScene extends Phaser.Scene {
       for (const cell of boardCells) {
         const d = hexDistance(this.dragBoardHover.q, this.dragBoardHover.r, cell.q, cell.r);
         if (d > dragAttackRangeMax) continue;
+        if (
+          this.isCrossbowmanLineShotUnit?.(draggingCore) &&
+          !this.isHexOnLineFrom?.(this.dragBoardHover.q, this.dragBoardHover.r, cell.q, cell.r)
+        ) {
+          continue;
+        }
         if (d <= dragAttackRangeFull) {
           // Full damage zone.
           this.drawHexFilledOn(g, cell.x, cell.y, 0x7fdc6a, 0.18);
