@@ -181,3 +181,71 @@
 ### Replay + Spawn Robustness
 - Improved replay visual spawn fallback for occasional temporary occupancy desync.
 - Added warning diagnostics for failed visual spawn cases.
+
+## 2026-03-06
+
+### Server Structure / Tests / Docs
+- Started server decomposition without changing battle behavior:
+  - extracted battle phase constants into `server/battlePhases.js`;
+  - extracted server-authoritative combat replay logic into `server/combatSimulator.js`;
+  - switched `server/index.js` to imported phase config and combat simulator entry points.
+- Added combat-focused automated tests:
+  - `entry` duration invariant (`5s`);
+  - ranged projectile travel timing;
+  - `SkeletonArcher` bounce;
+  - `Ghost` evasion -> `miss`;
+  - `Undertaker` cast/spawn flow;
+  - `sanitizeUnitForBattleStart`.
+- Synced docs/spec with current behavior:
+  - `entry` duration is explicitly documented as `5s`;
+  - project memory reflects extracted server modules and broader combat test coverage.
+
+### Entry Phase
+- Added explicit `entry` phase between `prep` and `battle`.
+- Entry reveal sequence now has staged enemy king, enemy king UI, enemy army, and enemy army UI.
+- Entry waits for prepared server replay; if replay is missing by timeout, round resolves as `draw`.
+- Board occupancy gray fill is hidden during `entry` for cleaner presentation.
+
+### HUD / Shop / Bench
+- Added king-side board cap HUD block `X / Y`.
+- `X` counts only player units on board, never bench units.
+- During battle, `X` is frozen from battle start so deaths/summons do not change the displayed starting army size.
+- Shop purchase placement now respects board cap:
+  - if board cap is reached, unit goes to bench;
+  - if bench is full too, purchase is blocked and client shows `Нет места` over the clicked shop card.
+- Shop auto-placement on board now starts from player prep midpoint preference:
+  - row 4 from top / column 3 from left;
+  - then nearest free cell around that point.
+
+### Overflow And Bench Depth
+- At battle start, random excess board units above king-level cap are auto-moved to bench.
+- If bench is full, remaining excess units are auto-sold with trash flight + coin burst FX.
+- Auto-bench transfer in entry now uses visible arc motion instead of teleport.
+- Bench render depth is fixed as an invariant:
+  - slots 1-4 below king;
+  - slots 5-8 above king;
+  - inside each half, lower slots on screen render above higher ones.
+
+### Replay / Animation
+- Started attack and cast animations are no longer cut immediately when round result arrives; they finish naturally.
+- Added replay-safe handling for auto-bench / auto-sell FX synchronization.
+
+### Worm Passive
+- Added passive ability `worm_swallow`.
+- Current implemented behavior:
+  - 50% chance to swallow attack target;
+  - swallowed unit leaves battlefield into `zone = swallowed`;
+  - digestion lasts 6 seconds;
+  - while digesting, Worm switches to `worm_fat_atlas`;
+  - while digesting, Worm move speed and attack speed are reduced by 30%;
+  - cooldown bar is hidden at battle start and shown only while digesting;
+  - if digestion completes, swallowed unit dies permanently with no corpse;
+  - if Worm dies first, swallowed unit is released with 50% of stored HP.
+- Added replay events: `worm_swallow`, `worm_release`, `worm_digest`.
+- Added server safety pass so swallowed units are still released if Worm death and round end happen in the same tick.
+
+### Bot Kings
+- Replaced removed bot king textures with new assets from `assets/bots`:
+  - `black_knight`, `black_pawn`, `white_knight`, `white_pawn`
+- Bot profiles were remapped to new texture keys.
+- Bot king art on right side is no longer mirrored; source art is already authored for enemy-side display.

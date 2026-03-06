@@ -27,6 +27,15 @@ import { UNIT_CATALOG } from '../shared/unitCatalog.js';
 import { baseIncomeForRound, interestIncome, streakBonus, COINS_CAP } from '../shared/economy.js';
 import { canManageShopInPhase, canMergeBoardUnitsInPhase, clampCoins } from '../shared/gameRules.js';
 import { getBotProfileByIndex, getBotProfileById } from './botProfiles.js';
+import {
+  BATTLE_DURATION_SECONDS as CONFIG_BATTLE_DURATION_SECONDS,
+  BATTLE_ENTRY_SECONDS as CONFIG_BATTLE_ENTRY_SECONDS,
+} from './battlePhases.js';
+import {
+  SNAPSHOT_STEP_MS as COMBAT_SNAPSHOT_STEP_MS,
+  simulateBattleReplayFromState as simulateBattleReplayFromStateImported,
+  sanitizeUnitForBattleStart as sanitizeUnitForBattleStartImported,
+} from './combatSimulator.js';
 
 const DEFAULT_MATCH_ID = 'default';
 const matchStore = new Map();
@@ -40,20 +49,20 @@ state.entrySecondsLeft = state.entrySecondsLeft ?? 0;
 
 let battleCountdownTimer = null;
 let entryCountdownTimer = null;
-const BATTLE_DURATION_SECONDS = 45; // Бой длится максимум 45с, затем ничья.
-const BATTLE_ENTRY_SECONDS = 4;
+const BATTLE_DURATION_SECONDS = CONFIG_BATTLE_DURATION_SECONDS; // Бой длится максимум 45с, затем ничья.
+const BATTLE_ENTRY_SECONDS = CONFIG_BATTLE_ENTRY_SECONDS;
 
 // ---- rounds / prep timer ----
-state.round = state.round ?? 1;              // РёРіСЂР° СЃС‚Р°СЂС‚СѓРµС‚ СЃ 1 СЂР°СѓРЅРґР°
+state.round = state.round ?? 1; // Game starts from round 1.
 state.prepSecondsLeft = state.prepSecondsLeft ?? 0;
 
 let prepTimer = null;
 
 // ---- economy / rounds ----
-state.winStreak = state.winStreak ?? 0;  // РїРѕРґСЂСЏРґ РїРѕР±РµРґ
-state.loseStreak = state.loseStreak ?? 0; // РїРѕРґСЂСЏРґ РїРѕСЂР°Р¶
+state.winStreak = state.winStreak ?? 0; // Consecutive wins.
+state.loseStreak = state.loseStreak ?? 0; // Consecutive losses.
 
-// СЃР»РµРїРѕРє СЂР°СЃСЃС‚Р°РЅРѕРІРєРё РЅР° РјРѕРјРµРЅС‚ СЃС‚Р°СЂС‚Р° Р±РѕСЏ (РґР»СЏ РІРѕР·РІСЂР°С‚Р° РІ prep)
+// Player prep snapshot saved before battle to restore board state on return to prep.
 let prepSnapshot = null; // Array of units
 
 // ---- battle timers (GLOBAL, not per connection) ----
@@ -840,7 +849,7 @@ const WORM_SWALLOW_DIGEST_MS = 6000;
 const WORM_SWALLOW_CHANCE = 0.5;
 const WORM_DIGEST_SPEED_MULT = 0.7; // 30% slower while digesting swallowed unit
 const MAX_ACTIONS_PER_UNIT_PER_TICK = 8;
-const SNAPSHOT_STEP_MS = 100;
+const SNAPSHOT_STEP_MS = COMBAT_SNAPSHOT_STEP_MS;
 
 function makeRandomOffer() {
   const catalogPool = UNIT_CATALOG.filter((u) => !SHOP_EXCLUDED_UNIT_TYPES.has(String(u?.type ?? '')));
@@ -1140,7 +1149,7 @@ function simulateHiddenBotBattleReplay(botAId, botBId) {
   simState.units = units;
   simState.kings.enemy.visible = true;
 
-  return simulateBattleReplayFromState(simState, {
+  return simulateBattleReplayFromStateImported(simState, {
     tickMs: SNAPSHOT_STEP_MS,
     maxBattleMs: BATTLE_DURATION_SECONDS * 1000,
     collectTimeline: false,
@@ -2334,7 +2343,7 @@ function startBattleFromPreparedReplay(matchId) {
 
   for (const u of (state.units ?? [])) {
     if (u?.zone !== 'board') continue;
-    sanitizeUnitForBattleStart(u);
+    sanitizeUnitForBattleStartImported(u);
   }
 
   const replayResult = replay?.result ?? 'draw';
@@ -2490,7 +2499,7 @@ function startBattle() {
       if (state.phase !== 'entry') return;
       if (Number(state.replayRequestNonce ?? 0) !== replayRequestNonce) return;
       try {
-        state.battleReplay = simulateBattleReplayFromState(state, {
+        state.battleReplay = simulateBattleReplayFromStateImported(state, {
           tickMs: SNAPSHOT_STEP_MS,
           maxBattleMs: BATTLE_DURATION_SECONDS * 1000,
         });

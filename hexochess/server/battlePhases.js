@@ -1,0 +1,2 @@
+export const BATTLE_DURATION_SECONDS = 45;
+export const BATTLE_ENTRY_SECONDS = 5;

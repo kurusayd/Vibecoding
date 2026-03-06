@@ -57,6 +57,7 @@ const MENU_ITEMS = [
 export default class StartScene extends Phaser.Scene {
   constructor() {
     super('StartScene');
+    this.battleSceneLoadPromise = null;
   }
 
   preload() {
@@ -198,16 +199,32 @@ export default class StartScene extends Phaser.Scene {
     return t(this.locale, key);
   }
 
-  onMenuClick(action) {
+  async onMenuClick(action) {
     if (action === 'PLAY') {
-      this.scene.start('BattleScene', { autoStart: true });
+      await this.startBattleScene({ autoStart: true });
       return;
     }
     if (action === 'TEST_SCENE') {
-      this.scene.start('BattleScene', { openTestScene: true });
+      await this.startBattleScene({ openTestScene: true });
       return;
     }
     console.log(`[StartScene] TODO action: ${action}`);
+  }
+
+  async startBattleScene(data) {
+    if (!this.scene.get('BattleScene')) {
+      this.battleSceneLoadPromise ??= import('./BattleScene.js')
+        .then(({ default: BattleScene }) => {
+          if (!this.scene.get('BattleScene')) {
+            this.scene.add('BattleScene', BattleScene, false);
+          }
+        })
+        .finally(() => {
+          this.battleSceneLoadPromise = null;
+        });
+      await this.battleSceneLoadPromise;
+    }
+    this.scene.start('BattleScene', data);
   }
 
   onResize() {

@@ -1,6 +1,6 @@
 # Hexochess Project Memory
 
-Обновлено: 2026-03-02
+Обновлено: 2026-03-06
 
 ## 1) Цель и текущий формат проекта
 - Hexochess — авто-баттлер в духе Dota Autochess на гекс-поле.
@@ -31,7 +31,7 @@
 - В `prep` игрок может ставить на свою половину поля (первые 6 колонок).
 - Мерж юнитов авторитетный на сервере: 3 одинаковых (`type+rank`) -> ап ранга, максимум `rank=3`.
 - В `prep` мерж учитывает board + bench; вне `prep` — только bench.
-- Фазы: `prep` -> `battle` -> (показ `result` внутри battle-view) -> `prep`.
+- Фазы: `prep` -> `entry` -> `battle` -> (показ `result` внутри battle-view) -> `prep`.
 - Ограничения по экономике:
   - cap монет: `100`
   - refresh shop: `2`
@@ -75,7 +75,18 @@
 - В `server/index.js` сконцентрировано много доменной логики (matchmaking, экономика, бой, intents, lifecycle) — крупный монолитный файл.
 - Система `matchStore` сейчас фактически использует общий global state (`default` матч).
 - По `abilityType/abilityKey` есть данные в каталоге, но отдельного развитого движка способностей пока нет.
-- Тесты пока базовые (game rules / economy / XP), без полноценного покрытия матчинга/replay/интентов.
+- Тесты уже покрывают базовые правила и часть боевого сервера:
+  - game rules / economy / XP;
+  - `entry = 5s`;
+  - ranged projectile timing;
+  - `SkeletonArcher` bounce;
+  - `Ghost` evasion;
+  - `Undertaker` summon cast/spawn;
+  - `sanitizeUnitForBattleStart`.
+- Начата декомпозиция сервера:
+  - фазовые константы вынесены в `server/battlePhases.js`;
+  - server-authoritative combat sim вынесен в `server/combatSimulator.js`;
+  - `server/index.js` пока частично использует новые модули, дубли ещё не дочищены полностью.
 
 ## 10) Правила поддержки этого файла
 - При каждом заметном решении добавлять:
@@ -223,3 +234,58 @@
 - Replay render path includes fallback spawn creation to survive temporary occupied-cell desync.
 - Failure still logs `FAILED SPAWN VISUAL` diagnostics with position/context payload.
 - Current known cleanup candidate: legacy `BattleScene.playAbilityCooldownReadyFx(...)` remains but flash is now rendered in `hpbar.js` layer.
+
+## 22) Session Addendum (2026-03-06)
+- Documentation refresh date: 2026-03-06.
+
+### Battle Flow
+- Main phase chain is now `prep -> entry -> battle`.
+- `entry` duration is `5` seconds.
+- `entry` is not cosmetic-only: it is the pre-battle waiting window for prepared server replay.
+- If replay is not ready by entry timeout, battle resolves as `draw`.
+
+### Board Cap / Bench / Shop Invariants
+- Player board cap equals current king level.
+- Player board cap HUD displays `X / Y`:
+  - `X` = alive player board units only;
+  - `Y` = king level / allowed board unit count.
+- During battle/result view, `X` is frozen from battle start snapshot.
+- Buying from shop:
+  - if board cap is not reached and a valid board cell exists, unit goes to board;
+  - otherwise unit goes to first free bench slot;
+  - if bench is full too, buy is denied with `NO_SPACE`, and UI shows `Нет места` above the clicked card.
+- Preferred auto-placement point for bought units on player board is row 4 / column 3 of player prep half, then nearest free cell.
+
+### Entry / Overflow / Bench Presentation
+- At battle start, excess player board units above cap are resolved before replay snapshot:
+  - random excess units go to bench;
+  - if bench is full, remaining excess units are auto-sold.
+- Auto-bench transfer uses visible arc motion during entry.
+- Auto-sell uses trash flight + coin burst FX, same as manual sale path.
+- Bench depth is fixed:
+  - slots 1-4 below king;
+  - slots 5-8 above king;
+  - inside each half, lower slots on screen draw above upper ones.
+
+### Worm Ability Invariant
+- `Worm` has passive `worm_swallow`.
+- Current server-authoritative rules:
+  - 50% chance to swallow attack target instead of normal hit;
+  - swallowed target moves to `zone = swallowed` and disappears from battlefield;
+  - digestion lasts 6 seconds;
+  - while digesting, Worm cannot swallow another target;
+  - while digesting, Worm attack speed and move speed are reduced by 30%;
+  - if digestion completes, swallowed unit dies permanently with no corpse;
+  - if Worm dies first, swallowed unit is released on Worm anchor hex with 50% of stored HP.
+- Client invariants:
+  - Worm switches to `worm_fat_atlas` while digesting;
+  - Worm cooldown bar is hidden until digestion actually starts, then shown during digest window only.
+- Replay events added for this mechanic:
+  - `worm_swallow`
+  - `worm_release`
+  - `worm_digest`
+- Server has an extra safety release pass so swallowed units are still released if Worm death and round-end happen in the same simulation tick.
+
+### Bot King Visuals
+- Enemy bot king textures now use new assets from `public/assets/bots`.
+- Bot-specific art is already authored for right-side display and must not be mirrored on enemy king sprite.

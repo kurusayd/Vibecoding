@@ -1,10 +1,9 @@
 import './style.css';
 
 async function boot() {
-  const [{ default: Phaser }, { default: StartScene }, { default: BattleScene }] = await Promise.all([
+  const [{ default: Phaser }, { default: StartScene }] = await Promise.all([
     import('phaser'),
     import('./scenes/StartScene.js'),
-    import('./scenes/BattleScene.js'),
   ]);
 
   new Phaser.Game({
@@ -27,7 +26,7 @@ async function boot() {
       height: 720,
       fullscreenTarget: 'app',
     },
-    scene: [StartScene, BattleScene],
+    scene: [StartScene],
   });
 }
 

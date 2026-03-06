@@ -3,10 +3,15 @@
 // unit.hpLag     вЂ” вЂњРґРѕРіРѕРЅСЏСЋС‰РёР№вЂќ (Р¶С‘Р»С‚С‹Р№ С…РІРѕСЃС‚)
 // unit.hp        вЂ” Р»РѕРіРёС‡РµСЃРєРѕРµ (РјРѕР¶РµС‚ СЃРѕРІРїР°РґР°С‚СЊ СЃ hpInstant)
 
+// Draw HP UI above a unit.
+// unit.hpInstant - current visible HP fill.
+// unit.hpLag - delayed trailing HP fill.
+// unit.hp - authoritative combat HP value.
+
 import { getUnitHpUiLiftPx } from './unitVisualConfig.js';
 import { boardDepth, hasBoardCoords } from './depthOrder.js';
 
-const HP_BAR_EXTRA_LIFT_PX = 3; // РѕР±С‰РёР№ РїРѕРґСЉС‘Рј HP-Р±Р°СЂР° РґР»СЏ РІСЃРµС… СЋРЅРёС‚РѕРІ (rank icon РЅРµ С‚СЂРѕРіР°РµРј)
+const HP_BAR_EXTRA_LIFT_PX = 3; // Shared vertical lift for HP bars; rank icon keeps its own offset.
 const RANK_ICON_OFFSET_Y_PX = 8; // + вниз, - вверх (только rank icon, HP-бар не двигается)
 const HP_UI_DEPTH_BASE = 2000;
 const ABILITY_CD_BAR_HEIGHT_PX = 4;

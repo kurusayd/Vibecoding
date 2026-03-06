@@ -18,9 +18,41 @@ export default defineConfig({
           if (isPhaserModule(id)) return 'phaser';
           if (isNodeModule(id)) return 'vendor';
 
-          // Keep battle scene and related UI code out of the tiny bootstrap chunk.
+          if (id.includes('/src/scenes/BattleScene.js') || id.includes('\\src\\scenes\\BattleScene.js')) return 'battle-scene';
+          if (id.includes('/src/scenes/battleScene/') || id.includes('\\src\\scenes\\battleScene\\')) return 'battle-scene-ui';
+
+          if (
+            id.includes('/src/game/units.js') ||
+            id.includes('\\src\\game\\units.js') ||
+            id.includes('/src/game/unitAtlasConfig.js') ||
+            id.includes('\\src\\game\\unitAtlasConfig.js') ||
+            id.includes('/src/game/unitVisualConfig.js') ||
+            id.includes('\\src\\game\\unitVisualConfig.js')
+          ) {
+            return 'game-units';
+          }
+
+          if (
+            id.includes('/src/game/hpbar.js') ||
+            id.includes('\\src\\game\\hpbar.js') ||
+            id.includes('/src/game/depthOrder.js') ||
+            id.includes('\\src\\game\\depthOrder.js') ||
+            id.includes('/src/game/hex.js') ||
+            id.includes('\\src\\game\\hex.js')
+          ) {
+            return 'game-render';
+          }
+
+          if (
+            id.includes('/src/game/') ||
+            id.includes('\\src\\game\\') ||
+            id.includes('/src/net/') ||
+            id.includes('\\src\\net\\')
+          ) {
+            return 'game-core';
+          }
+
           if (id.includes('/src/scenes/') || id.includes('\\src\\scenes\\')) return 'game-scenes';
-          if (id.includes('/src/game/') || id.includes('\\src\\game\\')) return 'game-core';
 
           return undefined;
         },
