@@ -104,6 +104,9 @@ const MISS_HINT_TEXT = 'miss';
 const MISS_HINT_RISE_PX = 34;
 const MISS_HINT_DURATION_MS = 520;
 const MISS_HINT_THROTTLE_MS = 200;
+const CROSSBOWMAN_TRAIL_ALPHA = 0.18;
+const CROSSBOWMAN_TRAIL_WIDTH_PX = 6;
+const CROSSBOWMAN_TRAIL_MAX_LENGTH_PX = 144;
 const TRASH_ICON_CLOSED_KEY = 'trash_close';
 const TRASH_ICON_OPEN_KEY = 'trash_open';
 const TRASH_ICON_SCALE = 0.33;
@@ -2157,6 +2160,14 @@ export default class BattleScene extends Phaser.Scene {
     return Math.max(120, (totalPixelDist / (projectileSpeed * pixelsPerHex)) * 1000);
   }
 
+  createCrossbowmanBoltTrail() {
+    const trail = this.add.rectangle(0, 0, CROSSBOWMAN_TRAIL_MAX_LENGTH_PX, CROSSBOWMAN_TRAIL_WIDTH_PX, 0xf7e7bf, CROSSBOWMAN_TRAIL_ALPHA)
+      .setDepth(1604)
+      .setOrigin(1, 0.5)
+      .setVisible(false);
+    return trail;
+  }
+
   playRangedProjectileFx(attackerCore, targetCore, fx = null) {
     if (!attackerCore || !targetCore) return false;
     const textureKey = this.getRangedProjectileTextureKey(attackerCore, fx);
@@ -2219,6 +2230,9 @@ export default class BattleScene extends Phaser.Scene {
     sprite.setScale(0.48);
     const spinClockwise = Boolean(fx?.spinClockwise);
     const rotationOffset = Number(this.getProjectileRotationOffset?.(textureKey) ?? 0);
+    const boltTrail = isCrossbowmanShot && !spinClockwise
+      ? this.createCrossbowmanBoltTrail?.()
+      : null;
     if (spinClockwise) {
       const rotationsPerSecond = 4.5;
       const deltaAngle = 360 * rotationsPerSecond * (durationMs / 1000);
@@ -2280,8 +2294,38 @@ export default class BattleScene extends Phaser.Scene {
         if (!spinClockwise) {
           sprite.setRotation(Math.atan2(dy, dx) + rotationOffset);
         }
+
+        if (boltTrail?.active) {
+          const trailLen = Math.min(CROSSBOWMAN_TRAIL_MAX_LENGTH_PX, Math.hypot(dx, dy) * 0.22);
+          boltTrail.setVisible(trailLen > 2);
+          const dirLen = Math.hypot(dx, dy);
+          const ux = dirLen > 1e-3 ? dx / dirLen : 1;
+          const uy = dirLen > 1e-3 ? dy / dirLen : 0;
+          const tailOffset = 20;
+          const normalX = -uy;
+          const normalY = ux;
+          const lateralOffset = 4;
+          boltTrail.setPosition(
+            nx - (ux * tailOffset) + (normalX * lateralOffset),
+            ny - (uy * tailOffset) + (normalY * lateralOffset),
+          );
+          boltTrail.setRotation(Math.atan2(dy, dx));
+          boltTrail.width = trailLen;
+          boltTrail.height = CROSSBOWMAN_TRAIL_WIDTH_PX;
+        }
       },
-      onComplete: () => sprite.destroy(),
+      onComplete: () => {
+        sprite.destroy();
+        if (boltTrail?.active) {
+          this.tweens.add({
+            targets: boltTrail,
+            alpha: 0,
+            duration: 90,
+            ease: 'Quad.Out',
+            onComplete: () => boltTrail.destroy(),
+          });
+        }
+      },
     });
     return true;
   }
