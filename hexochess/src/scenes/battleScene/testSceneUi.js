@@ -8,11 +8,23 @@ const TEST_SCENE_RACES = [
   { key: 'GOD', label: 'GOD', bg: 'rgba(120,100,35,0.78)' },
 ];
 
+const TEST_SCENE_ENEMY_KING_SKINS = [
+  { label: 'FROG', key: 'king_frog' },
+  { label: 'PRINCESS', key: 'king_princess' },
+  { label: 'KING', key: 'king_king' },
+  { label: 'BLACK KNIGHT', key: 'black_knight' },
+  { label: 'BLACK PAWN', key: 'black_pawn' },
+  { label: 'WHITE KNIGHT', key: 'white_knight' },
+  { label: 'WHITE PAWN', key: 'white_pawn' },
+];
+
 export function installBattleSceneTestSceneUi(BattleScene) {
   Object.assign(BattleScene.prototype, {
     initTestSceneUi() {
       this.testSceneSpawnRankMenuOpen = false;
       this.testScenePendingSpawnUnitType = null;
+      this.testSceneEnemyKingMenuOpen = false;
+      this.testSceneEnemyKingSkinButtons = [];
 
       this.testSceneUnitsBtn = this.add.text(0, 0, 'UNITS', {
         fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
@@ -90,6 +102,71 @@ export function installBattleSceneTestSceneUi(BattleScene) {
         if (!this.testSceneActive) return;
         this.exitTestScene?.();
         this.scene.start('StartScene');
+      });
+
+      this.testSceneEnemyKingBtn = this.add.text(0, 0, 'ENEMY KING', {
+        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+        fontSize: '16px',
+        color: '#ffffff',
+        backgroundColor: 'rgba(70,40,100,0.78)',
+        padding: { left: 10, right: 10, top: 6, bottom: 6 },
+      })
+        .setOrigin(1, 0)
+        .setDepth(10020)
+        .setScrollFactor(0)
+        .setInteractive({ useHandCursor: true })
+        .setVisible(false);
+      this.testSceneEnemyKingBtn.on('pointerdown', (pointer) => {
+        pointer?.event?.stopPropagation?.();
+        if (!this.testSceneActive) return;
+        this.testSceneEnemyKingMenuOpen = !this.testSceneEnemyKingMenuOpen;
+        this.syncDebugUI?.();
+      });
+
+      this.testSceneEnemyKingModal = this.add.container(0, 0)
+        .setDepth(10026)
+        .setScrollFactor(0)
+        .setVisible(false);
+      this.testSceneEnemyKingModalBg = this.add.rectangle(0, 0, 220, 14 + TEST_SCENE_ENEMY_KING_SKINS.length * 38 + 16, 0x111111, 0.94)
+        .setOrigin(0, 0)
+        .setStrokeStyle(2, 0x666666, 0.95);
+      this.testSceneEnemyKingModalHit = this.add.zone(0, 0, 220, 14 + TEST_SCENE_ENEMY_KING_SKINS.length * 38 + 16)
+        .setOrigin(0, 0)
+        .setInteractive();
+      this.testSceneEnemyKingModalHit.on('pointerdown', (pointer) => pointer?.event?.stopPropagation?.());
+      this.testSceneEnemyKingModalTitle = this.add.text(110, 12, 'ENEMY KING', {
+        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+        fontSize: '16px',
+        color: '#ffffff',
+        fontStyle: 'bold',
+      }).setOrigin(0.5, 0);
+      this.testSceneEnemyKingModal.add([
+        this.testSceneEnemyKingModalHit,
+        this.testSceneEnemyKingModalBg,
+        this.testSceneEnemyKingModalTitle,
+      ]);
+
+      TEST_SCENE_ENEMY_KING_SKINS.forEach((skin, idx) => {
+        const btn = this.add.text(110, 42 + idx * 38, skin.label, {
+          fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+          fontSize: '16px',
+          color: '#ffffff',
+          backgroundColor: 'rgba(0,0,0,0.55)',
+          padding: { left: 12, right: 12, top: 7, bottom: 7 },
+        })
+          .setOrigin(0.5, 0)
+          .setDepth(10027)
+          .setInteractive({ useHandCursor: true });
+        btn._testSceneEnemyKingTextureKey = skin.key;
+        btn.on('pointerdown', (pointer) => {
+          pointer?.event?.stopPropagation?.();
+          if (!this.testSceneActive) return;
+          this.showTestSceneEnemyKingPreview?.(skin.key);
+          this.testSceneEnemyKingMenuOpen = false;
+          this.syncDebugUI?.();
+        });
+        this.testSceneEnemyKingSkinButtons.push(btn);
+        this.testSceneEnemyKingModal.add(btn);
       });
 
       this.testSceneUnitsMenu = this.add.container(0, 0)
@@ -236,6 +313,7 @@ export function installBattleSceneTestSceneUi(BattleScene) {
       if (!this.testSceneActive) return;
       this.testScenePendingSpawnUnitType = unitType ?? null;
       this.testSceneSpawnRankMenuOpen = !!unitType;
+      this.testSceneEnemyKingMenuOpen = false;
       this.positionTestSceneUi?.();
       this.syncTestSceneUi?.(this.debugCanStartBattle ?? false);
     },
@@ -305,10 +383,16 @@ export function installBattleSceneTestSceneUi(BattleScene) {
         const debugLeft = this.debugBtn.x - (this.debugBtn.width ?? this.debugBtn.displayWidth ?? 0);
         this.testSceneExitBtn.setPosition(debugLeft - gap, 14);
       }
-      if (this.testSceneUnitsBtn && this.testSceneExitBtn) {
+      if (this.testSceneEnemyKingBtn && this.testSceneExitBtn) {
         const gap = 8;
         const exitLeft = this.testSceneExitBtn.x - (this.testSceneExitBtn.width ?? this.testSceneExitBtn.displayWidth ?? 0);
-        this.testSceneUnitsBtn.setPosition(exitLeft - gap, 14);
+        this.testSceneEnemyKingBtn.setPosition(exitLeft - gap, 14);
+      }
+      if (this.testSceneUnitsBtn && (this.testSceneEnemyKingBtn || this.testSceneExitBtn)) {
+        const gap = 8;
+        const anchor = this.testSceneEnemyKingBtn ?? this.testSceneExitBtn;
+        const anchorLeft = anchor.x - (anchor.width ?? anchor.displayWidth ?? 0);
+        this.testSceneUnitsBtn.setPosition(anchorLeft - gap, 14);
       }
       if (this.testSceneStopBtn && this.testSceneUnitsBtn) {
         const gap = 8;
@@ -337,6 +421,12 @@ export function installBattleSceneTestSceneUi(BattleScene) {
           Math.round(menuY + 10),
         );
       }
+      if (this.testSceneEnemyKingModal && this.testSceneEnemyKingBtn) {
+        const modalW = this.testSceneEnemyKingModalBg?.width ?? 220;
+        const btnW = this.testSceneEnemyKingBtn.width ?? this.testSceneEnemyKingBtn.displayWidth ?? 120;
+        const x = Math.max(8, Math.round(this.testSceneEnemyKingBtn.x - modalW + btnW));
+        this.testSceneEnemyKingModal.setPosition(x, 48);
+      }
     },
 
     syncTestSceneUi(canBattle = false) {
@@ -344,8 +434,15 @@ export function installBattleSceneTestSceneUi(BattleScene) {
       if (this.testSceneBattleBtn) this.testSceneBattleBtn.setVisible(!!this.testSceneActive);
       if (this.testSceneStopBtn) this.testSceneStopBtn.setVisible(!!this.testSceneActive);
       if (this.testSceneExitBtn) this.testSceneExitBtn.setVisible(!!this.testSceneActive);
+      if (this.testSceneEnemyKingBtn) {
+        this.testSceneEnemyKingBtn.setVisible(!!this.testSceneActive);
+        this.testSceneEnemyKingBtn.setAlpha(this.testSceneEnemyKingMenuOpen ? 1 : 0.92);
+      }
       if (this.testSceneUnitsMenu) this.testSceneUnitsMenu.setVisible(!!this.testSceneActive && !!this.testSceneUnitsMenuOpen);
       if (this.testSceneSpawnRankMenu) this.testSceneSpawnRankMenu.setVisible(!!this.testSceneActive && !!this.testSceneSpawnRankMenuOpen);
+      if (this.testSceneEnemyKingModal) {
+        this.testSceneEnemyKingModal.setVisible(!!this.testSceneActive && !!this.testSceneEnemyKingMenuOpen);
+      }
       if (this.testSceneBattleBtn) {
         if (this.testSceneBattleBtn.input) this.testSceneBattleBtn.input.enabled = !!canBattle;
         this.testSceneBattleBtn.setAlpha(canBattle ? 1 : 0.4);
@@ -360,6 +457,14 @@ export function installBattleSceneTestSceneUi(BattleScene) {
         for (const btn of this.testSceneSpawnRankButtons) {
           btn?.setVisible?.(!!this.testSceneActive && !!this.testSceneSpawnRankMenuOpen);
         }
+      }
+      for (const btn of (this.testSceneEnemyKingSkinButtons ?? [])) {
+        const active = btn?._testSceneEnemyKingTextureKey === this.testSceneEnemyKingSkinKey;
+        btn?.setVisible?.(!!this.testSceneActive && !!this.testSceneEnemyKingMenuOpen);
+        btn?.setAlpha?.(active ? 1 : 0.85);
+        btn?.setStyle?.({
+          backgroundColor: active ? 'rgba(0,90,40,0.75)' : 'rgba(0,0,0,0.55)',
+        });
       }
 
     },

@@ -160,8 +160,10 @@ export function installBattleSceneKingHudUi(BattleScene) {
       const enemyVisualKey = String(e.visualKey ?? 'king');
       if (this.kingRight && this.textures?.exists?.(enemyVisualKey) && this.kingRight.texture?.key !== enemyVisualKey) {
         this.kingRight.setTexture(enemyVisualKey);
-        this.kingRight.setDisplaySize(this.kingWidth, this.kingHeight);
+        this.syncKingVisualConfig?.();
+        this.positionKings?.();
       }
+      this.syncKingVisualConfig?.();
       if (this.kingRight) {
         const isBotArt = enemyVisualKey === 'black_knight'
           || enemyVisualKey === 'black_pawn'
@@ -175,7 +177,8 @@ export function installBattleSceneKingHudUi(BattleScene) {
 
       const isEntryView = phase === 'entry' && !!this.entryEnemyKingVisible;
       const isBattleView = (phase === 'battle') || (result != null);
-      const showEnemyKing = (isEntryView || isBattleView) && (e.visible !== false);
+      const isTestScenePreviewView = !!this.testSceneActive && !!this.testSceneEnemyKingPreviewVisible;
+      const showEnemyKing = (isEntryView || isBattleView || isTestScenePreviewView) && (e.visible !== false);
 
       this.kingRight?.setVisible(showEnemyKing);
       this.syncRoundUI();

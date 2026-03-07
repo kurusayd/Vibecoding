@@ -289,3 +289,68 @@
 ### Bot King Visuals
 - Enemy bot king textures now use new assets from `public/assets/bots`.
 - Bot-specific art is already authored for right-side display and must not be mirrored on enemy king sprite.
+
+## 23) Session Addendum (2026-03-07)
+- Documentation refresh date: 2026-03-07.
+
+### Crossbowman Invariants
+- `Crossbowman` uses passive `crossbowman_line_shot`.
+- Current authoritative behavior:
+  - shoots only on a straight forward/backward line;
+  - diagonal firing was removed;
+  - targets a board cell / firing line, not the visual center of a target unit;
+  - if an enemy is already on a valid firing line, that target class has priority over nearer enemies outside the line;
+  - if no current line shot exists, Crossbowman searches for the nearest reachable firing hex and re-evaluates after each move step;
+  - when multiple equivalent firing hexes exist, rear-biased positions are preferred so the unit tends to stay closer to its own board edge;
+  - projectile is piercing and visually leaves the board instead of dying on first contact.
+- Balance snapshot:
+  - `moveSpeed = 1.2`;
+  - `projectileSpeed = 20.0`;
+  - `atk = 25`;
+  - `hp = 40`.
+
+### Crossbowman Damage / Replay Model
+- Crossbowman is intentionally special-cased relative to other ranged units.
+- Server does not use per-cell travel-time simulation for its bolt damage anymore.
+- Current rule:
+  - on shot start, the server fixes the firing line;
+  - after a flat `200ms`, all cells on that line are checked for occupancy;
+  - units standing on those cells at that moment receive damage;
+  - this keeps the mechanic readable while avoiding extra tick-heavy projectile timing logic.
+- Client replay remains visual-only:
+  - `projectile_bolt` is loaded from `public/assets/projectiles/bolt.png`;
+  - bolt flies in a fixed straight line and can outlive the original target movement;
+  - bolt trail is a lightweight pale rectangle, not a particle system.
+
+### Other Ranged Units Invariant
+- The cell-targeted projectile logic is Crossbowman-only.
+- All other ranged units (`SkeletonArcher`, `Priest`, `Lich`, etc.) must keep aiming at the visual center of the live enemy unit, not the center of a hex.
+- Client-side fallback for explicit projectile target cells now requires real finite `targetQ/targetR` values to avoid accidental self-cell shots.
+
+### Miss Hint Throttle
+- Floating `miss` text now has a shared anti-spam rule.
+- For the same `unitId`, repeated `miss` labels are suppressed if they occur within `200ms` of the previous shown label.
+- This was added after Crossbowman pierce shots could generate stacked `miss` spam.
+
+### Empty Board Battle Flow
+- If the player starts a round with no units on board, defeat is no longer resolved before `entry`.
+- Required flow is now:
+  - `prep -> entry -> battle -> defeat`;
+  - enemy king and enemy army still appear during `entry`;
+  - after `entry`, battle phase starts briefly and then defeat resolves;
+  - this preserves the reveal / king-hit presentation instead of skipping straight to result.
+
+### Atlas Notes
+- `Monk` atlas config was corrected to the real asset names:
+  - `atlasKey = monk_atlas`
+  - `atlasPath = /assets/units/lizard/monk/monk_atlas`
+- `Knight` atlas was verified against the new files and already matched current config; no extra logic change was required.
+
+### Balance Workflow Note
+- Markdown balance notes are no longer the preferred editable balance surface.
+- Current practical export for spreadsheets is `balance.csv` in project root.
+- `balance.csv` is intended as a flat tabular bridge for Excel / Google Sheets.
+- Game code still remains authoritative until a dedicated import pipeline is added.
+
+### Recent Catalog Change
+- `Zombie` power type was downgraded from `Rook` to `Knight`.

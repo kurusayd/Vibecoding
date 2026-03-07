@@ -17,6 +17,7 @@ const TEST_SCENE_ENEMY_SPAWN = { q: 7, r: 4 };
 const TEST_SCENE_DEFAULT_ATTACK_SPEED = 1;
 const TEST_SCENE_DEFAULT_MOVE_SPEED = 1;
 const TEST_SCENE_MAX_ACTIONS_PER_UNIT_PER_TICK = 8;
+const TEST_SCENE_ENEMY_KING_UI_DELAY_MS = 700;
 
 export const TEST_SCENE_UNITS = SHARED_UNIT_CATALOG.map((u) => ({ ...u }));
 
@@ -49,6 +50,49 @@ export function installBattleSceneTestScene(BattleScene) {
       s.prepSecondsLeft = 0;
       s.battleSecondsLeft = 0;
       return s;
+    },
+
+    clearTestSceneEnemyKingRevealTimers() {
+      for (const t of (this.testSceneEnemyKingRevealTimers ?? [])) {
+        try { t?.remove?.(false); } catch {}
+      }
+      this.testSceneEnemyKingRevealTimers = [];
+    },
+
+    hideTestSceneEnemyKingPreview() {
+      this.clearTestSceneEnemyKingRevealTimers?.();
+      this.testSceneEnemyKingPreviewVisible = false;
+      this.testSceneEnemyKingUiVisible = false;
+      this.syncKingsUI?.();
+    },
+
+    showTestSceneEnemyKingPreview(textureKey) {
+      if (!this.testSceneActive) return;
+      const state = this.battleState;
+      if (!state?.kings?.enemy) return;
+
+      this.clearTestSceneEnemyKingRevealTimers?.();
+
+      const nextTextureKey = String(textureKey ?? state.kings.enemy.visualKey ?? 'king_princess');
+      state.kings.enemy.visible = true;
+      state.kings.enemy.visualKey = nextTextureKey;
+      this.testSceneEnemyKingSkinKey = nextTextureKey;
+      this.testSceneEnemyKingPreviewVisible = false;
+      this.testSceneEnemyKingUiVisible = false;
+      this.syncKingsUI?.();
+
+      const spriteTimer = this.time.delayedCall(0, () => {
+        if (!this.testSceneActive) return;
+        this.testSceneEnemyKingPreviewVisible = true;
+        this.syncKingsUI?.();
+        this.playEnemyKingRevealTween?.();
+      });
+      const uiTimer = this.time.delayedCall(TEST_SCENE_ENEMY_KING_UI_DELAY_MS, () => {
+        if (!this.testSceneActive) return;
+        this.testSceneEnemyKingUiVisible = true;
+        this.syncKingsUI?.();
+      });
+      this.testSceneEnemyKingRevealTimers = [spriteTimer, uiTimer];
     },
 
     getTestUnitTemplate(type) {
@@ -435,6 +479,10 @@ export function installBattleSceneTestScene(BattleScene) {
       this.testSceneSelectedUnitType = null;
       this.testSceneSelectedUnitRank = 1;
       this.testSceneBattleStartSnapshot = null;
+      this.testSceneEnemyKingPreviewVisible = false;
+      this.testSceneEnemyKingUiVisible = false;
+      this.testSceneEnemyKingSkinKey = 'king_princess';
+      this.clearTestSceneEnemyKingRevealTimers?.();
       this.stopTestSceneBattleLoop?.();
       this.stopTestSceneRestartTimer?.();
 
@@ -451,6 +499,9 @@ export function installBattleSceneTestScene(BattleScene) {
       this.hideDebugMenu?.();
 
       this.battleState = this.createTestSceneState();
+      if (this.battleState?.kings?.enemy) {
+        this.battleState.kings.enemy.visualKey = this.testSceneEnemyKingSkinKey;
+      }
       this.gridStaticDirty = true;
       this.addTestSceneUnit?.(this.battleState, {
         id: this.testSceneNextUnitId--,
@@ -475,6 +526,9 @@ export function installBattleSceneTestScene(BattleScene) {
       this.testSceneSelectedUnitType = null;
       this.testSceneSelectedUnitRank = 1;
       this.testSceneBattleStartSnapshot = null;
+      this.testSceneEnemyKingPreviewVisible = false;
+      this.testSceneEnemyKingUiVisible = false;
+      this.clearTestSceneEnemyKingRevealTimers?.();
       this.pendingAttackAnimIds?.clear?.();
 
       const liveState = this.testSceneQueuedLiveState ?? this.testSceneSavedLiveState;
@@ -492,7 +546,6 @@ export function installBattleSceneTestScene(BattleScene) {
       // WebSocket preserves message order, so a subsequent "startGame" click
       // will be processed after this reset and won't fail the server guard.
       this.ws?.sendIntentResetGame?.();
-
       this.refreshFromLocalBattleState?.();
       this.syncDebugUI?.();
     },

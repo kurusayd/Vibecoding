@@ -249,3 +249,55 @@
   - `black_knight`, `black_pawn`, `white_knight`, `white_pawn`
 - Bot profiles were remapped to new texture keys.
 - Bot king art on right side is no longer mirrored; source art is already authored for enemy-side display.
+
+## 2026-03-07
+
+### Crossbowman
+- Added and finalized special passive behavior `crossbowman_line_shot`.
+- Crossbowman now:
+  - fires only on a straight forward/backward line;
+  - no longer fires diagonally;
+  - prefers enemies already standing on a valid firing line over nearer off-line targets;
+  - otherwise moves toward the nearest reachable firing hex and re-checks after each move;
+  - prefers more rear-biased firing positions / movement ties to stay closer to its own board edge.
+- Projectile behavior is now fully unique to Crossbowman:
+  - uses `assets/projectiles/bolt.png`;
+  - projectile is piercing and visually flies beyond board bounds;
+  - projectile targets a board cell / line, not the target unit center;
+  - server damage resolution is simplified to a fixed `200ms` post-shot occupancy check on all pierced cells.
+- Tuned unit stats:
+  - `moveSpeed: 1.0 -> 1.2`;
+  - current `projectileSpeed: 20.0`.
+- Updated unit modal text and drag-range presentation:
+  - drag preview now paints only real Crossbowman firing cells;
+  - non-line cells are no longer highlighted.
+- Added lightweight bolt trail visuals and fixed several projectile issues:
+  - straight-shot path is fixed at fire time;
+  - enemy bolt orientation no longer appears backward;
+  - first enemy Crossbowman shot now uses the same pierce behavior as later shots;
+  - bolt trail is a pale rectangle aligned to bolt tail;
+  - miss-text spam is throttled per unit to once per `200ms`.
+
+### Ranged Projectile Regression Fixes
+- Restored normal ranged-unit targeting for non-Crossbowman units.
+- `SkeletonArcher`, `Priest`, `Lich` and other standard ranged units now again fire at the visual center of the target unit, not at a hex center.
+- Fixed client bug where missing target-cell coordinates could be interpreted as a real `(0,0)`-style projectile cell and make projectiles animate on the attacker's own hex.
+
+### Empty-Board Round Start
+- Changed round-start flow when player has no units on board.
+- Defeat is no longer applied before `entry`.
+- The game now still shows:
+  - enemy king reveal;
+  - enemy army reveal;
+  - short transition into battle;
+  - then defeat resolution.
+
+### Assets / Visual Config
+- Fixed `Monk` atlas config to match actual asset names:
+  - `atlasKey: monk_atlas`
+  - `atlasPath: /assets/units/lizard/monk/monk_atlas`
+- Verified `Knight` atlas update; config already matched current files and needed no code change.
+
+### Balance / Catalog
+- Added flat spreadsheet-friendly export file `balance.csv` in project root for Excel / Google Sheets workflow.
+- Changed `Zombie` `powerType` from `Rook` to `Knight`.

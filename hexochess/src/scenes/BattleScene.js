@@ -1,6 +1,7 @@
 ﻿import Phaser from 'phaser';
 import { hexToPixel, pixelToHex, hexCorners, hexToGroundPixel } from '../game/hex.js';
 import { createUnitSystem } from '../game/units.js';
+import { getKingHpBarOffsetYPx, getKingOffsetXPx, getKingShadowConfig, getKingSizePx } from '../game/kingVisualConfig.js';
 import { getUnitArtOffsetXPx, getUnitFootShadowConfig, getUnitGroundLiftPx } from '../game/unitVisualConfig.js';
 import {
   atlasIdleFrame,
@@ -129,6 +130,10 @@ const WORM_FAT_ANIMS = {
   dead: 'worm_fat_dead',
 };
 const KING_RENDER_DEPTH_BASE = 1550;
+const KING_SHADOW_DEPTH = KING_RENDER_DEPTH_BASE - 8;
+const KING_SHADOW_ALPHA = 0.58;
+const KING_SHADOW_STROKE_ALPHA = 0.28;
+const KING_SHADOW_COLOR = 0x000000;
 const BENCH_FOREGROUND_START_SLOT = 4; // 5th slot from top (0-based)
 const BENCH_DEPTH_SLOT_STEP = 6;
 const BENCH_DEPTH_BACKGROUND_BASE = KING_RENDER_DEPTH_BASE - 40;
@@ -305,6 +310,9 @@ export default class BattleScene extends Phaser.Scene {
     this.kingWidth = this.kingSize;
     this.kingHeight = this.kingSize;
 
+    const leftKingShadowCfg = getKingShadowConfig(this.localPlayerKingTextureKey ?? 'king_princess');
+    const rightKingShadowCfg = getKingShadowConfig('king_princess');
+
     // HP bars
     this.kingLeftHpBg = this.add.graphics().setDepth(KING_RENDER_DEPTH_BASE + 2);
     this.kingLeftHpLagFill = this.add.graphics().setDepth(KING_RENDER_DEPTH_BASE + 3);
@@ -322,6 +330,13 @@ export default class BattleScene extends Phaser.Scene {
     this.kingHpLock = { player: null, enemy: null };
     this.kingDamageFxToken = 0;
 
+    this.kingLeftShadow = this.add.ellipse(0, 0, leftKingShadowCfg.widthPx, leftKingShadowCfg.heightPx, KING_SHADOW_COLOR, KING_SHADOW_ALPHA)
+      .setStrokeStyle(3, KING_SHADOW_COLOR, KING_SHADOW_STROKE_ALPHA)
+      .setDepth(KING_SHADOW_DEPTH);
+    this.kingRightShadow = this.add.ellipse(0, 0, rightKingShadowCfg.widthPx, rightKingShadowCfg.heightPx, KING_SHADOW_COLOR, KING_SHADOW_ALPHA)
+      .setStrokeStyle(3, KING_SHADOW_COLOR, KING_SHADOW_STROKE_ALPHA)
+      .setDepth(KING_SHADOW_DEPTH);
+
     this.kingLeft = this.add.image(0, 0, 'king').setDepth(KING_RENDER_DEPTH_BASE);
     this.kingLeft.setDisplaySize(this.kingWidth, this.kingHeight);
 
@@ -330,6 +345,7 @@ export default class BattleScene extends Phaser.Scene {
 
     this.localPlayerKingTextureKey = 'king_princess'; // локальный override только для отображения игрока (debug)
     this.kingLeft.setTexture(this.localPlayerKingTextureKey);
+    this.syncKingVisualConfig?.();
 
     const kingTextStyle = {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
@@ -701,6 +717,7 @@ export default class BattleScene extends Phaser.Scene {
       .setVisible(false);
 
     this.kingRightHpText.setVisible(false);
+    this.kingRightShadow.setVisible(false);
 
 
 
@@ -1274,6 +1291,58 @@ export default class BattleScene extends Phaser.Scene {
     this.entryEnemyUnitsUiRevealPlayed = false;
   }
 
+  playEnemyKingRevealTween() {
+    if (!this.kingRight?.active) return null;
+    this.tweens.killTweensOf(this.kingRight);
+    this.tweens.killTweensOf(this.kingRightShadow);
+    this.applyKingVisualConfigFor?.('enemy');
+    const baseScaleX = Number(this.kingRight.scaleX ?? 1);
+    const baseScaleY = Number(this.kingRight.scaleY ?? 1);
+    const targetX = Number(this.kingRight.x ?? 0);
+    const targetY = Number(this.kingRight.y ?? 0);
+    const enemyShadowCfg = getKingShadowConfig(this.getEnemyKingVisualKey?.());
+    const startY = targetY - 140;
+    const bounceY = targetY - 18;
+    this.kingRight
+      .setVisible(true)
+      .setPosition(targetX, startY)
+      .setAlpha(0)
+      .setScale(baseScaleX * 0.9, baseScaleY * 0.9);
+    this.kingRightShadow
+      ?.setVisible(true)
+      ?.setPosition(targetX, targetY + enemyShadowCfg.offsetYPx)
+      ?.setAlpha(0)
+      ?.setScale(0.92, 0.92);
+    this.tweens.add({
+      targets: this.kingRightShadow,
+      alpha: KING_SHADOW_ALPHA,
+      scaleX: 1,
+      scaleY: 1,
+      ease: 'Quad.Out',
+      duration: 220,
+    });
+    this.tweens.add({
+      targets: this.kingRight,
+      y: targetY,
+      alpha: 1,
+      scaleX: baseScaleX,
+      scaleY: baseScaleY,
+      ease: 'Quad.In',
+      duration: 392,
+      onComplete: () => {
+        if (!this.kingRight?.active) return;
+        this.tweens.add({
+          targets: this.kingRight,
+          y: bounceY,
+          ease: 'Quad.Out',
+          duration: 84,
+          yoyo: true,
+        });
+      },
+    });
+    return this.kingRight;
+  }
+
   startBattleEntryReveal() {
     this.clearEntryRevealTimers();
     this.entryEnemyKingVisible = false;
@@ -1289,39 +1358,7 @@ export default class BattleScene extends Phaser.Scene {
     const kingTimer = this.time.delayedCall(0, () => {
       this.entryEnemyKingVisible = true;
       this.syncKingsUI?.();
-      if (this.kingRight?.active) {
-        this.tweens.killTweensOf(this.kingRight);
-        const baseScaleX = Number(this.kingRight.scaleX ?? 1);
-        const baseScaleY = Number(this.kingRight.scaleY ?? 1);
-        const targetX = Number(this.kingRight.x ?? 0);
-        const targetY = Number(this.kingRight.y ?? 0);
-        const startY = targetY - 140;
-        const bounceY = targetY - 18;
-        this.kingRight
-          .setVisible(true)
-          .setPosition(targetX, startY)
-          .setAlpha(0)
-          .setScale(baseScaleX * 0.9, baseScaleY * 0.9);
-        this.tweens.add({
-          targets: this.kingRight,
-          y: targetY,
-          alpha: 1,
-          scaleX: baseScaleX,
-          scaleY: baseScaleY,
-          ease: 'Quad.In',
-          duration: 392,
-          onComplete: () => {
-            if (!this.kingRight?.active) return;
-            this.tweens.add({
-              targets: this.kingRight,
-              y: bounceY,
-              ease: 'Quad.Out',
-              duration: 84,
-              yoyo: true,
-            });
-          },
-        });
-      }
+      this.playEnemyKingRevealTween?.();
     });
     const kingUiTimer = this.time.delayedCall(700, () => {
       if (this.kingHpAnim?.enemy) {
@@ -1494,6 +1531,43 @@ export default class BattleScene extends Phaser.Scene {
     vu?.dragHandle?.setDepth?.(base + 7);
   }
 
+  getPlayerKingVisualKey() {
+    return String(this.localPlayerKingTextureKey ?? this.kingLeft?.texture?.key ?? 'king_princess');
+  }
+
+  getEnemyKingVisualKey() {
+    return String(this.battleState?.kings?.enemy?.visualKey ?? this.kingRight?.texture?.key ?? 'king_princess');
+  }
+
+  getKingVisualKeyForSprite(kingSprite) {
+    return kingSprite === this.kingRight
+      ? this.getEnemyKingVisualKey()
+      : this.getPlayerKingVisualKey();
+  }
+
+  applyKingVisualConfigFor(side) {
+    const isEnemy = side === 'enemy';
+    const sprite = isEnemy ? this.kingRight : this.kingLeft;
+    const shadow = isEnemy ? this.kingRightShadow : this.kingLeftShadow;
+    if (!sprite) return;
+
+    const visualKey = isEnemy ? this.getEnemyKingVisualKey() : this.getPlayerKingVisualKey();
+    const sizePx = getKingSizePx(visualKey);
+    const shadowCfg = getKingShadowConfig(visualKey);
+
+    sprite.setDisplaySize(sizePx, sizePx);
+    if (shadow) {
+      shadow.setSize?.(shadowCfg.widthPx, shadowCfg.heightPx);
+      shadow.setDisplaySize?.(shadowCfg.widthPx, shadowCfg.heightPx);
+      shadow.setStrokeStyle(3, KING_SHADOW_COLOR, KING_SHADOW_STROKE_ALPHA);
+    }
+  }
+
+  syncKingVisualConfig() {
+    this.applyKingVisualConfigFor('player');
+    this.applyKingVisualConfigFor('enemy');
+  }
+
   applyLocalPlayerKingTexture(textureKey) {
     if (!textureKey || !this.textures?.exists?.(textureKey)) return;
 
@@ -1501,8 +1575,9 @@ export default class BattleScene extends Phaser.Scene {
 
     if (this.kingLeft) {
       this.kingLeft.setTexture(textureKey);
-      this.kingLeft.setDisplaySize(this.kingWidth, this.kingHeight);
     }
+    this.syncKingVisualConfig?.();
+    this.positionKings?.();
   }
 
 
@@ -1546,6 +1621,7 @@ export default class BattleScene extends Phaser.Scene {
 
   positionKings() {
     if (!this.kingLeft || !this.kingRight) return;
+    this.syncKingVisualConfig?.();
 
     // считаем bounds поля через центры гексов
     let minX = Infinity, maxX = -Infinity;
@@ -1578,26 +1654,34 @@ export default class BattleScene extends Phaser.Scene {
     const kingUiLiftPx = 35; // поднимает ВЕСЬ блок короля (арт + HP + имя), т.к. HP/имя привязаны к kingSprite.y
     const midY = (minY + maxY) / 2 - 40 - kingUiLiftPx; // подняли выше
 
+    const leftVisualKey = this.getPlayerKingVisualKey?.();
+    const rightVisualKey = this.getEnemyKingVisualKey?.();
+    const leftShadowCfg = getKingShadowConfig(leftVisualKey);
+    const rightShadowCfg = getKingShadowConfig(rightVisualKey);
     const pad = 30;
-    const halfW = this.kingWidth / 2;
-    const halfH = this.kingHeight / 2;
+    const leftHalfW = Number(this.kingLeft.displayWidth ?? this.kingWidth) / 2;
+    const rightHalfW = Number(this.kingRight.displayWidth ?? this.kingWidth) / 2;
 
-    const rawLeftX = minX - halfW - pad - 100;   // левый король ещё левее
-    const rawRightX = maxX + halfW + pad - 40;   // правый король левее
+    const rawLeftX = minX - leftHalfW - pad - 100 + getKingOffsetXPx(leftVisualKey);
+    const rawRightX = maxX + rightHalfW + pad - 40 + getKingOffsetXPx(rightVisualKey);
 
     // Защита от обрезания при увеличении kingSize: держим королей внутри экрана.
     const view = this.scale.getViewPort();
     const screenPad = 12;
     const leftKingOverflowPx = 30; // можно увести левого короля за левый край (пустота в арте)
     const rightKingOverflowPx = leftKingOverflowPx; // зеркально для правого короля
-    const minKingCenterX = view.x + halfW + screenPad - leftKingOverflowPx;
-    const maxKingCenterX = view.x + view.width - halfW - screenPad + rightKingOverflowPx;
+    const minLeftKingCenterX = view.x + leftHalfW + screenPad - leftKingOverflowPx;
+    const maxLeftKingCenterX = view.x + view.width - leftHalfW - screenPad + rightKingOverflowPx;
+    const minRightKingCenterX = view.x + rightHalfW + screenPad - leftKingOverflowPx;
+    const maxRightKingCenterX = view.x + view.width - rightHalfW - screenPad + rightKingOverflowPx;
 
-    const leftX = Phaser.Math.Clamp(rawLeftX, minKingCenterX, maxKingCenterX);
-    const rightX = Phaser.Math.Clamp(rawRightX, minKingCenterX, maxKingCenterX);
+    const leftX = Phaser.Math.Clamp(rawLeftX, minLeftKingCenterX, maxLeftKingCenterX);
+    const rightX = Phaser.Math.Clamp(rawRightX, minRightKingCenterX, maxRightKingCenterX);
 
     this.kingLeft.setPosition(leftX, midY);
     this.kingRight.setPosition(rightX, midY);
+    this.kingLeftShadow?.setPosition(leftX, midY + leftShadowCfg.offsetYPx);
+    this.kingRightShadow?.setPosition(rightX, midY + rightShadowCfg.offsetYPx);
   }
 
   syncRoundUI() {
@@ -1706,8 +1790,11 @@ export default class BattleScene extends Phaser.Scene {
         }
       }
 
+      const kingVisualKey = this.getKingVisualKeyForSprite?.(kingSprite);
+      const kingDisplayHeight = Number(kingSprite.displayHeight ?? this.kingHeight);
+      const kingHpBarOffsetPx = getKingHpBarOffsetYPx(kingVisualKey);
       const x = kingSprite.x - barWidth / 2;
-      const y = kingSprite.y - this.kingHeight / 2 - 26 + kingHpBarDownPx;
+      const y = kingSprite.y - kingDisplayHeight / 2 - 26 + kingHpBarDownPx + kingHpBarOffsetPx;
 
       hpBg.clear();
       hpLagFill.clear();
@@ -1753,22 +1840,28 @@ export default class BattleScene extends Phaser.Scene {
     };
 
     drawBar('player', this.kingLeft, this.kingLeftHpBg, this.kingLeftHpLagFill, this.kingLeftHpFill, kings.player);
+    this.kingLeftShadow?.setVisible?.(this.kingLeft?.visible !== false);
+    this.kingLeftShadow?.setAlpha?.(this.kingLeft?.visible === false ? 0 : KING_SHADOW_ALPHA);
 
     const phase = this.battleState?.phase ?? 'prep';
     const result = this.battleState?.result ?? null;
 
     const isBattleView = (phase === 'battle') || (result != null);
     const isEntryEnemyKingUi = (phase === 'entry') && !!this.entryEnemyKingUiVisible;
-    const showEnemy = (isBattleView || isEntryEnemyKingUi) && kings.enemy?.visible !== false;
+    const isTestSceneEnemyKingUi = !!this.testSceneActive && !!this.testSceneEnemyKingUiVisible;
+    const showEnemy = (isBattleView || isEntryEnemyKingUi || isTestSceneEnemyKingUi) && kings.enemy?.visible !== false;
 
     if (showEnemy) {
       drawBar('enemy', this.kingRight, this.kingRightHpBg, this.kingRightHpLagFill, this.kingRightHpFill, kings.enemy);
+      this.kingRightShadow?.setVisible?.(this.kingRight?.visible !== false);
+      if ((this.kingRight?.alpha ?? 1) > 0) this.kingRightShadow?.setAlpha?.(KING_SHADOW_ALPHA);
     } else {
       this.kingRightHpBg.clear();
       this.kingRightHpLagFill.clear();
       this.kingRightHpFill.clear();
       this.kingRightHpText?.setVisible(false);
       this.kingRightNameText?.setVisible(false);
+      this.kingRightShadow?.setVisible?.(false);
     }
   }
 
