@@ -2310,7 +2310,9 @@ function clonePlayerUnitForPrep(unit) {
   clone.nextAttackAt = 0;
   clone.nextMoveAt = 0;
   clone.nextActionAt = 0;
-  clone.nextAbilityAt = 0;
+  clone.nextAbilityAt = hasWormSwallowPassive(clone)
+    ? 0
+    : Math.max(0, Number(clone.abilityCooldown ?? 0) * 1000);
   clone.attackSeq = 0;
   clone.moveStartAt = -1;
   clone.moveEndAt = -1;

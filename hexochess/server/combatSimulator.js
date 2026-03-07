@@ -1163,7 +1163,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
       me.nextActionAt = Math.max(0, Number(me.nextActionAt ?? 0));
       me.nextAbilityAt = Number.isFinite(Number(me.nextAbilityAt))
         ? Math.max(0, Number(me.nextAbilityAt ?? 0))
-        : ((hasWormSwallowPassive(me) || hasKnightChargeAbility(me)) ? 0 : abilityIntervalMs);
+        : (hasWormSwallowPassive(me) ? 0 : abilityIntervalMs);
 
       const isUndertakerSummoner =
         String(me.abilityType ?? 'none') === 'active' &&
@@ -1594,7 +1594,7 @@ export function sanitizeUnitForBattleStart(unit) {
   unit.nextAttackAt = 0;
   unit.nextMoveAt = 0;
   unit.nextActionAt = 0;
-  unit.nextAbilityAt = hasWormSwallowPassive(unit) || hasKnightChargeAbility(unit)
+  unit.nextAbilityAt = hasWormSwallowPassive(unit)
     ? 0
     : Math.max(0, Number(unit.abilityCooldown ?? 0) * 1000);
   unit.attackSeq = 0;

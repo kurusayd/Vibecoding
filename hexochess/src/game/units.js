@@ -484,6 +484,8 @@ export function createUnitSystem(scene) {
 
 
     const sameCell = (u.q === q && u.r === r);
+    const requestedTweenMs = Number(opts.tweenMs ?? NaN);
+    const forceSnapToCell = Number.isFinite(requestedTweenMs) && requestedTweenMs <= 0;
     const isAtTarget =
       Math.abs((u.sprite?.x ?? p.x) - p.x) < 0.5 &&
       Math.abs((u.sprite?.y ?? p.y) - p.y) < 0.5 &&
@@ -496,14 +498,14 @@ export function createUnitSystem(scene) {
       Math.abs((u.footShadow?.x ?? shadowX) - shadowX) < 0.5 &&
       Math.abs((u.footShadow?.y ?? shadowY) - shadowY) < 0.5;
 
-    if (sameCell && isAtTarget) {
+    if (sameCell && isAtTarget && !forceSnapToCell) {
       updateHpBar(scene, u);
       return;
     }
 
     // If the logical cell didn't change and a move tween is already running,
     // do not restart it on every state/event update (prevents jitter/back-and-forth).
-    if (sameCell && u._moveTween) {
+    if (sameCell && u._moveTween && !forceSnapToCell) {
       updateHpBar(scene, u);
       return;
     }

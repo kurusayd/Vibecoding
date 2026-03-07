@@ -239,6 +239,54 @@
         "x": 0.5,
         "y": 0.5
       }
+    },
+    "psd_anim/walk0001.png": {
+      "frame": {
+        "x": 2075,
+        "y": 3,
+        "w": 512,
+        "h": 512
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 512,
+        "h": 512
+      },
+      "sourceSize": {
+        "w": 512,
+        "h": 512
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    "psd_anim/walk0002.png": {
+      "frame": {
+        "x": 2593,
+        "y": 3,
+        "w": 512,
+        "h": 512
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 512,
+        "h": 512
+      },
+      "sourceSize": {
+        "w": 512,
+        "h": 512
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
     }
   },
   "meta": {
@@ -247,7 +295,7 @@
     "image": "knight_atlas.png",
     "format": "RGBA8888",
     "size": {
-      "w": 2072,
+      "w": 3108,
       "h": 3626
     },
     "scale": 1
