@@ -22,6 +22,14 @@ export function makeStateMessage(state) {
   };
 }
 
+export function makeTestBattleReplayMessage({ battleStartState, replay }) {
+  return {
+    type: 'testBattleReplay',
+    battleStartState,
+    replay
+  };
+}
+
 // Сервер сообщает об ошибке
 export function makeErrorMessage(code, message) {
   return {
@@ -77,6 +85,14 @@ export function makeShopBuyIntent(offerIndex) {
 
 export function makeShopRefreshIntent() {
   return { type: 'intent', action: 'shopRefresh' };
+}
+
+export function makeShopToggleLockIntent() {
+  return { type: 'intent', action: 'shopToggleLock' };
+}
+
+export function makeDebugRunTestBattleIntent(units, enemyKingVisualKey = null) {
+  return { type: 'intent', action: 'debugRunTestBattle', units, enemyKingVisualKey };
 }
 
 export function makeResetGameIntent() {

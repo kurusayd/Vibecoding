@@ -227,6 +227,8 @@ export default class BattleScene extends Phaser.Scene {
     this.load.image('particleStar', '/assets/particles/particle_star.png');
     this.load.image('crownexp', '/assets/icons/crownexp.png');
     this.load.image('updateMarketIcon', '/assets/icons/update_market.png');
+    this.load.image('lock_open', '/assets/icons/shop/lock_open.png');
+    this.load.image('lock_close', '/assets/icons/shop/lock_close.png');
     this.load.image('broken_arrow', '/assets/icons/broken_arrow.png');
     this.load.image(TRASH_ICON_CLOSED_KEY, '/assets/icons/trash/trash_close.png');
     this.load.image(TRASH_ICON_OPEN_KEY, '/assets/icons/trash/trash_open.png');
@@ -910,6 +912,7 @@ export default class BattleScene extends Phaser.Scene {
     };
 
     this.ws.onState = (state) => this.handleServerState?.(state);
+    this.ws.onTestBattleReplay = (msg) => this.handleTestSceneServerBattleReplay?.(msg);
     this.ws.onError = (err) => this.handleServerError?.(err);
 
 
@@ -1875,13 +1878,16 @@ export default class BattleScene extends Phaser.Scene {
     this.serverReplayPlayback.timers = [];
   }
 
-  startServerBattleReplayPlayback(replay, battleStartState) {
-    if (!USE_SERVER_BATTLE_REPLAY || !replay || this.testSceneActive) return;
+  startServerBattleReplayPlayback(replay, battleStartState, opts = {}) {
+    const allowTestScene = opts?.allowTestScene === true;
+    const onComplete = typeof opts?.onComplete === 'function' ? opts.onComplete : null;
+    if (!USE_SERVER_BATTLE_REPLAY || !replay) return;
+    if (this.testSceneActive && !allowTestScene) return;
     if (!Array.isArray(replay.events)) return;
 
     this.stopServerBattleReplayPlayback();
     const token = Number(this.serverReplayPlayback?.token ?? 0) + 1;
-    this.serverReplayPlayback = { active: true, token, timers: [], startTimeMs: Number(this.time?.now ?? 0) };
+    this.serverReplayPlayback = { active: true, token, timers: [], startTimeMs: Number(this.time?.now ?? 0), allowTestScene, onComplete };
 
     // Start from the server-provided battle snapshot and animate locally by replay events.
     this.battleState = {
@@ -1938,6 +1944,20 @@ export default class BattleScene extends Phaser.Scene {
     for (const [t, eventsAtT] of grouped.entries()) {
       const timer = this.time.delayedCall(t, () => applyAtTime(eventsAtT));
       this.serverReplayPlayback.timers.push(timer);
+    }
+
+    if (onComplete) {
+      const completeDelayMs = Math.max(0, Number(replay?.durationMs ?? 0)) + 10;
+      const completeTimer = this.time.delayedCall(completeDelayMs, () => {
+        if (!this.serverReplayPlayback?.active || this.serverReplayPlayback.token !== token) return;
+        try {
+          onComplete(replay, battleStartState);
+        } finally {
+          this.stopServerBattleReplayPlayback();
+        }
+      });
+      this.serverReplayPlayback.timers.push(completeTimer);
+      return;
     }
 
     // Do not auto-disable playback at replay end:

@@ -11,6 +11,8 @@ import {
   makeDebugSetShopUnitIntent,
   makeShopBuyIntent,
   makeShopRefreshIntent,
+  makeShopToggleLockIntent,
+  makeDebugRunTestBattleIntent,
   makeResetGameIntent,
   makeRemoveUnitIntent,
 } from '../../shared/messages.js';
@@ -23,6 +25,7 @@ export class WSClient {
     // коллбеки
     this.onInit = null;
     this.onState = null;
+    this.onTestBattleReplay = null;
     this.onError = null;
   }
 
@@ -51,6 +54,12 @@ export class WSClient {
       if (msg.type === 'state') {
         if (this.onState) {
           this.onState(msg.state);
+        }
+      }
+
+      if (msg.type === 'testBattleReplay') {
+        if (this.onTestBattleReplay) {
+          this.onTestBattleReplay(msg);
         }
       }
 
@@ -120,6 +129,14 @@ export class WSClient {
 
   sendIntentShopRefresh() {
     return this.sendIntent(makeShopRefreshIntent());
+  }
+
+  sendIntentShopToggleLock() {
+    return this.sendIntent(makeShopToggleLockIntent());
+  }
+
+  sendIntentDebugRunTestBattle(units, enemyKingVisualKey = null) {
+    return this.sendIntent(makeDebugRunTestBattleIntent(units, enemyKingVisualKey));
   }
 
   sendIntentResetGame() {

@@ -83,6 +83,7 @@
       this.shopRefreshBusy = false;
       this.shopRefreshUnlockTimer = null;
       this.shopRefreshRequestTimer = null;
+      this.shopLockToggleBusy = false;
       this.shopCardLayout = {
         width: 132,
         height: 188,
@@ -194,6 +195,47 @@
           this.shopRefreshBusy = false;
           this.shopRefreshUnlockTimer = null;
           this.syncShopUI();
+        });
+      });
+
+      this.shopLockBtn = this.add.container(0, 0)
+        .setDepth(10000)
+        .setScrollFactor(0);
+
+      this.shopLockBtnBody = this.add.container(30, 0);
+
+      this.shopLockBtnShadow = this.add.rectangle(BUTTON_SHADOW_OFFSET_X, BUTTON_SHADOW_OFFSET_Y, 62, 66, BUTTON_SHADOW_COLOR, BUTTON_SHADOW_ALPHA)
+        .setOrigin(0.5, 0.5);
+
+      this.shopLockBtnBg = this.add.rectangle(0.5, 0.5, 59, 63, 0xd8c8aa, 0.93)
+        .setOrigin(0.5, 0.5)
+        .setStrokeStyle(4, 0x8f6d39, 1);
+
+      this.shopLockBtnIcon = this.add.image(0, 0, 'lock_open')
+        .setOrigin(0.5, 0.5)
+        .setDisplaySize(46, 46);
+
+      this.shopLockBtnBody.add([
+        this.shopLockBtnShadow,
+        this.shopLockBtnBg,
+        this.shopLockBtnIcon,
+      ]);
+      this.shopLockBtn.add(this.shopLockBtnBody);
+
+      this.shopLockBtn.setSize(60, 64);
+      this.shopLockBtnHit = this.add.zone(30, 0, 60, 64)
+        .setOrigin(0.5, 0.5)
+        .setInteractive({ useHandCursor: true });
+      this.shopLockBtn.add(this.shopLockBtnHit);
+
+      this.shopLockBtnHit.on('pointerdown', () => {
+        if (this.shopLockToggleBusy) return;
+        this.shopLockToggleBusy = true;
+        this.playPressFeedback?.(this.shopLockBtnBody, { scaleTo: 0.96, duration: 70 });
+        this.ws?.sendIntentShopToggleLock?.();
+        this.time.delayedCall(160, () => {
+          this.shopLockToggleBusy = false;
+          this.syncShopUI?.();
         });
       });
 
@@ -561,6 +603,16 @@
       }
 
       if (this.shopToggleBtn) {
+        const firstCard = this.shopCards?.[0] ?? null;
+        const firstCardLeftX = Number(firstCard?.container?.x ?? x) - layout.width / 2;
+        if (this.shopLockBtn) {
+          const lockHalfW = (this.shopLockBtn.width ?? this.shopLockBtn.displayWidth ?? 0) / 2;
+          const lockHalfH = (this.shopLockBtn.height ?? this.shopLockBtn.displayHeight ?? 0) / 2;
+          const tileBottomY = y + layout.height / 2;
+          const lockY = tileBottomY - lockHalfH;
+          this.shopLockBtn.setPosition(firstCardLeftX - lockHalfW - 8 - 28, lockY);
+        }
+
         const rightEdge = this.scale.width / 2 + totalW / 2;
         const btnX = rightEdge + 18;
         const btnY = y - layout.height / 2 + 16;
@@ -594,6 +646,8 @@
       if (this.shopToggleBtn) this.tweens.killTweensOf(this.shopToggleBtn);
       if (this.shopRefreshBtn) this.tweens.killTweensOf(this.shopRefreshBtn);
       if (this.shopRefreshBtnBody) this.tweens.killTweensOf(this.shopRefreshBtnBody);
+      if (this.shopLockBtn) this.tweens.killTweensOf(this.shopLockBtn);
+      if (this.shopLockBtnBody) this.tweens.killTweensOf(this.shopLockBtnBody);
       if (this.shopOpenBtn) this.tweens.killTweensOf(this.shopOpenBtn);
       if (this.shopOpenBtnBody) this.tweens.killTweensOf(this.shopOpenBtnBody);
     },
@@ -662,6 +716,7 @@
       const mode = this.shopUiMode ?? 'hidden';
 
       if (btn === this.shopToggleBtn) return mode === 'open';
+      if (btn === this.shopLockBtn) return mode === 'open';
       if (btn === this.shopRefreshBtn) return mode === 'open';
       if (btn === this.shopOpenBtn) return mode === 'collapsed' || mode === 'open';
 
@@ -807,6 +862,7 @@
       if (mode === 'open') {
         this.setShopCardsVisual(true, { immediate });
         this.setShopButtonVisual(this.shopToggleBtn, true, { immediate, slideY: 6 });
+        this.setShopButtonVisual(this.shopLockBtn, true, { immediate, slideY: 6 });
         this.setShopButtonVisual(this.shopRefreshBtn, true, { immediate, slideY: 6 });
         this.setShopButtonVisual(this.shopOpenBtn, true, { immediate: true, slideY: 10 });
         return;
@@ -815,6 +871,7 @@
       if (mode === 'collapsed') {
         this.setShopCardsVisual(false, { immediate });
         this.setShopButtonVisual(this.shopToggleBtn, false, { immediate, slideY: 6 });
+        this.setShopButtonVisual(this.shopLockBtn, false, { immediate, slideY: 6 });
         this.setShopButtonVisual(this.shopRefreshBtn, false, { immediate, slideY: 6 });
         this.setShopButtonVisual(this.shopOpenBtn, true, { immediate: true, slideY: 10 });
         return;
@@ -822,6 +879,7 @@
 
       this.setShopCardsVisual(false, { immediate });
       this.setShopButtonVisual(this.shopToggleBtn, false, { immediate, slideY: 6 });
+      this.setShopButtonVisual(this.shopLockBtn, false, { immediate, slideY: 6 });
       this.setShopButtonVisual(this.shopRefreshBtn, false, { immediate, slideY: 6 });
       this.setShopButtonVisual(this.shopOpenBtn, false, { immediate: true, slideY: 10 });
     },
@@ -856,9 +914,21 @@
 
       if (!show) return;
 
+      const isShopLocked = Boolean(this.battleState?.shop?.locked);
       const refreshCost = 2;
       const coins = Number(this.battleState?.kings?.player?.coins ?? 0);
       const canRefreshShop = (mode === 'open') && coins >= refreshCost && !this.shopRefreshBusy;
+      const canToggleShopLock = (mode === 'open') && !this.shopLockToggleBusy;
+      if (this.shopLockBtn) {
+        this.shopLockBtnBg?.setFillStyle(isShopLocked ? 0xcfbf73 : 0xd8c8aa, isShopLocked ? 0.98 : 0.93);
+        this.shopLockBtnBg?.setStrokeStyle(4, isShopLocked ? 0x8a6d18 : 0x8f6d39, 1);
+        this.shopLockBtnShadow?.setFillStyle(BUTTON_SHADOW_COLOR, 1);
+        this.shopLockBtnShadow?.setAlpha(canToggleShopLock ? BUTTON_SHADOW_ALPHA : 0.18);
+        this.shopLockBtnIcon?.setTexture(isShopLocked ? 'lock_close' : 'lock_open');
+        this.shopLockBtnIcon?.setAlpha(canToggleShopLock ? 1 : 0.6);
+        if (this.shopLockBtnHit?.input) this.shopLockBtnHit.input.enabled = canToggleShopLock;
+        this.shopLockBtn.setAlpha(canToggleShopLock ? 1 : 0.78);
+      }
       if (this.shopRefreshBtn) {
         this.shopRefreshBtnBg?.setFillStyle(canRefreshShop ? 0xd8c8aa : 0x9d9588, canRefreshShop ? 0.93 : 0.62);
         this.shopRefreshBtnBg?.setStrokeStyle(4, canRefreshShop ? 0x8f6d39 : 0x6f695f, 1);

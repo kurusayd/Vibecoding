@@ -229,7 +229,18 @@ export function installBattleSceneStateSync(BattleScene) {
     },
 
     handleServerError(err) {
-      if (this.testSceneActive) return;
+      if (this.testSceneActive) {
+        if (this.testSceneServerBattlePending) {
+          this.testSceneServerBattlePending = false;
+          if (this.battleState) {
+            this.battleState.phase = 'prep';
+            this.battleState.result = null;
+            this.refreshFromLocalBattleState?.();
+          }
+        }
+        console.warn('Test scene server error:', err?.code, err?.message || err);
+        return;
+      }
       console.warn('Server error:', err?.code, err?.message || err);
 
       if (err?.code === 'NO_SPACE') {

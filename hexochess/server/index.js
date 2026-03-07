@@ -22,6 +22,7 @@ import {
   makeInitMessage,
   makeStateMessage,
   makeErrorMessage,
+  makeTestBattleReplayMessage,
 } from '../shared/messages.js';
 import { UNIT_CATALOG } from '../shared/unitCatalog.js';
 import { baseIncomeForRound, interestIncome, streakBonus, COINS_CAP } from '../shared/economy.js';
@@ -112,7 +113,8 @@ function createMatchRuntime(matchId = DEFAULT_MATCH_ID) {
   runtime.state.prepSecondsLeft = runtime.state.prepSecondsLeft ?? 0;
   runtime.state.winStreak = runtime.state.winStreak ?? 0;
   runtime.state.loseStreak = runtime.state.loseStreak ?? 0;
-  runtime.state.shop = runtime.state.shop ?? { offers: [] };
+  runtime.state.shop = runtime.state.shop ?? { offers: [], locked: false };
+  runtime.state.shop.locked = Boolean(runtime.state.shop.locked);
 
   return runtime;
 }
@@ -633,7 +635,7 @@ function resetGameToStart() {
     },
   };
 
-  state.shop = { offers: [] };
+  state.shop = { offers: [], locked: false };
   resetSoloLobbyState();
   syncRoundPairingsForCurrentRound();
 
@@ -964,7 +966,8 @@ function getSellPriceForUnit(unitLike) {
 }
 
 function generateShopOffers() {
-  state.shop = state.shop ?? { offers: [] };
+  state.shop = state.shop ?? { offers: [], locked: false };
+  state.shop.locked = Boolean(state.shop.locked);
   state.shop.offers = [];
   for (let i = 0; i < SHOP_OFFER_COUNT; i++) state.shop.offers.push(makeRandomOffer());
 }
@@ -1155,6 +1158,91 @@ function simulateHiddenBotBattleReplay(botAId, botBId) {
     collectTimeline: false,
     collectSnapshots: false,
   });
+}
+
+function cloneTestBattleStateForMessage(sourceState) {
+  return {
+    ...sourceState,
+    units: (sourceState?.units ?? []).map((u) => ({ ...u })),
+    kings: {
+      player: { ...(sourceState?.kings?.player ?? {}) },
+      enemy: { ...(sourceState?.kings?.enemy ?? {}) },
+    },
+    shop: sourceState?.shop ? { ...sourceState.shop } : { offers: [], locked: false },
+    battleReplay: null,
+  };
+}
+
+function buildDebugTestBattleStateFromPayload(payloadUnits, enemyKingVisualKey = null) {
+  const simState = createBattleState();
+  simState.phase = 'battle';
+  simState.result = null;
+  simState.round = 0;
+  simState.prepSecondsLeft = 0;
+  simState.entrySecondsLeft = 0;
+  simState.battleSecondsLeft = 0;
+  simState.shop = { offers: [], locked: false };
+  simState.kings.player.coins = 0;
+  simState.kings.enemy.coins = 0;
+  simState.kings.enemy.visible = true;
+  if (enemyKingVisualKey) simState.kings.enemy.visualKey = String(enemyKingVisualKey);
+
+  for (const raw of (Array.isArray(payloadUnits) ? payloadUnits : [])) {
+    const unitId = Number(raw?.id);
+    const type = String(raw?.type ?? '').trim();
+    const team = raw?.team === 'enemy' ? 'enemy' : 'player';
+    const q = Number(raw?.q);
+    const r = Number(raw?.r);
+    const rank = Math.max(1, Math.min(3, Number(raw?.rank ?? 1)));
+
+    if (!Number.isFinite(unitId) || !type || !Number.isInteger(q) || !Number.isInteger(r)) continue;
+
+    const base = UNIT_CATALOG.find((u) => u.type === type);
+    if (!base) continue;
+    if (!isBoardPlacementInsideForUnit(base, q, r)) continue;
+    if (findBlockingUnitAtPlacement(simState, base, q, r, null)) continue;
+
+    const mult = rankMultiplier(rank);
+    const hp = Math.max(1, Math.round(Number(base.hp ?? 1) * mult));
+    const atk = Math.max(1, Math.round(Number(base.atk ?? 1) * mult));
+
+    addUnit(simState, {
+      id: unitId,
+      q,
+      r,
+      hp,
+      maxHp: hp,
+      atk,
+      team,
+      type: base.type,
+      powerType: base.powerType,
+      abilityType: base.abilityType ?? 'none',
+      abilityKey: base.abilityKey ?? null,
+      rank,
+      zone: 'board',
+      benchSlot: null,
+      attackSpeed: base.attackSpeed ?? DEFAULT_UNIT_ATTACK_SPEED,
+      moveSpeed: base.moveSpeed ?? DEFAULT_UNIT_MOVE_SPEED,
+      projectileSpeed: base.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED,
+      attackRangeMax: base.attackRangeMax ?? 1,
+      attackRangeFullDamage: base.attackRangeFullDamage ?? (base.attackRangeMax ?? 1),
+      attackMode: String(base.attackMode ?? DEFAULT_UNIT_ATTACK_MODE),
+      accuracy: base.accuracy ?? DEFAULT_UNIT_ACCURACY,
+      abilityCooldown: base.abilityCooldown ?? DEFAULT_UNIT_ABILITY_COOLDOWN,
+      cellSpanX: getUnitCellSpanX(base),
+      dead: false,
+      nextAttackAt: 0,
+      nextMoveAt: 0,
+      nextActionAt: 0,
+      attackSeq: 0,
+    });
+  }
+
+  for (const unit of (simState.units ?? [])) {
+    sanitizeUnitForBattleStartImported(unit);
+  }
+
+  return simState;
 }
 
 function sumPresetRanks(botId) {
@@ -2282,8 +2370,13 @@ function resetToPrep() {
     applyMergesForClient(clientId);
   }
 
-  // РєР°Р¶РґС‹Р№ prep вЂ” РЅРѕРІС‹Р№ РјР°РіР°Р·РёРЅ
-  generateShopOffers();
+  // РєР°Р¶РґС‹Р№ prep вЂ” РЅРѕРІС‹Р№ РјР°РіР°Р·РёРЅ, РµСЃР»Рё РѕРЅ РЅРµ Р·Р°Р»РѕС‡РµРЅ.
+  state.shop = state.shop ?? { offers: [], locked: false };
+  state.shop.locked = Boolean(state.shop.locked);
+  if (!state.shop.locked || !Array.isArray(state.shop.offers) || state.shop.offers.length !== SHOP_OFFER_COUNT) {
+    generateShopOffers();
+  }
+  state.shop.locked = false;
   syncRoundPairingsForCurrentRound();
 
   broadcast(makeStateMessage(state));
@@ -2559,7 +2652,7 @@ function handleIntent(clientId, msg, ws) {
   if (!clientToUnits.get(clientId)) clientToUnits.set(clientId, owned);
 
   // DEV ONLY: BELOW INTENTS INCLUDE DEBUG/RESET ACTIONS AND MUST BE RESTRICTED BEFORE SHARED LOBBIES.
-  const ALLOW_WITHOUT_UNITS = new Set(['shopBuy', 'shopRefresh', 'startGame', 'startBattle', 'buyXp', 'resetGame', 'debugAddGold100', 'debugAddLevel', 'debugSetShopUnit']);
+  const ALLOW_WITHOUT_UNITS = new Set(['shopBuy', 'shopRefresh', 'shopToggleLock', 'startGame', 'startBattle', 'buyXp', 'resetGame', 'debugAddGold100', 'debugAddLevel', 'debugSetShopUnit', 'debugRunTestBattle']);
   if (!ALLOW_WITHOUT_UNITS.has(msg.action) && owned.size === 0) {
     ws.send(JSON.stringify(makeErrorMessage('NO_UNIT', 'No unit assigned to this client')));
     return;
@@ -2940,12 +3033,36 @@ function handleIntent(clientId, msg, ws) {
       ws.send(JSON.stringify(makeErrorMessage('BAD_ARGS', `Unknown unitType: ${unitType}`)));
       return;
     }
-    state.shop = state.shop ?? { offers: [] };
+    state.shop = state.shop ?? { offers: [], locked: false };
+    state.shop.locked = Boolean(state.shop.locked);
     state.shop.offers = [];
     for (let i = 0; i < SHOP_OFFER_COUNT; i++) {
       state.shop.offers.push(makeOfferFromCatalogUnit(base));
     }
     broadcast(makeStateMessage(state));
+    return;
+  }
+
+  if (msg.action === 'debugRunTestBattle') {
+    const simState = buildDebugTestBattleStateFromPayload(msg.units, msg.enemyKingVisualKey);
+    const hasPlayer = (simState.units ?? []).some((u) => u.zone === 'board' && !u.dead && u.team === 'player');
+    const hasEnemy = (simState.units ?? []).some((u) => u.zone === 'board' && !u.dead && u.team === 'enemy');
+    if (!hasPlayer || !hasEnemy) {
+      ws.send(JSON.stringify(makeErrorMessage('BAD_TEST_BATTLE', 'Test battle requires player and enemy units on board')));
+      return;
+    }
+
+    const battleStartState = cloneTestBattleStateForMessage(simState);
+    const replay = simulateBattleReplayFromStateImported(simState, {
+      tickMs: SNAPSHOT_STEP_MS,
+      maxBattleMs: BATTLE_DURATION_SECONDS * 1000,
+      collectSnapshots: false,
+    });
+
+    ws.send(JSON.stringify(makeTestBattleReplayMessage({
+      battleStartState,
+      replay,
+    })));
     return;
   }
 
@@ -2966,6 +3083,19 @@ function handleIntent(clientId, msg, ws) {
     state.kings.player.coins -= REFRESH_COST;
     clampPlayerCoins();
     generateShopOffers();
+    broadcast(makeStateMessage(state));
+    return;
+  }
+
+  if (msg.action === 'shopToggleLock') {
+    const canToggleShopLock = canManageShopInPhase(state.phase);
+    if (!canToggleShopLock) {
+      ws.send(JSON.stringify(makeErrorMessage('BAD_PHASE', 'shopToggleLock allowed only in prep/battle')));
+      return;
+    }
+
+    state.shop = state.shop ?? { offers: [], locked: false };
+    state.shop.locked = !Boolean(state.shop.locked);
     broadcast(makeStateMessage(state));
     return;
   }
@@ -3043,6 +3173,7 @@ function handleIntent(clientId, msg, ws) {
 
     // Р·Р°РјРµРЅСЏРµРј РєСѓРїР»РµРЅРЅС‹Р№ СЃР»РѕС‚ РЅРѕРІС‹Рј РѕС„С„РµСЂРѕРј
     state.shop.offers[idx] = null;
+    state.shop.locked = false;
 
     // вњ… MERGE: РїСЂРѕР±СѓРµРј СЃРјС‘СЂРґР¶РёС‚СЊ, РїСЂРµРґРїРѕС‡РёС‚Р°РµРј С‚РѕР»СЊРєРѕ С‡С‚Рѕ РєСѓРїР»РµРЅРЅРѕРіРѕ
     applyMergesForClient(clientId, newId);
