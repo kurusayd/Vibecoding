@@ -112,7 +112,7 @@ export function installBattleSceneKingHudUi(BattleScene) {
           .setColor(isOverflow ? '#ff5f5f' : '#ffffff')
           .setStroke(isOverflow ? '#6b1212' : '#6e6e6e', 2);
         this.kingUnitCapSlashMaxText
-          .setText(`\u2009/\u2009${allowedUnits}`)
+          .setText(`/\u2009${allowedUnits}`)
           .setColor('#ffffff')
           .setStroke('#6e6e6e', 2);
 
@@ -148,7 +148,7 @@ export function installBattleSceneKingHudUi(BattleScene) {
           this.kingUnitCapTextBg?.fillStyle?.(0x000000, alpha);
           this.kingUnitCapTextBg?.fillRoundedRect?.(x, y, w, h, radius);
         }
-        this.kingUnitCapTextGroup?.setPosition?.(-7, Number(this.kingUnitCapTextGroup.y ?? 30));
+        this.kingUnitCapTextGroup?.setPosition?.(-4, Number(this.kingUnitCapTextGroup.y ?? 30));
 
         this.kingUnitCapHud.setVisible(!this.testSceneActive);
       }

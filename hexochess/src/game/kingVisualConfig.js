@@ -49,9 +49,9 @@ export const KING_VISUAL_CONFIG_BY_KEY = {
     sizePx: DEFAULT_KING_SIZE_PX + 0,
     offsetXPx: DEFAULT_KING_OFFSET_X_PX + 0,
     hpBarOffsetYPx: DEFAULT_KING_HP_BAR_OFFSET_Y_PX + 0,
-    shadowWidthPx: DEFAULT_KING_SHADOW_WIDTH_PX + 0,
+    shadowWidthPx: DEFAULT_KING_SHADOW_WIDTH_PX - 40,
     shadowHeightPx: DEFAULT_KING_SHADOW_HEIGHT_PX + 0,
-    shadowOffsetYPx: DEFAULT_KING_SHADOW_OFFSET_Y_PX + 0,
+    shadowOffsetYPx: DEFAULT_KING_SHADOW_OFFSET_Y_PX + 10,
   },
   black_pawn: {
     sizePx: DEFAULT_KING_SIZE_PX + 0,
@@ -65,9 +65,9 @@ export const KING_VISUAL_CONFIG_BY_KEY = {
     sizePx: DEFAULT_KING_SIZE_PX + 0,
     offsetXPx: DEFAULT_KING_OFFSET_X_PX + 0,
     hpBarOffsetYPx: DEFAULT_KING_HP_BAR_OFFSET_Y_PX + 0,
-    shadowWidthPx: DEFAULT_KING_SHADOW_WIDTH_PX + 0,
+    shadowWidthPx: DEFAULT_KING_SHADOW_WIDTH_PX - 40,
     shadowHeightPx: DEFAULT_KING_SHADOW_HEIGHT_PX + 0,
-    shadowOffsetYPx: DEFAULT_KING_SHADOW_OFFSET_Y_PX + 0,
+    shadowOffsetYPx: DEFAULT_KING_SHADOW_OFFSET_Y_PX + 10,
   },
   white_pawn: {
     sizePx: DEFAULT_KING_SIZE_PX + 0,

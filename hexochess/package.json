@@ -3,8 +3,8 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-
   "scripts": {
+    "dev": "npm run dev:server & npm run dev:client",
     "build": "vite build",
     "dev:client": "vite --host 0.0.0.0 --port 5173",
     "dev:server": "nodemon server/index.js",
