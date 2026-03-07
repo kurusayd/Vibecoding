@@ -354,3 +354,51 @@
 
 ### Recent Catalog Change
 - `Zombie` power type was downgraded from `Rook` to `Knight`.
+
+## 24) Session Addendum (2026-03-07 Late)
+- Documentation refresh date: 2026-03-07.
+
+### Test Scene Battle Invariant
+- `Test Scene` debug battle now uses the server combat simulator instead of a separate local combat path.
+- Current flow is:
+  - place player and enemy units directly in `Test Scene`;
+  - press `Бой`;
+  - client sends debug intent `debugRunTestBattle`;
+  - server assembles a temporary battle state from the currently placed units;
+  - server runs the same shared combat replay simulator used by the normal battle flow;
+  - client receives `testBattleReplay` and replays it through the common replay playback path;
+  - after replay completion, `Test Scene` restores the original placement snapshot and returns to `prep`.
+- Important invariant:
+  - `Test Scene` must not introduce a second server combat ruleset;
+  - only temporary state assembly and replay transport are allowed around the shared simulator.
+
+### Test Scene Enemy King Workflow
+- `Test Scene` has debug button `ENEMY KING`.
+- It opens a modal skin picker for the right-side king preview.
+- On selection:
+  - the modal closes immediately;
+  - the selected king appears with the same reveal-style entrance animation as in `entry`.
+- This workflow exists for king art, offset and shadow tuning without running a normal live round.
+
+### King Visual Config Invariant
+- Kings now use dedicated config file `src/game/kingVisualConfig.js`.
+- Per-king fields:
+  - `sizePx`
+  - `offsetXPx`
+  - `hpBarOffsetYPx`
+  - `shadowWidthPx`
+  - `shadowHeightPx`
+  - `shadowOffsetYPx`
+- Config style is intentionally `DEFAULT_* + delta` for each visual key.
+- King shadow follows king X offset automatically.
+- Current king shadow model is one denser ellipse layer, not the previous two-layer setup.
+
+### Shop Lock Invariant
+- Shop now has a free lock toggle button with `lock_open` / `lock_close` icons.
+- If lock is closed:
+  - shop offers are preserved between rounds;
+  - manual refresh remains a separate paid action.
+- Additional automatic rules:
+  - buying any shop unit reopens the lock;
+  - when returning from battle to `prep`, preserved offers remain for that transition and then lock reopens.
+- Server-side control goes through `shopToggleLock`.

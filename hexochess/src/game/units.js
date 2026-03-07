@@ -150,11 +150,27 @@ function getArtFacingMirrored(unitLike) {
 function getUnitArtOffsetByFacing(unitLike) {
   const type = unitLike?.type;
   const mirrored = getArtFacingMirrored(unitLike);
-  const span = getUnitCellSpanX(unitLike);
-  if (span > 1) {
-    return getUnitArtOffsetXPx(type, false);
-  }
   return getUnitArtOffsetXPx(type, mirrored);
+}
+
+function getKnightMirroredAnchorShiftPx(scene, unitLike, q, r) {
+  if (String(unitLike?.type ?? '') !== 'Knight') return 0;
+  if (!getArtFacingMirrored(unitLike)) return 0;
+  const span = getUnitCellSpanX(unitLike);
+  if (span <= 1) return 0;
+
+  const lift = getUnitGroundLiftPx(unitLike?.type);
+  const anchorGround = scene.hexToGroundPixel(q, r, lift);
+  const leftGround = scene.hexToGroundPixel(q - (span - 1), r, lift);
+  return Number(anchorGround?.x ?? 0) - Number(leftGround?.x ?? 0);
+}
+
+function getUnitArtWorldX(scene, unitLike, q, r) {
+  const lift = getUnitGroundLiftPx(unitLike?.type);
+  const g = scene.hexToGroundPixel(q, r, lift);
+  return Number(g?.x ?? 0)
+    + getUnitArtOffsetByFacing(unitLike)
+    - getKnightMirroredAnchorShiftPx(scene, unitLike, q, r);
 }
 
 export function createUnitSystem(scene) {
@@ -220,7 +236,7 @@ export function createUnitSystem(scene) {
       const p = scene.hexToPixel(q, r);
       footShadow = createFootShadow(scene, p.x, p.y, opts.type);
       art = scene.add.sprite(
-        g.x + (cellSpanX > 1 ? getUnitArtOffsetXPx(opts.type, false) : getUnitArtOffsetXPx(opts.type, opts.team === 'enemy')),
+        getUnitArtWorldX(scene, { ...opts, q, r, _artFacingMirrored: opts.team === 'enemy' }, q, r),
         g.y,
         atlasKey,
         idleFrame
@@ -338,7 +354,7 @@ export function createUnitSystem(scene) {
       const lift = getUnitGroundLiftPx(opts.type);
       footShadow = createFootShadow(scene, x, y, opts.type);
       art = scene.add.sprite(
-        x + (cellSpanX > 1 ? getUnitArtOffsetXPx(opts.type, false) : getUnitArtOffsetXPx(opts.type, opts.team === 'enemy')),
+        x + getUnitArtOffsetXPx(opts.type, opts.team === 'enemy'),
         y + scene.hexSize - lift,
         atlasKey,
         idleFrame
@@ -460,7 +476,7 @@ export function createUnitSystem(scene) {
     const p = scene.hexToPixel(q, r);
     const lift = getUnitGroundLiftPx(u.type);
     const g = scene.hexToGroundPixel(q, r, lift);
-    const artX = g.x + getUnitArtOffsetByFacing(u);
+    const artX = getUnitArtWorldX(scene, u, q, r);
     const shadowCfg = getUnitFootShadowConfig(u.type);
     const shadowX = p.x + shadowCfg.offsetXPx;
     const shadowY = p.y + shadowCfg.offsetYPx;
@@ -660,7 +676,7 @@ export function createUnitSystem(scene) {
     const p = scene.hexToPixel(newQ, newR);
     const lift = getUnitGroundLiftPx(unit.type);
     const g = scene.hexToGroundPixel(newQ, newR, lift);
-    const artX = g.x + getUnitArtOffsetByFacing(unit);
+    const artX = getUnitArtWorldX(scene, unit, newQ, newR);
     const shadowCfg = getUnitFootShadowConfig(unit.type);
     const shadowX = p.x + shadowCfg.offsetXPx;
     const shadowY = p.y + shadowCfg.offsetYPx;
@@ -687,7 +703,7 @@ export function createUnitSystem(scene) {
       const p = scene.hexToPixel(u.q, u.r);
       const lift = getUnitGroundLiftPx(u.type);
       const g = scene.hexToGroundPixel(u.q, u.r, lift);
-      const artX = g.x + getUnitArtOffsetByFacing(u);
+      const artX = getUnitArtWorldX(scene, u, u.q, u.r);
       const shadowCfg = getUnitFootShadowConfig(u.type);
       const shadowX = p.x + shadowCfg.offsetXPx;
       const shadowY = p.y + shadowCfg.offsetYPx;

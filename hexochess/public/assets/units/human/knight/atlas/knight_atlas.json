@@ -74,8 +74,8 @@
     },
     "psd_anim/dead.png": {
       "frame": {
-        "x": 521,
-        "y": 3,
+        "x": 3,
+        "y": 1557,
         "w": 512,
         "h": 512
       },
@@ -98,8 +98,32 @@
     },
     "psd_anim/idle.png": {
       "frame": {
-        "x": 1039,
-        "y": 3,
+        "x": 3,
+        "y": 2075,
+        "w": 512,
+        "h": 512
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 512,
+        "h": 512
+      },
+      "sourceSize": {
+        "w": 512,
+        "h": 512
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    "psd_anim/prepeare_skill0001.png": {
+      "frame": {
+        "x": 3,
+        "y": 2593,
         "w": 512,
         "h": 512
       },
@@ -122,8 +146,8 @@
     },
     "psd_anim/skill0001.png": {
       "frame": {
-        "x": 521,
-        "y": 521,
+        "x": 3,
+        "y": 3111,
         "w": 512,
         "h": 512
       },
@@ -147,7 +171,7 @@
     "psd_anim/skill0002.png": {
       "frame": {
         "x": 521,
-        "y": 1039,
+        "y": 3,
         "w": 512,
         "h": 512
       },
@@ -171,7 +195,7 @@
     "psd_anim/skill0003.png": {
       "frame": {
         "x": 1039,
-        "y": 521,
+        "y": 3,
         "w": 512,
         "h": 512
       },
@@ -194,8 +218,8 @@
     },
     "psd_anim/skill0004.png": {
       "frame": {
-        "x": 1039,
-        "y": 1039,
+        "x": 1557,
+        "y": 3,
         "w": 512,
         "h": 512
       },
@@ -223,8 +247,8 @@
     "image": "knight_atlas.png",
     "format": "RGBA8888",
     "size": {
-      "w": 1554,
-      "h": 1554
+      "w": 2072,
+      "h": 3626
     },
     "scale": 1
   }

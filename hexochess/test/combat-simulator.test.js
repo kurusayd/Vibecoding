@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { hexDistance } from '../shared/battleCore.js';
 import { BATTLE_ENTRY_SECONDS } from '../server/battlePhases.js';
 import {
   createSimState,
@@ -9,6 +10,7 @@ import {
   simulateBattleReplayFromState,
   SNAPSHOT_STEP_MS,
 } from '../server/combatSimulator.js';
+import { ABILITY_DESC_BY_KEY } from '../src/scenes/battleScene/battleText.js';
 
 function withRandomSequence(values, fn) {
   const originalRandom = Math.random;
@@ -58,6 +60,11 @@ function makeUnit(overrides = {}) {
 
 test('entry phase constant stays aligned with 5-second reveal spec', () => {
   assert.equal(BATTLE_ENTRY_SECONDS, 5);
+});
+
+test('battle text module imports cleanly and exposes knight charge description', () => {
+  assert.equal(typeof ABILITY_DESC_BY_KEY.knight_charge, 'string');
+  assert.ok(ABILITY_DESC_BY_KEY.knight_charge.length > 0);
 });
 
 test('performAttackIn reports ranged projectile travel time from hex distance', () => {
@@ -468,6 +475,86 @@ test('undertaker casts and summons a skeleton after cast time', () => {
   assert.ok(spawn);
   assert.equal(spawn.unit.type, 'SimpleSkeleton');
   assert.ok(spawn.t >= cast.t + 1000);
+});
+
+test('knight starts battle with charge cast and then performs a long dash', () => {
+  const simState = createSimState([
+    makeUnit({
+      id: 1,
+      type: 'Knight',
+      q: 0,
+      r: 0,
+      atk: 12,
+      hp: 120,
+      maxHp: 120,
+      moveSpeed: 0.9,
+      attackSpeed: 0.8,
+      cellSpanX: 2,
+      abilityType: 'active',
+      abilityKey: 'knight_charge',
+      abilityCooldown: 6,
+    }),
+    makeUnit({ id: 2, q: 3, r: 0, team: 'enemy', hp: 40, maxHp: 40, atk: 0, moveSpeed: 0.1 }),
+    makeUnit({ id: 3, q: 4, r: 1, team: 'enemy', hp: 40, maxHp: 40, atk: 0, moveSpeed: 0.1 }),
+    makeUnit({ id: 4, q: 5, r: 1, team: 'enemy', hp: 40, maxHp: 40, atk: 0, moveSpeed: 0.1 }),
+  ]);
+
+  const replay = simulateBattleReplayFromState(simState, {
+    tickMs: SNAPSHOT_STEP_MS,
+    maxBattleMs: 6000,
+    collectSnapshots: false,
+  });
+
+  const cast = replay.events.find((e) => e.type === 'ability_cast' && e.casterId === 1 && e.abilityKey === 'knight_charge');
+  const move = replay.events.find((e) => e.type === 'move' && e.unitId === 1 && Number(e.tStart ?? NaN) >= 1000);
+  const chargeDamages = replay.events.filter((e) => e.type === 'damage' && e.attackerId === 1 && e.damageSource === 'knight_charge');
+
+  assert.ok(cast);
+  assert.equal(cast.t, 0);
+  assert.equal(cast.castTimeMs, 1000);
+  assert.ok(move);
+  assert.equal(move.tStart, 1000);
+  assert.ok(Number(move.durationMs) > 0);
+  assert.equal(move.abilityKey, 'knight_charge');
+  const moveSteps = hexDistance(move.fromQ, move.fromR, move.q, move.r);
+  const normalMoveDurationMs = (moveSteps * 1000) / 0.9;
+  assert.equal(move.durationMs, normalMoveDurationMs / 2);
+  assert.ok(chargeDamages.length >= 2);
+});
+
+test('knight charge damages each enemy at most once per cast', () => {
+  const simState = createSimState([
+    makeUnit({
+      id: 1,
+      type: 'Knight',
+      q: 0,
+      r: 0,
+      atk: 12,
+      hp: 120,
+      maxHp: 120,
+      moveSpeed: 0.9,
+      attackSpeed: 0.8,
+      cellSpanX: 2,
+      abilityType: 'active',
+      abilityKey: 'knight_charge',
+      abilityCooldown: 6,
+    }),
+    makeUnit({ id: 2, q: 3, r: 0, team: 'enemy', hp: 80, maxHp: 80, atk: 0, moveSpeed: 0.1 }),
+    makeUnit({ id: 3, q: 5, r: 1, team: 'enemy', hp: 80, maxHp: 80, atk: 0, moveSpeed: 0.1 }),
+  ]);
+
+  const replay = simulateBattleReplayFromState(simState, {
+    tickMs: SNAPSHOT_STEP_MS,
+    maxBattleMs: 6000,
+    collectSnapshots: false,
+  });
+
+  const chargeDamages = replay.events.filter((e) => e.type === 'damage' && e.attackerId === 1 && e.damageSource === 'knight_charge');
+  const targetIds = chargeDamages.map((e) => e.targetId);
+  const uniqueTargetIds = Array.from(new Set(targetIds));
+
+  assert.deepEqual(targetIds, uniqueTargetIds);
+  assert.ok(uniqueTargetIds.includes(2));
 });
 
 test('sanitizeUnitForBattleStart resets transient combat state and worm swallow state', () => {

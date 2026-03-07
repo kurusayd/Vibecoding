@@ -21,6 +21,9 @@ const GHOST_EVASION_DODGE_CHANCE = 0.5;
 const UNDERTAKER_SUMMON_TYPE = 'SimpleSkeleton';
 const UNDERTAKER_ABILITY_KEY = 'undertaker_active';
 const UNDERTAKER_CAST_TIME_MS = 1000;
+const KNIGHT_CHARGE_ABILITY_KEY = 'knight_charge';
+const KNIGHT_CHARGE_CAST_TIME_MS = 1000;
+const KNIGHT_CHARGE_SPEED_MULT = 2;
 const WORM_SWALLOW_ABILITY_KEY = 'worm_swallow';
 const WORM_SWALLOW_DIGEST_MS = 6000;
 const WORM_SWALLOW_CHANCE = 0.5;
@@ -144,6 +147,24 @@ function findClosestOpponentIn(simState, attacker, timeMs) {
   return best;
 }
 
+function findFarthestOpponentIn(simState, attacker, timeMs) {
+  if (!attacker || attacker.dead) return null;
+  const opponentTeam = attacker.team === 'player' ? 'enemy' : 'player';
+  if (!getCombatHexAtIn(simState, attacker, timeMs)) return null;
+
+  let best = null;
+  let bestDist = -Infinity;
+  for (const u of simState.units) {
+    if (u.zone !== 'board' || u.dead || u.team !== opponentTeam) continue;
+    const d = unitDistanceByFootprintAtTime(simState, attacker, u, timeMs);
+    if (d > bestDist) {
+      bestDist = d;
+      best = u;
+    }
+  }
+  return best;
+}
+
 function findBestCrossbowmanTargetIn(simState, attacker, timeMs) {
   if (!attacker || attacker.dead) return null;
   const attackerPos = getCombatHexAtIn(simState, attacker, timeMs);
@@ -221,6 +242,12 @@ function hasCrossbowmanLineShotPassive(unit) {
   return !!unit
     && String(unit.abilityType ?? 'none') === 'passive'
     && String(unit.abilityKey ?? '') === 'crossbowman_line_shot';
+}
+
+function hasKnightChargeAbility(unit) {
+  return !!unit
+    && String(unit.abilityType ?? 'none') === 'active'
+    && String(unit.abilityKey ?? '') === KNIGHT_CHARGE_ABILITY_KEY;
 }
 
 function areHexesOnSameLine(aq, ar, bq, br) {
@@ -716,6 +743,114 @@ function findNearestFreeAdjacentHexIn(simState, q, r) {
   return best;
 }
 
+function getBoardForwardPriority(unitLike, q, r) {
+  const col = getBoardColumnForHex(q, r);
+  const isEnemy = String(unitLike?.team ?? '') === 'enemy';
+  return isEnemy ? -col : col;
+}
+
+function findKnightChargeDestinationIn(simState, attacker, target, timeMs) {
+  const attackerPos = getCombatHexAtIn(simState, attacker, timeMs);
+  const targetPos = getCombatHexAtIn(simState, target, timeMs);
+  if (!attackerPos || !targetPos) return null;
+
+  const targetCells = getBoardCellsForUnitAnchor(target, targetPos.q, targetPos.r);
+  let best = null;
+  let bestForwardPriority = -Infinity;
+  let bestMoveDist = -Infinity;
+
+  for (let row = 0; row < GRID_ROWS; row++) {
+    const rowShift = Math.floor(row / 2);
+    for (let col = 0; col < GRID_COLS; col++) {
+      const q = col - rowShift;
+      const r = row;
+      if (!canPlaceUnitAtBoard(simState, attacker, q, r, attacker.id)) continue;
+
+      const myCells = getBoardCellsForUnitAnchor(attacker, q, r);
+      let minDist = Infinity;
+      for (const mc of myCells) {
+        for (const tc of targetCells) minDist = Math.min(minDist, hexDistance(mc.q, mc.r, tc.q, tc.r));
+      }
+      if (minDist !== 1) continue;
+
+      const forwardPriority = getBoardForwardPriority(attacker, q, r);
+      const moveDist = hexDistance(attackerPos.q, attackerPos.r, q, r);
+      if (
+        forwardPriority > bestForwardPriority ||
+        (forwardPriority === bestForwardPriority && moveDist > bestMoveDist) ||
+        (forwardPriority === bestForwardPriority && moveDist === bestMoveDist && r < Number(best?.r ?? Infinity)) ||
+        (forwardPriority === bestForwardPriority && moveDist === bestMoveDist && r === Number(best?.r ?? Infinity) && q < Number(best?.q ?? Infinity))
+      ) {
+        bestForwardPriority = forwardPriority;
+        bestMoveDist = moveDist;
+        best = { q, r };
+      }
+    }
+  }
+
+  return best;
+}
+
+function findShortestPathIgnoringUnitsIn(simState, unitLike, startQ, startR, endQ, endR) {
+  if (Number(startQ) === Number(endQ) && Number(startR) === Number(endR)) {
+    return [{ q: Number(startQ), r: Number(startR) }];
+  }
+
+  const startKey = `${startQ},${startR}`;
+  const endKey = `${endQ},${endR}`;
+  const queue = [{ q: Number(startQ), r: Number(startR) }];
+  const prev = new Map([[startKey, null]]);
+
+  while (queue.length > 0) {
+    const cur = queue.shift();
+    const curKey = `${cur.q},${cur.r}`;
+    if (curKey === endKey) break;
+
+    for (const n of NEIGHBORS) {
+      const nq = Number(cur.q) + Number(n.dq);
+      const nr = Number(cur.r) + Number(n.dr);
+      if (!isBoardPlacementInsideForUnit(unitLike, nq, nr)) continue;
+      const nextKey = `${nq},${nr}`;
+      if (prev.has(nextKey)) continue;
+      prev.set(nextKey, curKey);
+      queue.push({ q: nq, r: nr });
+    }
+  }
+
+  if (!prev.has(endKey)) return null;
+
+  const path = [];
+  let key = endKey;
+  while (key != null) {
+    const [qStr, rStr] = String(key).split(',');
+    path.push({ q: Number(qStr), r: Number(rStr) });
+    key = prev.get(key) ?? null;
+  }
+  path.reverse();
+  return path;
+}
+
+function getKnightChargeDamageCellsForAnchor(unitLike, q, r) {
+  const out = [];
+  const seen = new Set();
+  const baseCells = getBoardCellsForUnitAnchor(unitLike, q, r);
+  for (const c of baseCells) {
+    const candidates = [
+      { q: Number(c.q), r: Number(c.r) },
+      { q: Number(c.q), r: Number(c.r) - 1 },
+      { q: Number(c.q), r: Number(c.r) + 1 },
+    ];
+    for (const cell of candidates) {
+      if (!isInsideBoard(cell.q, cell.r)) continue;
+      const key = `${cell.q},${cell.r}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(cell);
+    }
+  }
+  return out;
+}
+
 function computeResultIn(simState) {
   const hasPlayer = simState.units.some((u) => u.team === 'player' && u.zone === 'board' && !u.dead);
   const hasEnemy = simState.units.some((u) => u.team === 'enemy' && u.zone === 'board' && !u.dead);
@@ -1028,11 +1163,12 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
       me.nextActionAt = Math.max(0, Number(me.nextActionAt ?? 0));
       me.nextAbilityAt = Number.isFinite(Number(me.nextAbilityAt))
         ? Math.max(0, Number(me.nextAbilityAt ?? 0))
-        : (hasWormSwallowPassive(me) ? 0 : abilityIntervalMs);
+        : ((hasWormSwallowPassive(me) || hasKnightChargeAbility(me)) ? 0 : abilityIntervalMs);
 
       const isUndertakerSummoner =
         String(me.abilityType ?? 'none') === 'active' &&
         String(me.abilityKey ?? '') === UNDERTAKER_ABILITY_KEY;
+      const isKnightCharger = hasKnightChargeAbility(me);
 
       let unitActions = 0;
       while (unitActions < MAX_ACTIONS_PER_UNIT_PER_TICK) {
@@ -1083,6 +1219,90 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
               });
             }
             continue;
+          }
+        }
+
+        if (
+          isKnightCharger &&
+          abilityIntervalMs > 0 &&
+          tickTimeMs + 1e-6 >= me.nextActionAt &&
+          tickTimeMs + 1e-6 >= me.nextAbilityAt
+        ) {
+          const chargeTarget = findFarthestOpponentIn(simState, me, tickTimeMs);
+          const chargeDestination = chargeTarget
+            ? findKnightChargeDestinationIn(simState, me, chargeTarget, tickTimeMs)
+            : null;
+          const chargePath = chargeDestination
+            ? findShortestPathIgnoringUnitsIn(simState, me, mePos.q, mePos.r, chargeDestination.q, chargeDestination.r)
+            : null;
+
+          if (chargeTarget && chargeDestination && Array.isArray(chargePath) && chargePath.length > 1) {
+            const castCompleteAt = tickTimeMs + KNIGHT_CHARGE_CAST_TIME_MS;
+            const chargeStepMs = 1000 / Math.max(0.1, moveSpeed * KNIGHT_CHARGE_SPEED_MULT);
+            const chargeDurationMs = (chargePath.length - 1) * chargeStepMs;
+            const chargeCompleteAt = castCompleteAt + chargeDurationMs;
+            const from = { q: me.q, r: me.r };
+            const moved = moveUnit(simState, me.id, chargeDestination.q, chargeDestination.r);
+
+            if (moved) {
+              me.nextAbilityAt = Math.max(me.nextAbilityAt, chargeCompleteAt) + abilityIntervalMs;
+              me.nextAttackAt = Math.max(me.nextAttackAt, chargeCompleteAt);
+              me.nextMoveAt = Math.max(me.nextMoveAt, chargeCompleteAt);
+              me.nextActionAt = Math.max(me.nextActionAt, chargeCompleteAt);
+              me.moveFromQ = from.q;
+              me.moveFromR = from.r;
+              me.moveStartAt = castCompleteAt;
+              me.moveEndAt = chargeCompleteAt;
+              unitActions += 1;
+
+              if (collectTimeline) {
+                events.push({
+                  t: tickTimeMs,
+                  type: 'ability_cast',
+                  casterId: me.id,
+                  abilityKey: KNIGHT_CHARGE_ABILITY_KEY,
+                  castTimeMs: KNIGHT_CHARGE_CAST_TIME_MS,
+                });
+                events.push({
+                  tStart: castCompleteAt,
+                  t: chargeCompleteAt,
+                  durationMs: chargeDurationMs,
+                  type: 'move',
+                  abilityKey: KNIGHT_CHARGE_ABILITY_KEY,
+                  unitId: me.id,
+                  team: me.team,
+                  fromQ: from.q,
+                  fromR: from.r,
+                  q: chargeDestination.q,
+                  r: chargeDestination.r,
+                });
+              }
+
+              const projectileId = `knight_charge:${me.id}:${tickTimeMs}`;
+              for (let idx = 1; idx < chargePath.length; idx++) {
+                const stepAnchor = chargePath[idx];
+                const dueAt = castCompleteAt + chargeStepMs * idx;
+                const damageCells = getKnightChargeDamageCellsForAnchor(me, stepAnchor.q, stepAnchor.r);
+                for (const cell of damageCells) {
+                  pendingDamageEvents.push({
+                    t: dueAt,
+                    attackerId: me.id,
+                    targetId: Number(chargeTarget.id),
+                    attackerTeam: me.team,
+                    attackSeq: Number(me.attackSeq ?? 0),
+                    projectileId,
+                    targetCellQ: Number(cell.q),
+                    targetCellR: Number(cell.r),
+                    damage: Math.max(1, Math.round(Number(me.atk ?? 0))),
+                    damageSource: 'knight_charge',
+                    projectileSpeed: 0,
+                    missed: false,
+                    enableSkeletonArcherBounce: false,
+                  });
+                }
+              }
+              break;
+            }
           }
         }
 
@@ -1374,7 +1594,7 @@ export function sanitizeUnitForBattleStart(unit) {
   unit.nextAttackAt = 0;
   unit.nextMoveAt = 0;
   unit.nextActionAt = 0;
-  unit.nextAbilityAt = hasWormSwallowPassive(unit)
+  unit.nextAbilityAt = hasWormSwallowPassive(unit) || hasKnightChargeAbility(unit)
     ? 0
     : Math.max(0, Number(unit.abilityCooldown ?? 0) * 1000);
   unit.attackSeq = 0;

@@ -49,6 +49,7 @@ const SHOP_OFFER_COUNT = 5;
 const SHOP_CARD_ART_LIFT_Y = 75; // увеличивай/уменьшай, чтобы поднять/опустить арт в сером блоке карточки
 const AUTO_ENTER_TEST_SCENE_ON_BOOT = false; // обычный старт: live battle scene
 const USE_SERVER_BATTLE_REPLAY = true; // постепенный переход: клиент проигрывает precomputed battleReplay от сервера
+const KNIGHT_CHARGE_MOVE_ANIM = 'knight_charge_move';
 const KING_XP_BUY_GAIN = 4;
 const KING_XP_BUY_COST = 4;
 const KING_UI = {
@@ -801,7 +802,24 @@ export default class BattleScene extends Phaser.Scene {
             key: def.spellAnim,
             frames: spellFrames,
             frameRate: 12,
-            repeat: 0,
+            repeat: def.type === 'Knight' ? -1 : 0,
+          });
+        }
+      }
+
+      if (def.type === 'Knight' && !this.anims.exists(KNIGHT_CHARGE_MOVE_ANIM)) {
+        const texture = this.textures.get(def.atlasKey);
+        const moveSkillFrames = (texture?.getFrameNames?.() ?? [])
+          .filter((name) => /^psd_anim\/skill\d{4}\.png$/.test(name))
+          .sort()
+          .map((frame) => ({ key: def.atlasKey, frame }));
+
+        if (moveSkillFrames.length > 0) {
+          this.anims.create({
+            key: KNIGHT_CHARGE_MOVE_ANIM,
+            frames: moveSkillFrames,
+            frameRate: 14,
+            repeat: -1,
           });
         }
       }
@@ -2007,6 +2025,7 @@ export default class BattleScene extends Phaser.Scene {
       const tweenMs = Number(ev.durationMs ?? NaN);
       if (Number.isFinite(tweenMs) && tweenMs > 0) {
         u._replayMoveTweenMs = tweenMs;
+        u._replayMoveAbilityKey = ev.abilityKey ?? null;
         const replayStartMs = Number(this.serverReplayPlayback?.startTimeMs ?? this.time?.now ?? 0);
         u._replayMoveFromQ = fromQ;
         u._replayMoveFromR = fromR;
@@ -2016,6 +2035,9 @@ export default class BattleScene extends Phaser.Scene {
       u.q = Number(ev.q ?? u.q);
       u.r = Number(ev.r ?? u.r);
       u.zone = 'board';
+      if (String(ev.abilityKey ?? '') === 'knight_charge') {
+        this.restartUnitAbilityCooldownUi?.(u);
+      }
       return;
     }
 
@@ -2619,6 +2641,8 @@ export default class BattleScene extends Phaser.Scene {
     vu._abilityCastStartAtMs = null;
     vu._abilityCastEndAtMs = null;
     vu._abilityCastStartFill = null;
+    vu._castAnimPlaying = false;
+    vu._castAnimForceReplay = false;
   }
 
   startUnitAbilityCastUi(coreUnitLike, castTimeMsRaw = 0) {
@@ -2810,6 +2834,29 @@ export default class BattleScene extends Phaser.Scene {
     return null;
   }
 
+  getKnightMirroredAnchorShiftPx(unitLike, q, r, mirrored) {
+    if (!unitLike || String(unitLike.type ?? '') !== 'Knight') return 0;
+    if (!mirrored) return 0;
+    const span = getUnitCellSpanX(unitLike);
+    if (span <= 1) return 0;
+    const lift = getUnitGroundLiftPx(unitLike.type);
+    const anchorGround = this.hexToGroundPixel(q, r, lift);
+    const leftGround = this.hexToGroundPixel(q - (span - 1), r, lift);
+    return Number(anchorGround?.x ?? 0) - Number(leftGround?.x ?? 0);
+  }
+
+  getUnitArtWorldXByFacing(unitLike, q, r, mirrored) {
+    const lift = getUnitGroundLiftPx(unitLike?.type);
+    const g = this.hexToGroundPixel(q, r, lift);
+    return Number(g?.x ?? 0)
+      + getUnitArtOffsetXPx(unitLike?.type, mirrored)
+      - this.getKnightMirroredAnchorShiftPx(unitLike, q, r, mirrored);
+  }
+
+  getUnitArtScreenXByFacing(unitLike, centerX, mirrored) {
+    return Number(centerX ?? 0) + getUnitArtOffsetXPx(unitLike?.type, mirrored);
+  }
+
   setUnitVisualFacingTowardX(vu, targetX) {
     if (!vu?.art?.active) return;
 
@@ -2822,17 +2869,15 @@ export default class BattleScene extends Phaser.Scene {
     // Atlases are authored facing right by default.
     // Keep facing + horizontal art offset in sync, otherwise mirrored turns "slide" sideways.
     const mirrored = dx < 0;
+    if (vu._artMoveTween) {
+      try { vu._artMoveTween.stop(); } catch {}
+      vu._artMoveTween = null;
+    }
     vu._artFacingMirrored = mirrored;
     vu.art.setFlipX(mirrored);
 
     if (Number.isFinite(vu.q) && Number.isFinite(vu.r)) {
-      const lift = getUnitGroundLiftPx(vu.type);
-      const g = this.hexToGroundPixel(vu.q, vu.r, lift);
-      const span = getUnitCellSpanX(vu);
-      const offsetX = span > 1
-        ? getUnitArtOffsetXPx(vu.type, false)
-        : getUnitArtOffsetXPx(vu.type, mirrored);
-      vu.art.setX(g.x + offsetX);
+      vu.art.setX(this.getUnitArtWorldXByFacing(vu, vu.q, vu.r, mirrored));
     }
   }
 
@@ -3895,6 +3940,17 @@ export default class BattleScene extends Phaser.Scene {
         const baseMirrored = (u.team === 'enemy');
         vu._artFacingMirrored = baseMirrored;
         vu.art.setFlipX(baseMirrored);
+        if (u.zone === 'board' && Number.isFinite(vu.q) && Number.isFinite(vu.r)) {
+          vu.art.setX(this.getUnitArtWorldXByFacing(vu, vu.q, vu.r, baseMirrored));
+        } else {
+          vu.art.setX(this.getUnitArtScreenXByFacing(vu, vu.sprite?.x, baseMirrored));
+        }
+      }
+
+      const castAnimEndAtMs = Number(vu._abilityCastEndAtMs ?? NaN);
+      if (vu._castAnimPlaying && Number.isFinite(castAnimEndAtMs) && Number(this.time?.now ?? 0) >= castAnimEndAtMs) {
+        vu._castAnimPlaying = false;
+        vu._castAnimForceReplay = false;
       }
 
       const wantWalk =
@@ -3903,6 +3959,13 @@ export default class BattleScene extends Phaser.Scene {
         (u.zone === 'board') &&
         !u.dead &&
         !!vu._moveTween;
+      if (!vu._moveTween && u._replayMoveAbilityKey != null) {
+        delete u._replayMoveAbilityKey;
+      }
+      const wantKnightChargeMove =
+        wantWalk &&
+        String(u._replayMoveAbilityKey ?? '') === 'knight_charge' &&
+        this.anims.exists(KNIGHT_CHARGE_MOVE_ANIM);
       const wantAttack =
         !u.dead &&
         this.anims.exists(animDef.attack) &&
@@ -3914,7 +3977,7 @@ export default class BattleScene extends Phaser.Scene {
         !!vu._castAnimPlaying;
       const animKey = u.dead
         ? animDef.dead
-        : (wantCast ? animDef.spell : (wantAttack ? animDef.attack : (wantWalk ? animDef.walk : animDef.idle)));
+        : (wantCast ? animDef.spell : (wantAttack ? animDef.attack : (wantKnightChargeMove ? KNIGHT_CHARGE_MOVE_ANIM : (wantWalk ? animDef.walk : animDef.idle))));
       const forceReplayCast = wantCast && !!vu._castAnimForceReplay;
       const forceReplayAttack = wantAttack && !!vu._attackAnimForceReplay;
 
@@ -3925,28 +3988,31 @@ export default class BattleScene extends Phaser.Scene {
         vu.art.play(animKey, true);
         if (forceReplayCast) {
           vu._castAnimForceReplay = false;
-          vu.art.once(`animationcomplete-${animDef.spell}`, (anim) => {
-            if (!vu?.art?.active) return;
-            if (anim?.key !== animDef.spell) return;
-            vu._castAnimPlaying = false;
-            vu._castAnimForceReplay = false;
+          const loopingCastAnim = u.type === 'Knight';
+          if (!loopingCastAnim) {
+            vu.art.once(`animationcomplete-${animDef.spell}`, (anim) => {
+              if (!vu?.art?.active) return;
+              if (anim?.key !== animDef.spell) return;
+              vu._castAnimPlaying = false;
+              vu._castAnimForceReplay = false;
 
-            const latest = (this.battleState?.units ?? []).find((x) => x.id === u.id);
-            if (!latest || latest.dead) return;
+              const latest = (this.battleState?.units ?? []).find((x) => x.id === u.id);
+              if (!latest || latest.dead) return;
 
-            const latestPhase = this.battleState?.phase ?? 'prep';
-            const latestResult = this.battleState?.result ?? null;
-            const shouldWalk =
-              (latestPhase === 'battle') &&
-              !latestResult &&
-              (latest.zone === 'board') &&
-              !!vu._moveTween;
+              const latestPhase = this.battleState?.phase ?? 'prep';
+              const latestResult = this.battleState?.result ?? null;
+              const shouldWalk =
+                (latestPhase === 'battle') &&
+                !latestResult &&
+                (latest.zone === 'board') &&
+                !!vu._moveTween;
 
-            const fallbackAnimKey = shouldWalk ? animDef.walk : animDef.idle;
-            if (!this.anims.exists(fallbackAnimKey)) return;
-            if (vu.art.anims?.getName?.() === fallbackAnimKey) return;
-            vu.art.play(fallbackAnimKey, true);
-          });
+              const fallbackAnimKey = shouldWalk ? animDef.walk : animDef.idle;
+              if (!this.anims.exists(fallbackAnimKey)) return;
+              if (vu.art.anims?.getName?.() === fallbackAnimKey) return;
+              vu.art.play(fallbackAnimKey, true);
+            });
+          }
         }
         if (forceReplayAttack) {
           vu._attackAnimForceReplay = false;

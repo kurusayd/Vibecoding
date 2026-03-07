@@ -30,6 +30,7 @@ export function atlasAttackFrameRegex(def) {
 }
 
 export function atlasSpellFrameRegex(def) {
+  if (def?.spellFrameRegex instanceof RegExp) return def.spellFrameRegex;
   const prefix = atlasFramePrefix(def);
   if (!prefix) return /^spell_?\d{4}\.png$/;
   const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -74,6 +75,8 @@ export const UNIT_ATLAS_DEFS = [
     idleAnim: 'knight_idle',
     walkAnim: 'knight_walk',
     attackAnim: 'knight_attack',
+    spellAnim: 'knight_spell',
+    spellFrameRegex: /^psd_anim\/prepeare_skill\d{4}\.png$/,
     deadAnim: 'knight_dead',
     framePrefix: 'psd_anim',
   },

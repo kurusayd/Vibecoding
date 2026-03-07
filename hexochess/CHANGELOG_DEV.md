@@ -301,3 +301,50 @@
 ### Balance / Catalog
 - Added flat spreadsheet-friendly export file `balance.csv` in project root for Excel / Google Sheets workflow.
 - Changed `Zombie` `powerType` from `Rook` to `Knight`.
+
+### Shop Lock
+- Added shop lock button with `lock_open` / `lock_close` icons from `assets/icons/shop`.
+- Lock button is free and sits left of the first shop card.
+- Lock behavior now is:
+  - when closed, shop does not reroll automatically between rounds;
+  - after round end, preserved offers remain and then lock auto-opens on return to `prep`;
+  - after buying any shop unit, lock auto-opens immediately.
+
+### Kings / Visual Tuning
+- Added dedicated `src/game/kingVisualConfig.js` for king and bot-king tuning.
+- Exposed per-king settings for:
+  - size;
+  - X offset;
+  - HP bar Y offset;
+  - shadow width / height / Y offset.
+- Reworked config format to `DEFAULT_* + delta` style for easier per-skin tuning.
+- Fixed runtime bug where changing king shadow size in config did not affect the actual ellipse shadow.
+- Final king shadow setup was simplified to one denser shadow layer.
+
+### Test Scene Enemy King
+- Added `ENEMY KING` debug button in `Test Scene`.
+- Added modal skin picker for enemy king preview.
+- Selecting a king now:
+  - closes the modal;
+  - spawns the preview with entry-style reveal animation;
+  - leaves the king visible for manual visual tuning.
+
+### Test Scene Battle Pipeline
+- Reworked `Test Scene` battle startup to use server simulation.
+- Previous local tick-based combat loop is no longer the active debug battle path.
+- Current flow:
+  - `Бой` sends `debugRunTestBattle`;
+  - server assembles temporary state from currently placed player/enemy units;
+  - server runs the same shared combat simulator used by the normal battle system;
+  - server returns `testBattleReplay`;
+  - client plays replay locally;
+  - after replay, scene restores original placement and goes back to `prep`.
+- Important architectural decision:
+  - no separate combat rules were added for `Test Scene`;
+  - only debug transport and temporary state assembly were introduced around the shared simulator.
+
+### Docs
+- Refreshed `PROJECT_MEMORY.md` to reflect:
+  - server-authoritative test-scene battles;
+  - shop lock behavior;
+  - king visual config workflow.
