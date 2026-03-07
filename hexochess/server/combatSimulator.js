@@ -18,9 +18,13 @@ const DEFAULT_UNIT_ACCURACY = 0.8;
 const DEFAULT_UNIT_ABILITY_COOLDOWN = 0;
 const DEFAULT_UNIT_ATTACK_MODE = 'melee';
 const GHOST_EVASION_DODGE_CHANCE = 0.5;
+const SIREN_ILLUSION_DODGE_CHANCE = 0.3;
 const UNDERTAKER_SUMMON_TYPE = 'SimpleSkeleton';
 const UNDERTAKER_ABILITY_KEY = 'undertaker_active';
 const UNDERTAKER_CAST_TIME_MS = 1000;
+const SIREN_MIRROR_ABILITY_KEY = 'siren_mirror_image';
+const SIREN_MIRROR_CAST_TIME_MS = 1000;
+const SIREN_MIRROR_CLONE_STAT_MULT = 0.3;
 const KNIGHT_CHARGE_ABILITY_KEY = 'knight_charge';
 const KNIGHT_CHARGE_CAST_TIME_MS = 1000;
 const KNIGHT_CHARGE_SPEED_MULT = 2;
@@ -250,6 +254,12 @@ function hasKnightChargeAbility(unit) {
     && String(unit.abilityKey ?? '') === KNIGHT_CHARGE_ABILITY_KEY;
 }
 
+function hasSirenMirrorAbility(unit) {
+  return !!unit
+    && String(unit.abilityType ?? 'none') === 'active'
+    && String(unit.abilityKey ?? '') === SIREN_MIRROR_ABILITY_KEY;
+}
+
 function areHexesOnSameLine(aq, ar, bq, br) {
   const dr = Number(br) - Number(ar);
   return dr === 0;
@@ -476,8 +486,21 @@ function hasGhostEvasionPassive(unit) {
     && String(unit.abilityKey ?? '') === 'ghost_evasion';
 }
 
+function hasSirenIllusionDodge(unit) {
+  return !!unit
+    && Boolean(unit.isIllusion)
+    && String(unit.type ?? '') === 'NagaSiren';
+}
+
+function getAttackDodgeChance(unit) {
+  if (hasGhostEvasionPassive(unit)) return GHOST_EVASION_DODGE_CHANCE;
+  if (hasSirenIllusionDodge(unit)) return SIREN_ILLUSION_DODGE_CHANCE;
+  return 0;
+}
+
 function isAttackDodgedByTarget(unit) {
-  return hasGhostEvasionPassive(unit) && Math.random() < GHOST_EVASION_DODGE_CHANCE;
+  const chance = Math.max(0, Math.min(1, Number(getAttackDodgeChance(unit) ?? 0)));
+  return chance > 0 && Math.random() < chance;
 }
 
 function hasWormSwallowPassive(unit) {
@@ -741,6 +764,66 @@ function findNearestFreeAdjacentHexIn(simState, q, r) {
     }
   }
   return best;
+}
+
+function findSirenMirrorSpawnHexesIn(simState, q, r) {
+  const found = [];
+  const used = new Set([`${q},${r}`]);
+  const preferredDirs = [
+    { dq: 0, dr: -1 },
+    { dq: 0, dr: 1 },
+  ];
+
+  for (const dir of preferredDirs) {
+    let dist = 1;
+    while (dist <= Math.max(GRID_COLS, GRID_ROWS)) {
+      const nq = Number(q) + dir.dq * dist;
+      const nr = Number(r) + dir.dr * dist;
+      if (!isBoardPlacementInsideForUnit({ cellSpanX: 1 }, nq, nr)) break;
+      const key = `${nq},${nr}`;
+      if (!used.has(key) && !findBlockingUnitAtPlacement(simState, { cellSpanX: 1 }, nq, nr, null)) {
+        found.push({ q: nq, r: nr });
+        used.add(key);
+        break;
+      }
+      dist += 1;
+    }
+  }
+
+  if (found.length >= 2) return found.slice(0, 2);
+
+  const fallback = [];
+  for (let row = 0; row < GRID_ROWS; row++) {
+    const rowShift = Math.floor(row / 2);
+    for (let col = 0; col < GRID_COLS; col++) {
+      const nq = col - rowShift;
+      const nr = row;
+      const key = `${nq},${nr}`;
+      if (used.has(key)) continue;
+      if (!isBoardPlacementInsideForUnit({ cellSpanX: 1 }, nq, nr)) continue;
+      if (findBlockingUnitAtPlacement(simState, { cellSpanX: 1 }, nq, nr, null)) continue;
+      fallback.push({
+        q: nq,
+        r: nr,
+        dist: hexDistance(q, r, nq, nr),
+        verticalBias: Math.abs(Number(nr) - Number(r)),
+      });
+    }
+  }
+
+  fallback.sort((a, b) => (
+    Number(a.dist) - Number(b.dist)
+    || Number(a.verticalBias) - Number(b.verticalBias)
+    || Number(a.r) - Number(b.r)
+    || Number(a.q) - Number(b.q)
+  ));
+
+  for (const cell of fallback) {
+    if (found.length >= 2) break;
+    found.push({ q: cell.q, r: cell.r });
+  }
+
+  return found.slice(0, 2);
 }
 
 function getBoardForwardPriority(unitLike, q, r) {
@@ -1015,87 +1098,137 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
         pendingSummonEvents.shift();
 
         const caster = findUnitByIdIn(simState, next.casterId);
-        if (!caster || caster.dead || caster.zone !== 'board' || !undertakerSummonBase) continue;
+        if (!caster || caster.dead || caster.zone !== 'board') continue;
         const casterPos = getCombatHexAtIn(simState, caster, dueAt);
         if (!casterPos) continue;
-        const summonHex = findNearestFreeAdjacentHexIn(simState, casterPos.q, casterPos.r);
-        if (!summonHex) continue;
+        let summonUnits = [];
+        if (String(next?.abilityKey ?? '') === UNDERTAKER_ABILITY_KEY) {
+          if (!undertakerSummonBase) continue;
+          const summonHex = findNearestFreeAdjacentHexIn(simState, casterPos.q, casterPos.r);
+          if (!summonHex) continue;
 
-        const summonRank = Math.max(1, Math.min(3, Number(caster.rank ?? 1)));
-        const summonMult = rankMultiplier(summonRank);
-        const summonHp = Math.max(1, Math.round(Number(undertakerSummonBase.hp ?? 1) * summonMult));
-        const summonAtk = Math.max(1, Math.round(Number(undertakerSummonBase.atk ?? 1) * summonMult));
-        const summoned = {
-          id: simNextUnitId++,
-          q: summonHex.q,
-          r: summonHex.r,
-          hp: summonHp,
-          maxHp: summonHp,
-          atk: summonAtk,
-          team: caster.team,
-          type: undertakerSummonBase.type,
-          powerType: undertakerSummonBase.powerType,
-          abilityType: undertakerSummonBase.abilityType ?? 'none',
-          abilityKey: undertakerSummonBase.abilityKey ?? null,
-          abilityCooldown: undertakerSummonBase.abilityCooldown ?? DEFAULT_UNIT_ABILITY_COOLDOWN,
-          rank: summonRank,
-          zone: 'board',
-          benchSlot: null,
-          attackSpeed: undertakerSummonBase.attackSpeed ?? DEFAULT_UNIT_ATTACK_SPEED,
-          moveSpeed: undertakerSummonBase.moveSpeed ?? DEFAULT_UNIT_MOVE_SPEED,
-          projectileSpeed: undertakerSummonBase.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED,
-          attackRangeMax: undertakerSummonBase.attackRangeMax ?? 1,
-          attackRangeFullDamage: undertakerSummonBase.attackRangeFullDamage ?? (undertakerSummonBase.attackRangeMax ?? 1),
-          attackMode: String(undertakerSummonBase.attackMode ?? DEFAULT_UNIT_ATTACK_MODE),
-          accuracy: undertakerSummonBase.accuracy ?? DEFAULT_UNIT_ACCURACY,
-          cellSpanX: getUnitCellSpanX(undertakerSummonBase),
-          dead: false,
-          nextAttackAt: 0,
-          nextMoveAt: 0,
-          nextActionAt: 0,
-          nextAbilityAt: Math.max(0, Number(undertakerSummonBase.abilityCooldown ?? 0) * 1000),
-          attackSeq: 0,
-          moveStartAt: -1,
-          moveEndAt: -1,
-          moveFromQ: summonHex.q,
-          moveFromR: summonHex.r,
-        };
-        simState.units.push(summoned);
-
-        if (collectTimeline) {
-          events.push({
-            t: dueAt,
-            type: 'spawn',
-            unit: {
-              id: summoned.id,
-              q: summoned.q,
-              r: summoned.r,
-              hp: summoned.hp,
-              maxHp: summoned.maxHp,
-              atk: summoned.atk,
-              team: summoned.team,
-              rank: summoned.rank,
-              type: summoned.type,
-              powerType: summoned.powerType,
-              zone: summoned.zone,
+          const summonRank = Math.max(1, Math.min(3, Number(caster.rank ?? 1)));
+          const summonMult = rankMultiplier(summonRank);
+          const summonHp = Math.max(1, Math.round(Number(undertakerSummonBase.hp ?? 1) * summonMult));
+          const summonAtk = Math.max(1, Math.round(Number(undertakerSummonBase.atk ?? 1) * summonMult));
+          summonUnits = [{
+            id: simNextUnitId++,
+            q: summonHex.q,
+            r: summonHex.r,
+            hp: summonHp,
+            maxHp: summonHp,
+            atk: summonAtk,
+            team: caster.team,
+            type: undertakerSummonBase.type,
+            powerType: undertakerSummonBase.powerType,
+            abilityType: undertakerSummonBase.abilityType ?? 'none',
+            abilityKey: undertakerSummonBase.abilityKey ?? null,
+            abilityCooldown: undertakerSummonBase.abilityCooldown ?? DEFAULT_UNIT_ABILITY_COOLDOWN,
+            rank: summonRank,
+            zone: 'board',
+            benchSlot: null,
+            attackSpeed: undertakerSummonBase.attackSpeed ?? DEFAULT_UNIT_ATTACK_SPEED,
+            moveSpeed: undertakerSummonBase.moveSpeed ?? DEFAULT_UNIT_MOVE_SPEED,
+            projectileSpeed: undertakerSummonBase.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED,
+            attackRangeMax: undertakerSummonBase.attackRangeMax ?? 1,
+            attackRangeFullDamage: undertakerSummonBase.attackRangeFullDamage ?? (undertakerSummonBase.attackRangeMax ?? 1),
+            attackMode: String(undertakerSummonBase.attackMode ?? DEFAULT_UNIT_ATTACK_MODE),
+            accuracy: undertakerSummonBase.accuracy ?? DEFAULT_UNIT_ACCURACY,
+            cellSpanX: getUnitCellSpanX(undertakerSummonBase),
+            dead: false,
+            nextAttackAt: 0,
+            nextMoveAt: 0,
+            nextActionAt: 0,
+            nextAbilityAt: Math.max(0, Number(undertakerSummonBase.abilityCooldown ?? 0) * 1000),
+            attackSeq: 0,
+            moveStartAt: -1,
+            moveEndAt: -1,
+            moveFromQ: summonHex.q,
+            moveFromR: summonHex.r,
+          }];
+        } else if (String(next?.abilityKey ?? '') === SIREN_MIRROR_ABILITY_KEY) {
+          const summonHexes = findSirenMirrorSpawnHexesIn(simState, casterPos.q, casterPos.r);
+          if (summonHexes.length < 2) continue;
+          summonUnits = summonHexes.map((hex) => {
+            const summonHp = Math.max(1, Math.round(Number(caster.maxHp ?? caster.hp ?? 1) * SIREN_MIRROR_CLONE_STAT_MULT));
+            const summonAtk = Math.max(1, Math.round(Number(caster.atk ?? 1) * SIREN_MIRROR_CLONE_STAT_MULT));
+            return {
+              id: simNextUnitId++,
+              q: hex.q,
+              r: hex.r,
+              isIllusion: true,
+              hp: summonHp,
+              maxHp: summonHp,
+              atk: summonAtk,
+              team: caster.team,
+              type: caster.type,
+              powerType: caster.powerType,
+              abilityType: 'none',
+              abilityKey: null,
+              abilityCooldown: 0,
+              rank: Math.max(1, Math.min(3, Number(caster.rank ?? 1))),
+              zone: 'board',
               benchSlot: null,
-              attackSpeed: summoned.attackSpeed,
-              moveSpeed: summoned.moveSpeed,
-              projectileSpeed: summoned.projectileSpeed,
-              attackRangeMax: summoned.attackRangeMax,
-              attackRangeFullDamage: summoned.attackRangeFullDamage,
-              attackMode: String(summoned.attackMode ?? DEFAULT_UNIT_ATTACK_MODE),
-              accuracy: summoned.accuracy,
-              abilityType: summoned.abilityType,
-              abilityKey: summoned.abilityKey,
-              abilityCooldown: summoned.abilityCooldown,
-              cellSpanX: summoned.cellSpanX,
+              attackSpeed: caster.attackSpeed ?? DEFAULT_UNIT_ATTACK_SPEED,
+              moveSpeed: caster.moveSpeed ?? DEFAULT_UNIT_MOVE_SPEED,
+              projectileSpeed: caster.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED,
+              attackRangeMax: caster.attackRangeMax ?? 1,
+              attackRangeFullDamage: caster.attackRangeFullDamage ?? (caster.attackRangeMax ?? 1),
+              attackMode: String(caster.attackMode ?? DEFAULT_UNIT_ATTACK_MODE),
+              accuracy: caster.accuracy ?? DEFAULT_UNIT_ACCURACY,
+              cellSpanX: getUnitCellSpanX(caster),
               dead: false,
+              nextAttackAt: 0,
+              nextMoveAt: 0,
+              nextActionAt: 0,
+              nextAbilityAt: 0,
               attackSeq: 0,
-            },
-            sourceId: caster.id,
-            sourceAbilityKey: UNDERTAKER_ABILITY_KEY,
+              moveStartAt: -1,
+              moveEndAt: -1,
+              moveFromQ: hex.q,
+              moveFromR: hex.r,
+            };
           });
+        }
+
+        for (const summoned of summonUnits) {
+          simState.units.push(summoned);
+          if (collectTimeline) {
+            events.push({
+              t: dueAt,
+              type: 'spawn',
+              unit: {
+                id: summoned.id,
+                q: summoned.q,
+                r: summoned.r,
+                hp: summoned.hp,
+                maxHp: summoned.maxHp,
+                atk: summoned.atk,
+                team: summoned.team,
+                rank: summoned.rank,
+                type: summoned.type,
+                powerType: summoned.powerType,
+                zone: summoned.zone,
+                benchSlot: null,
+                attackSpeed: summoned.attackSpeed,
+                moveSpeed: summoned.moveSpeed,
+                projectileSpeed: summoned.projectileSpeed,
+                attackRangeMax: summoned.attackRangeMax,
+                attackRangeFullDamage: summoned.attackRangeFullDamage,
+                attackMode: String(summoned.attackMode ?? DEFAULT_UNIT_ATTACK_MODE),
+                accuracy: summoned.accuracy,
+                abilityType: summoned.abilityType,
+                abilityKey: summoned.abilityKey,
+                abilityCooldown: summoned.abilityCooldown,
+                cellSpanX: summoned.cellSpanX,
+                isIllusion: Boolean(summoned.isIllusion),
+                dead: false,
+                attackSeq: 0,
+              },
+              sourceId: caster.id,
+              sourceAbilityKey: String(next?.abilityKey ?? UNDERTAKER_ABILITY_KEY),
+            });
+          }
         }
       }
     }
@@ -1163,11 +1296,12 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
       me.nextActionAt = Math.max(0, Number(me.nextActionAt ?? 0));
       me.nextAbilityAt = Number.isFinite(Number(me.nextAbilityAt))
         ? Math.max(0, Number(me.nextAbilityAt ?? 0))
-        : (hasWormSwallowPassive(me) ? 0 : abilityIntervalMs);
+        : ((hasWormSwallowPassive(me) || hasSirenMirrorAbility(me)) ? 0 : abilityIntervalMs);
 
       const isUndertakerSummoner =
         String(me.abilityType ?? 'none') === 'active' &&
         String(me.abilityKey ?? '') === UNDERTAKER_ABILITY_KEY;
+      const isSirenMirrorCaster = hasSirenMirrorAbility(me);
       const isKnightCharger = hasKnightChargeAbility(me);
 
       let unitActions = 0;
@@ -1207,7 +1341,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
             const castCompleteAt = tickTimeMs + UNDERTAKER_CAST_TIME_MS;
             me.nextAbilityAt = Math.max(me.nextAbilityAt, castCompleteAt) + abilityIntervalMs;
             me.nextActionAt = Math.max(me.nextActionAt, castCompleteAt);
-            pendingSummonEvents.push({ t: castCompleteAt, casterId: me.id });
+            pendingSummonEvents.push({ t: castCompleteAt, casterId: me.id, abilityKey: UNDERTAKER_ABILITY_KEY });
             unitActions += 1;
             if (collectTimeline) {
               events.push({
@@ -1216,6 +1350,32 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
                 casterId: me.id,
                 abilityKey: UNDERTAKER_ABILITY_KEY,
                 castTimeMs: UNDERTAKER_CAST_TIME_MS,
+              });
+            }
+            continue;
+          }
+        }
+
+        if (
+          isSirenMirrorCaster &&
+          abilityIntervalMs > 0 &&
+          tickTimeMs + 1e-6 >= me.nextActionAt &&
+          tickTimeMs + 1e-6 >= me.nextAbilityAt
+        ) {
+          const summonHexes = findSirenMirrorSpawnHexesIn(simState, mePos.q, mePos.r);
+          if (summonHexes.length >= 2) {
+            const castCompleteAt = tickTimeMs + SIREN_MIRROR_CAST_TIME_MS;
+            me.nextAbilityAt = Math.max(me.nextAbilityAt, castCompleteAt) + abilityIntervalMs;
+            me.nextActionAt = Math.max(me.nextActionAt, castCompleteAt);
+            pendingSummonEvents.push({ t: castCompleteAt, casterId: me.id, abilityKey: SIREN_MIRROR_ABILITY_KEY });
+            unitActions += 1;
+            if (collectTimeline) {
+              events.push({
+                t: tickTimeMs,
+                type: 'ability_cast',
+                casterId: me.id,
+                abilityKey: SIREN_MIRROR_ABILITY_KEY,
+                castTimeMs: SIREN_MIRROR_CAST_TIME_MS,
               });
             }
             continue;
@@ -1459,7 +1619,8 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
                   missSource: 'attack',
                 });
               }
-            } else if (isAttackDodgedByTarget(liveTarget)) {
+            } else {
+              if (isAttackDodgedByTarget(liveTarget)) {
               if (collectTimeline) {
                 events.push({
                   t: tickTimeMs,
@@ -1471,7 +1632,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
                   missSource: 'ghost_evasion',
                 });
               }
-            } else {
+              } else {
               const dmgRes = applyDamageToUnitIn(simState, liveTarget.id, res.damage);
               if (dmgRes.success && collectTimeline) {
                 events.push({
@@ -1490,6 +1651,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
               }
               if (dmgRes.success && dmgRes.killed) {
                 releaseWormSwallowedVictimIn(simState, liveTarget.id, tickTimeMs, { collectTimeline, events });
+              }
               }
             }
           }
@@ -1594,7 +1756,7 @@ export function sanitizeUnitForBattleStart(unit) {
   unit.nextAttackAt = 0;
   unit.nextMoveAt = 0;
   unit.nextActionAt = 0;
-  unit.nextAbilityAt = hasWormSwallowPassive(unit)
+  unit.nextAbilityAt = hasWormSwallowPassive(unit) || hasSirenMirrorAbility(unit)
     ? 0
     : Math.max(0, Number(unit.abilityCooldown ?? 0) * 1000);
   unit.attackSeq = 0;

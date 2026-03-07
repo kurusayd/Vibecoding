@@ -109,6 +109,9 @@ const MISS_HINT_THROTTLE_MS = 200;
 const CROSSBOWMAN_TRAIL_ALPHA = 0.18;
 const CROSSBOWMAN_TRAIL_WIDTH_PX = 6;
 const CROSSBOWMAN_TRAIL_MAX_LENGTH_PX = 144;
+const ILLUSION_ART_ALPHA = 0.8;
+const ILLUSION_MASK_ALPHA = 0.26;
+const ILLUSION_MASK_COLOR = 0x5fa8ff;
 const TRASH_ICON_CLOSED_KEY = 'trash_close';
 const TRASH_ICON_OPEN_KEY = 'trash_open';
 const TRASH_ICON_SCALE = 0.33;
@@ -237,6 +240,7 @@ export default class BattleScene extends Phaser.Scene {
     this.load.image(TRASH_ICON_OPEN_KEY, '/assets/icons/trash/trash_open.png');
     this.load.image('projectile_bone', '/assets/projectiles/bone.png');
     this.load.image('projectile_bolt', '/assets/projectiles/bolt.png');
+    this.load.image('shop_portrait_siren', '/assets/units/lizard/siren/siren_portrait.png');
 
     for (const asset of EXTRA_PORTRAIT_ASSETS) {
       this.load.image(asset.key, asset.path);
@@ -804,7 +808,7 @@ export default class BattleScene extends Phaser.Scene {
             key: def.spellAnim,
             frames: spellFrames,
             frameRate: 12,
-            repeat: def.type === 'Knight' ? -1 : 0,
+            repeat: def.loopSpellAnim === true ? -1 : 0,
           });
         }
       }
@@ -2108,7 +2112,7 @@ export default class BattleScene extends Phaser.Scene {
         this.startUnitAbilityCastUi?.(caster, castTimeMs);
 
         const abilityKey = String(ev?.abilityKey ?? '');
-        if (abilityKey === 'undertaker_active' || abilityKey === WORM_SWALLOW_ABILITY_KEY) {
+        if (abilityKey === 'undertaker_active' || abilityKey === WORM_SWALLOW_ABILITY_KEY || abilityKey === 'siren_mirror_image') {
           const replayToken = Number(this.serverReplayPlayback?.token ?? 0);
           if (castTimeMs <= 0) {
             this.restartUnitAbilityCooldownUi?.(caster);
@@ -2175,6 +2179,17 @@ export default class BattleScene extends Phaser.Scene {
     if (ev.type === 'spawn') {
       const spawned = ev?.unit ?? null;
       if (!spawned || !Number.isFinite(Number(spawned.id))) return;
+      if (String(ev?.sourceAbilityKey ?? '') === 'siren_mirror_image') {
+        const sourceUnit = byId.get(ev.sourceId);
+        const sourceVu = sourceUnit ? this.unitSys?.findUnit?.(sourceUnit.id) : null;
+        if (sourceVu) {
+          sourceVu._abilityCastStartAtMs = null;
+          sourceVu._abilityCastEndAtMs = null;
+          sourceVu._abilityCastStartFill = null;
+          sourceVu._castAnimPlaying = false;
+          sourceVu._castAnimForceReplay = false;
+        }
+      }
       const existing = byId.get(spawned.id);
       if (existing) {
         Object.assign(existing, spawned, { zone: 'board', dead: Boolean(spawned.dead ?? false) });
@@ -2204,6 +2219,7 @@ export default class BattleScene extends Phaser.Scene {
             abilityKey: spawned.abilityKey ?? null,
             abilityCooldown: Number(spawned.abilityCooldown ?? 0),
             cellSpanX: Math.max(1, Math.floor(Number(spawned.cellSpanX ?? 1))),
+            isIllusion: Boolean(spawned.isIllusion ?? false),
             attackSeq: Number(spawned.attackSeq ?? 0),
             dead: Boolean(spawned.dead ?? false),
           });
@@ -2859,6 +2875,51 @@ export default class BattleScene extends Phaser.Scene {
     return Number(centerX ?? 0) + getUnitArtOffsetXPx(unitLike?.type, mirrored);
   }
 
+  ensureIllusionArtOverlay(vu) {
+    if (!vu?.art?.active) return null;
+    if (vu.artOverlay?.active) return vu.artOverlay;
+    const overlay = this.add.sprite(
+      Number(vu.art.x ?? 0),
+      Number(vu.art.y ?? 0),
+      vu.art.texture?.key ?? '__MISSING',
+      vu.art.frame?.name ?? undefined,
+    )
+      .setOrigin(Number(vu.art.originX ?? 0.5), Number(vu.art.originY ?? 1))
+      .setScale(Number(vu.art.scaleX ?? 1), Number(vu.art.scaleY ?? 1))
+      .setFlipX(Boolean(vu.art.flipX))
+      .setDepth(Number(vu.art.depth ?? 0) + 0.1)
+      .setTintFill(ILLUSION_MASK_COLOR)
+      .setAlpha(ILLUSION_MASK_ALPHA);
+    vu.artOverlay = overlay;
+    return overlay;
+  }
+
+  applyIllusionVisualState(coreUnit, vu) {
+    if (!vu) return;
+    const isIllusion = Boolean(coreUnit?.isIllusion);
+
+    if (!vu.art?.active) {
+      vu.artOverlay?.destroy?.();
+      vu.artOverlay = null;
+      return;
+    }
+
+    vu.art.setAlpha(isIllusion ? ILLUSION_ART_ALPHA : 1);
+
+    if (!isIllusion) {
+      vu.artOverlay?.destroy?.();
+      vu.artOverlay = null;
+      return;
+    }
+
+    const overlay = this.ensureIllusionArtOverlay(vu);
+    if (!overlay) return;
+    overlay
+      .setVisible(Boolean(vu.art.visible))
+      .setTintFill(ILLUSION_MASK_COLOR)
+      .setAlpha(ILLUSION_MASK_ALPHA);
+  }
+
   setUnitVisualFacingTowardX(vu, targetX) {
     if (!vu?.art?.active) return;
 
@@ -2877,9 +2938,11 @@ export default class BattleScene extends Phaser.Scene {
     }
     vu._artFacingMirrored = mirrored;
     vu.art.setFlipX(mirrored);
+    if (vu.artOverlay?.active) vu.artOverlay.setFlipX(mirrored);
 
     if (Number.isFinite(vu.q) && Number.isFinite(vu.r)) {
       vu.art.setX(this.getUnitArtWorldXByFacing(vu, vu.q, vu.r, mirrored));
+      if (vu.artOverlay?.active) vu.artOverlay.setX(vu.art.x);
     }
   }
 
@@ -3756,6 +3819,7 @@ export default class BattleScene extends Phaser.Scene {
         }
 
         byId.set(created.id, created);
+        this.applyIllusionVisualState(u, created);
         this.unitSys.setUnitDead?.(u.id, !!u.dead);
         if (u.zone === 'bench') {
           const slot = Number.isInteger(u.benchSlot) ? u.benchSlot : 0;
@@ -3870,6 +3934,7 @@ export default class BattleScene extends Phaser.Scene {
       }
 
       if (vu) vu.rank = u.rank ?? 1;
+      this.applyIllusionVisualState(u, vu);
       this.syncUnitAbilityCooldownUi?.(u, vu);
 
       // HP
@@ -3942,10 +4007,13 @@ export default class BattleScene extends Phaser.Scene {
         const baseMirrored = (u.team === 'enemy');
         vu._artFacingMirrored = baseMirrored;
         vu.art.setFlipX(baseMirrored);
+        if (vu.artOverlay?.active) vu.artOverlay.setFlipX(baseMirrored);
         if (u.zone === 'board' && Number.isFinite(vu.q) && Number.isFinite(vu.r)) {
           vu.art.setX(this.getUnitArtWorldXByFacing(vu, vu.q, vu.r, baseMirrored));
+          if (vu.artOverlay?.active) vu.artOverlay.setX(vu.art.x);
         } else {
           vu.art.setX(this.getUnitArtScreenXByFacing(vu, vu.sprite?.x, baseMirrored));
+          if (vu.artOverlay?.active) vu.artOverlay.setX(vu.art.x);
         }
       }
 
@@ -3990,7 +4058,7 @@ export default class BattleScene extends Phaser.Scene {
         vu.art.play(animKey, true);
         if (forceReplayCast) {
           vu._castAnimForceReplay = false;
-          const loopingCastAnim = u.type === 'Knight';
+          const loopingCastAnim = UNIT_ATLAS_DEF_BY_TYPE[u.type]?.loopSpellAnim === true;
           if (!loopingCastAnim) {
             vu.art.once(`animationcomplete-${animDef.spell}`, (anim) => {
               if (!vu?.art?.active) return;

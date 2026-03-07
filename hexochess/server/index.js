@@ -2291,7 +2291,7 @@ function sanitizeUnitForBattleStart(unit) {
   unit.nextAttackAt = 0;
   unit.nextMoveAt = 0;
   unit.nextActionAt = 0;
-  unit.nextAbilityAt = hasWormSwallowPassive(unit)
+  unit.nextAbilityAt = hasWormSwallowPassive(unit) || String(unit?.abilityKey ?? '') === 'siren_mirror_image'
     ? 0
     : Math.max(0, Number(unit.abilityCooldown ?? 0) * 1000);
   unit.attackSeq = 0;
@@ -2310,7 +2310,7 @@ function clonePlayerUnitForPrep(unit) {
   clone.nextAttackAt = 0;
   clone.nextMoveAt = 0;
   clone.nextActionAt = 0;
-  clone.nextAbilityAt = hasWormSwallowPassive(clone)
+  clone.nextAbilityAt = hasWormSwallowPassive(clone) || String(clone?.abilityKey ?? '') === 'siren_mirror_image'
     ? 0
     : Math.max(0, Number(clone.abilityCooldown ?? 0) * 1000);
   clone.attackSeq = 0;

@@ -4,8 +4,24 @@
   // Portraits are square (256x256), but shop art panel is rectangular.
   // Cover mode fills the whole gray panel (with crop if needed). Tune one multiplier here.
   const SHOP_PORTRAIT_SCALE = 1.05;
+  const SHOP_PORTRAIT_STYLE_PRESETS = {
+    default: {
+      scaleMul: 1,
+      offsetYPx: 0,
+    },
+    new: {
+      scaleMul: 1.2,
+      offsetYPx: -26,
+    },
+  };
   const SHOP_PORTRAIT_TYPE_ALIASES = {
     Swordsman: 'swordman',
+  };
+  const SHOP_CUSTOM_PORTRAIT_BY_TYPE = {
+    NagaSiren: {
+      key: 'shop_portrait_siren',
+      style: 'new',
+    },
   };
   const SHOP_FIGURE_ICON_BY_POWER_TYPE = {
     'Пешка': 'figure_pawn',
@@ -68,6 +84,10 @@
     const name = unitTypeToPortraitName(type);
     if (!name) return '';
     return `${SHOP_PORTRAIT_FRAME_PREFIX}${name}.png`;
+  };
+  const getShopPortraitStyle = (styleKey) => {
+    const key = String(styleKey ?? 'default').trim() || 'default';
+    return SHOP_PORTRAIT_STYLE_PRESETS[key] ?? SHOP_PORTRAIT_STYLE_PRESETS.default;
   };
 
   const BUTTON_SHADOW_COLOR = 0x000000;
@@ -419,6 +439,7 @@
       card.previewSprite = previewSprite;
       card.previewUnitY = previewSprite.y;
       card.previewPortraitY = artPanel.y;
+      card.previewStyleKey = 'default';
       card.previewFallback = previewFallback;
       card.nameText = nameText;
       card.typeText = typeText;
@@ -955,6 +976,7 @@
         if (!o) {
           card.enabled = false;
           card.pressed = false;
+          card.previewStyleKey = 'default';
           card.nameText.setText('\u041f\u0443\u0441\u0442\u043e');
           card.typeText.setText('\u2014');
           card.costText.setText('');
@@ -989,16 +1011,29 @@
         card.costText.setText(`${Number(o.cost ?? 0)}`);
         card.updateCostLayout?.();
 
+        const customPortraitDef = SHOP_CUSTOM_PORTRAIT_BY_TYPE[String(o.type ?? '')] ?? null;
+        const customPortraitKey = String(customPortraitDef?.key ?? '');
+        const portraitStyle = getShopPortraitStyle(customPortraitDef?.style);
+        const portraitStyleKey = String(customPortraitDef?.style ?? 'default');
+        const hasCustomPortrait = !!(customPortraitKey && this.textures?.exists?.(customPortraitKey));
         const portraitFrame = portraitFrameForUnitType(o.type);
-        const hasPortrait = !!(portraitsTexture && portraitFrame && portraitsTexture.has?.(portraitFrame));
-        if (hasPortrait) {
+        const hasAtlasPortrait = !!(portraitsTexture && portraitFrame && portraitsTexture.has?.(portraitFrame));
+        if (hasCustomPortrait || hasAtlasPortrait) {
+          card.previewStyleKey = hasCustomPortrait ? portraitStyleKey : 'default';
           card.previewSprite.setVisible(true);
           card.previewFallback.setVisible(false);
           card.previewSprite.anims?.stop?.();
           card.previewSprite.setCrop();
           card.previewSprite.setOrigin(0.5, 0.5);
-          card.previewSprite.setPosition(0, Number(card.previewPortraitY ?? card.artPanel?.y ?? 0));
-          card.previewSprite.setTexture(SHOP_PORTRAIT_ATLAS_KEY, portraitFrame);
+          card.previewSprite.setPosition(
+            0,
+            Number(card.previewPortraitY ?? card.artPanel?.y ?? 0) + Number(portraitStyle.offsetYPx ?? 0),
+          );
+          if (hasCustomPortrait) {
+            card.previewSprite.setTexture(customPortraitKey);
+          } else {
+            card.previewSprite.setTexture(SHOP_PORTRAIT_ATLAS_KEY, portraitFrame);
+          }
 
           const frame = card.previewSprite.frame;
           const fw = frame?.realWidth ?? frame?.width ?? 256;
@@ -1006,9 +1041,13 @@
           const panelW = card.artPanel?.width ?? (card.width - 14);
           const panelH = card.artPanel?.height ?? 86;
           const coverScale = Math.max(panelW / fw, panelH / fh);
-          const scale = Math.max(0.12, coverScale * SHOP_PORTRAIT_SCALE);
+          const scale = Math.max(0.12, coverScale * SHOP_PORTRAIT_SCALE * Number(portraitStyle.scaleMul ?? 1));
           card.previewSprite.setScale(scale);
+          if (card.previewStyleKey === 'new') {
+            card.container?.bringToTop?.(card.previewSprite);
+          }
         } else {
+          card.previewStyleKey = 'default';
           card.previewSprite.setCrop();
           card.previewSprite.setVisible(false);
           card.previewFallback.setText(String(o.type ?? '?').slice(0, 1).toUpperCase()).setVisible(true);

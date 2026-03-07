@@ -477,6 +477,117 @@ test('undertaker casts and summons a skeleton after cast time', () => {
   assert.ok(spawn.t >= cast.t + 1000);
 });
 
+test('naga siren starts battle with mirror-image cast and summons two copies after 1 second', () => {
+  const simState = createSimState([
+    makeUnit({
+      id: 1,
+      type: 'NagaSiren',
+      q: 2,
+      r: 3,
+      hp: 120,
+      maxHp: 120,
+      atk: 12,
+      attackSpeed: 0.95,
+      moveSpeed: 1.3,
+      abilityType: 'active',
+      abilityKey: 'siren_mirror_image',
+      abilityCooldown: 20,
+    }),
+    makeUnit({ id: 2, q: 6, r: 3, team: 'enemy', hp: 200, maxHp: 200, atk: 0, moveSpeed: 0.1 }),
+  ]);
+
+  const replay = simulateBattleReplayFromState(simState, {
+    tickMs: SNAPSHOT_STEP_MS,
+    maxBattleMs: 1600,
+    collectSnapshots: false,
+  });
+
+  const cast = replay.events.find((e) => e.type === 'ability_cast' && e.casterId === 1 && e.abilityKey === 'siren_mirror_image');
+  const sirenSpawns = replay.events.filter((e) => e.type === 'spawn' && e.sourceId === 1 && e.sourceAbilityKey === 'siren_mirror_image');
+  const spawnCells = sirenSpawns.map((e) => `${e.unit.q},${e.unit.r}`).sort();
+
+  assert.ok(cast);
+  assert.equal(cast.t, 0);
+  assert.equal(cast.castTimeMs, 1000);
+  assert.equal(sirenSpawns.length, 2);
+  assert.deepEqual(spawnCells, ['2,2', '2,4']);
+  assert.ok(sirenSpawns.every((spawn) => spawn.unit.isIllusion === true));
+});
+
+test('naga siren copies inherit movement stats but lose the ability and keep only 30 percent hp and attack', () => {
+  const simState = createSimState([
+    makeUnit({
+      id: 1,
+      type: 'NagaSiren',
+      q: 2,
+      r: 3,
+      hp: 120,
+      maxHp: 120,
+      atk: 12,
+      attackSpeed: 0.95,
+      moveSpeed: 1.3,
+      abilityType: 'active',
+      abilityKey: 'siren_mirror_image',
+      abilityCooldown: 20,
+    }),
+    makeUnit({ id: 2, q: 6, r: 3, team: 'enemy', hp: 200, maxHp: 200, atk: 0, moveSpeed: 0.1 }),
+  ]);
+
+  const replay = simulateBattleReplayFromState(simState, {
+    tickMs: SNAPSHOT_STEP_MS,
+    maxBattleMs: 1600,
+    collectSnapshots: false,
+  });
+
+  const sirenSpawns = replay.events.filter((e) => e.type === 'spawn' && e.sourceId === 1 && e.sourceAbilityKey === 'siren_mirror_image');
+
+  assert.equal(sirenSpawns.length, 2);
+  for (const spawn of sirenSpawns) {
+    assert.equal(spawn.unit.isIllusion, true);
+    assert.equal(spawn.unit.type, 'NagaSiren');
+    assert.equal(spawn.unit.hp, 36);
+    assert.equal(spawn.unit.maxHp, 36);
+    assert.equal(spawn.unit.atk, 4);
+    assert.equal(spawn.unit.attackSpeed, 0.95);
+    assert.equal(spawn.unit.moveSpeed, 1.3);
+    assert.equal(spawn.unit.abilityType, 'none');
+    assert.equal(spawn.unit.abilityKey, null);
+    assert.equal(spawn.unit.abilityCooldown, 0);
+  }
+});
+
+test('naga siren illusion can dodge an incoming attack with 30 percent chance', () => {
+  const simState = createSimState([
+    makeUnit({ id: 1, atk: 20, accuracy: 1 }),
+    makeUnit({
+      id: 2,
+      type: 'NagaSiren',
+      q: 1,
+      r: 0,
+      team: 'enemy',
+      hp: 36,
+      maxHp: 36,
+      atk: 4,
+      abilityType: 'none',
+      abilityKey: null,
+      isIllusion: true,
+    }),
+  ]);
+
+  const replay = withRandomSequence([0], () => simulateBattleReplayFromState(simState, {
+    tickMs: SNAPSHOT_STEP_MS,
+    maxBattleMs: 250,
+    collectSnapshots: false,
+  }));
+
+  const miss = replay.events.find((e) => e.type === 'miss' && e.targetId === 2);
+  const damage = replay.events.find((e) => e.type === 'damage' && e.targetId === 2);
+
+  assert.ok(miss);
+  assert.equal(miss.missSource, 'ghost_evasion');
+  assert.equal(damage, undefined);
+});
+
 test('knight starts battle with charge cast and then performs a long dash', () => {
   const simState = createSimState([
     makeUnit({

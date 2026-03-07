@@ -127,6 +127,33 @@ function updateFootShadowDepth(unit) {
   unit.footShadow.setDepth(base + y * UNIT_ART_DEPTH_Y_FACTOR + x * UNIT_ART_DEPTH_X_FACTOR);
 }
 
+function syncArtOverlay(unit) {
+  const art = unit?.art;
+  const overlay = unit?.artOverlay;
+  if (!overlay) return;
+  if (!art?.active || !overlay?.active) {
+    overlay.setVisible(false);
+    return;
+  }
+
+  const textureKey = art.texture?.key ?? null;
+  const frameName = art.frame?.name ?? null;
+  if (textureKey && overlay.texture?.key !== textureKey) {
+    overlay.setTexture(textureKey, frameName ?? undefined);
+  } else if (frameName != null && overlay.frame?.name !== frameName) {
+    overlay.setFrame(frameName);
+  }
+
+  overlay
+    .setVisible(Boolean(art.visible))
+    .setPosition(Number(art.x ?? 0), Number(art.y ?? 0))
+    .setScale(Number(art.scaleX ?? 1), Number(art.scaleY ?? 1))
+    .setFlipX(Boolean(art.flipX))
+    .setAngle(Number(art.angle ?? 0))
+    .setOrigin(Number(art.originX ?? 0.5), Number(art.originY ?? 1))
+    .setDepth(Number(art.depth ?? UNIT_ART_DEPTH_LIVE) + 0.1);
+}
+
 function createFootShadow(scene, x, y, type) {
   const shadowCfg = getUnitFootShadowConfig(type);
   return scene.add.ellipse(
@@ -461,6 +488,7 @@ export function createUnitSystem(scene) {
     u.label.destroy();
     u.hpBar.destroy();
     u.art?.destroy();
+    u.artOverlay?.destroy();
     u.footShadow?.destroy();
     u.dragHandle?.destroy();
     u.rankIcon?.destroy();
@@ -537,6 +565,7 @@ export function createUnitSystem(scene) {
       u.sprite.setPosition(p.x, p.y);
       u.dragHandle?.setPosition(p.x, p.y);
       if (u.art) u.art.setPosition(artX, g.y);
+      syncArtOverlay(u);
       if (u.footShadow) u.footShadow.setPosition(shadowX, shadowY);
       u.label.setPosition(p.x, p.y);
       updateArtDepth(u);
@@ -686,6 +715,7 @@ export function createUnitSystem(scene) {
     unit.sprite.setPosition(p.x, p.y);
     unit.dragHandle?.setPosition(p.x, p.y);
     if (unit.art) unit.art.setPosition(artX, g.y);
+    syncArtOverlay(unit);
     if (unit.footShadow) unit.footShadow.setPosition(shadowX, shadowY);
     unit.label.setPosition(p.x, p.y);
 
@@ -713,6 +743,7 @@ export function createUnitSystem(scene) {
       u.sprite.setPosition(p.x, p.y);
       u.dragHandle?.setPosition(p.x, p.y);
       if (u.art) u.art.setPosition(artX, g.y);
+      syncArtOverlay(u);
       if (u.footShadow) u.footShadow.setPosition(shadowX, shadowY);
       u.label.setPosition(p.x, p.y);
       updateArtDepth(u);
@@ -728,6 +759,7 @@ export function createUnitSystem(scene) {
     const nowMs = Number(scene?.time?.now ?? 0);
 
     for (const u of state.units) {
+      syncArtOverlay(u);
       const abilityCdFill = Number(scene.getAbilityCooldownFillForUnit?.(u));
       const needsAbilityCdUi = Number.isFinite(abilityCdFill);
       if (u.hpLag > u.hpInstant) {
