@@ -101,6 +101,16 @@ export const UNIT_ATLAS_DEFS = [
     framePrefix: 'psd_anim',
   },
   {
+    type: 'NagaSiren',
+    atlasKey: 'siren_atlas',
+    atlasPath: '/assets/units/lizard/siren/siren_atlas',
+    idleAnim: 'siren_idle',
+    walkAnim: 'siren_walk',
+    attackAnim: 'siren_attack',
+    deadAnim: 'siren_dead',
+    framePrefix: 'psd_anim',
+  },
+  {
     type: 'Skeleton',
     atlasKey: 'skeleton_atlas',
     atlasPath: '/assets/units/undead/skeleton/skeleton_atlas',

@@ -147,6 +147,16 @@ export const UNIT_VISUAL_CONFIG_BY_TYPE = {
     footShadowOffsetXPx: 0,
     footShadowOffsetYPx: 12,
   },
+  NagaSiren: {
+    groundLiftPx: 90,
+    artTargetPx: 150,
+    artOffsetXPx: 12,
+    hpUiLiftPx: 47,
+    footShadowWidthPx: 60,
+    footShadowHeightPx: 18,
+    footShadowOffsetXPx: 0,
+    footShadowOffsetYPx: 13,
+  },
   Priest: {
     groundLiftPx: 100,
     artTargetPx: 150,
