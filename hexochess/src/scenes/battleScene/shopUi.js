@@ -11,7 +11,7 @@
   // Cover mode fills the whole gray panel (with crop if needed). Tune one multiplier here.
   const SHOP_CARD_BASE_WIDTH = 132;
   const SHOP_CARD_BASE_HEIGHT = 188;
-  const SHOP_PORTRAIT_SCALE = 1.3;
+  const SHOP_PORTRAIT_SCALE = 1.33;
   const SHOP_PORTRAIT_STYLE_PRESETS = {
     default: {
       scaleMul: 1.2,
@@ -22,6 +22,15 @@
     Swordsman: 'swordman',
   };
   const SHOP_CUSTOM_PORTRAIT_BY_TYPE = {
+    Crusader: {
+      key: 'shop_portrait_crusader',
+    },
+    Incub: {
+      key: 'shop_portrait_incub',
+    },
+    Knight: {
+      key: 'shop_portrait_knight',
+    },
     Monk: {
       key: 'shop_portrait_monk',
     },
@@ -50,7 +59,7 @@
   };
   // Internal preset for the fitted card skin. Normally this block should not need changes.
   const SHOP_CARD_ART_PRESET = Object.freeze({
-    portraitOffsetX: 3,
+    portraitOffsetX: 0,
     portraitOffsetY: -37,
     nameOffsetY: 36,
     raceOffsetY: 40,

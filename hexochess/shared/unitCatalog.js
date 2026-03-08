@@ -36,7 +36,7 @@ export const UNIT_CATALOG = [
   { race: 'GOD',    type: 'Angel',          label: 'ANGEL',           powerType: POWER_TYPE_QUEEN,  hp: 480, atk: 24, attackSpeed: 1, moveSpeed: 3.0, attackRangeMax: 1,  attackRangeFullDamage: 1, projectileSpeed: 0, attackMode: ATTACK_MODE_MELEE },
   { race: 'DEMON',  type: 'Incub',          label: 'INCUB',           powerType: POWER_TYPE_KNIGHT, hp: 120, atk: 12, attackSpeed: 0.9, moveSpeed: 1.1, attackRangeMax: 1,  attackRangeFullDamage: 1, projectileSpeed: 0, attackMode: ATTACK_MODE_MELEE },
   { race: 'DEMON',  type: 'Succub',         label: 'SUCCUB',          powerType: POWER_TYPE_BISHOP, hp: 120, atk: 12, attackSpeed: 0.95, moveSpeed: 1.3, attackRangeMax: 1,  attackRangeFullDamage: 1, projectileSpeed: 0, attackMode: ATTACK_MODE_MELEE },
-  { race: 'DEMON',  type: 'Devil',          label: 'DEVIL',           powerType: POWER_TYPE_QUEEN,  hp: 480, atk: 24, attackSpeed: 1, moveSpeed: 3.0, attackRangeMax: 1,  attackRangeFullDamage: 1, projectileSpeed: 0, attackMode: ATTACK_MODE_MELEE },
+  { race: 'DEMON',  type: 'Devil',          label: 'DEVIL',           powerType: POWER_TYPE_ROOK,   hp: 480, atk: 24, attackSpeed: 1, moveSpeed: 3.0, attackRangeMax: 1,  attackRangeFullDamage: 1, projectileSpeed: 0, attackMode: ATTACK_MODE_MELEE },
 ].map((u) => ({
   ...u,
   accuracy: Math.max(0, Math.min(1, Number(u.accuracy ?? DEFAULT_ACCURACY))),
