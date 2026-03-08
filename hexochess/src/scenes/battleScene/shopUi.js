@@ -6,10 +6,6 @@
   const SHOP_PORTRAIT_SCALE = 1.05;
   const SHOP_PORTRAIT_STYLE_PRESETS = {
     default: {
-      scaleMul: 1,
-      offsetYPx: 0,
-    },
-    new: {
       scaleMul: 1.2,
       offsetYPx: -26,
     },
@@ -20,20 +16,7 @@
   const SHOP_CUSTOM_PORTRAIT_BY_TYPE = {
     NagaSiren: {
       key: 'shop_portrait_siren',
-      style: 'new',
     },
-  };
-  const SHOP_FIGURE_ICON_BY_POWER_TYPE = {
-    'Пешка': 'figure_pawn',
-    'Конь': 'figure_knight',
-    'Слон': 'figure_bishop',
-    'Ладья': 'figure_rook',
-    'Ферзь': 'figure_queen',
-    PAWN: 'figure_pawn',
-    KNIGHT: 'figure_knight',
-    BISHOP: 'figure_bishop',
-    ROOK: 'figure_rook',
-    QUEEN: 'figure_queen',
   };
   const SHOP_RACE_LABEL_BY_KEY = {
     HUMAN: 'Люди',
@@ -42,14 +25,24 @@
     GOD: 'Боги',
     DEMON: 'Демоны',
   };
-  const SHOP_CARD_FIGURE_ICON_SIZE = 35;
-  const SHOP_CARD_FIGURE_OFFSET_X = 15;
-  const SHOP_CARD_FIGURE_OFFSET_Y = -5;
+  const SHOP_CARD_PORTRAIT_OFFSET_X = -2;
+  const SHOP_CARD_PORTRAIT_OFFSET_Y = -40;
+  const SHOP_CARD_NAME_OFFSET_Y = -28;
+  const SHOP_CARD_RACE_OFFSET_Y = -23;
+  const SHOP_CARD_BOTTOM_ROW_OFFSET_Y = -40;
   const SHOP_CARD_BOTTOM_ROW_Y = 172;
-  const SHOP_CARD_FIGURE_ICON_X = -52;
+  const SHOP_CARD_BG_BACK_KEY = 'shop_rook_card_back';
+  const SHOP_CARD_BG_BACK_OFFSET_Y = 22;
+  const SHOP_CARD_BG_BACK_WIDTH_DELTA = 30;
+  const SHOP_CARD_BG_BACK_HEIGHT_DELTA = 30;
+  const SHOP_CARD_BG_KEY = 'shop_rook_card';
+  const SHOP_CARD_BG_OFFSET_X = 0;
+  const SHOP_CARD_BG_OFFSET_Y = 55;
+  const SHOP_CARD_BG_WIDTH_DELTA = 30;
+  const SHOP_CARD_BG_HEIGHT_DELTA = 30;
   const SHOP_CARD_COST_TEXT_RIGHT_X = 55;
-  const SHOP_CARD_COST_GROUP_OFFSET_X = 0;
-  const SHOP_CARD_COST_GROUP_OFFSET_Y = -2;
+  const SHOP_CARD_COST_GROUP_OFFSET_X = -31;
+  const SHOP_CARD_COST_GROUP_OFFSET_Y = 40;
   const SHOP_CARD_COST_GAP_PX = 6;
   const SHOP_CARD_COST_COIN_SIZE = 28;  // Shop art mask tuning (debug-visible black panel for now).
   const SHOP_CARD_ART_MASK_OFFSET_X = 0;
@@ -61,15 +54,11 @@
   // OFFSET_X/OFFSET_Y_*: shift visible crop window.
   const SHOP_CARD_ART_CLIP_LEFT_WIDTH_DELTA = 200;
   const SHOP_CARD_ART_CLIP_LEFT_OFFSET_X = -200;
-  const SHOP_CARD_ART_CLIP_LEFT_OFFSET_Y = 0;
   const SHOP_CARD_ART_CLIP_RIGHT_WIDTH_DELTA = 200;
   const SHOP_CARD_ART_CLIP_RIGHT_OFFSET_X = 200;
-  const SHOP_CARD_ART_CLIP_RIGHT_OFFSET_Y = 0;
   const SHOP_CARD_ART_CLIP_TOP_HEIGHT_DELTA = 10;
-  const SHOP_CARD_ART_CLIP_TOP_OFFSET_X = 0;
   const SHOP_CARD_ART_CLIP_TOP_OFFSET_Y = 0;
   const SHOP_CARD_ART_CLIP_BOTTOM_HEIGHT_DELTA = 0;
-  const SHOP_CARD_ART_CLIP_BOTTOM_OFFSET_X = 0;
   const SHOP_CARD_ART_CLIP_BOTTOM_OFFSET_Y = 0;
   const unitTypeToPortraitName = (type) => {
     const raw = String(type ?? '').trim();
@@ -85,10 +74,7 @@
     if (!name) return '';
     return `${SHOP_PORTRAIT_FRAME_PREFIX}${name}.png`;
   };
-  const getShopPortraitStyle = (styleKey) => {
-    const key = String(styleKey ?? 'default').trim() || 'default';
-    return SHOP_PORTRAIT_STYLE_PRESETS[key] ?? SHOP_PORTRAIT_STYLE_PRESETS.default;
-  };
+  const getShopPortraitStyle = () => SHOP_PORTRAIT_STYLE_PRESETS.default;
 
   const BUTTON_SHADOW_COLOR = 0x000000;
   const BUTTON_SHADOW_ALPHA = 0.35;
@@ -326,15 +312,27 @@
         .setDepth(9999)
         .setScrollFactor(0);
 
-      const shadow = this.add.rectangle(4, 5, w, h, 0x000000, 0.35).setOrigin(0.5, 0.5);
-      const bg = this.add.rectangle(0, 0, w, h, 0xf6edd7, 0.97).setOrigin(0.5, 0.5);
-      const border = this.add.rectangle(0, 0, w, h)
+      const bgBack = this.add.image(
+        SHOP_CARD_BG_OFFSET_X,
+        SHOP_CARD_BG_BACK_OFFSET_Y,
+        SHOP_CARD_BG_BACK_KEY
+      )
         .setOrigin(0.5, 0.5)
-        .setStrokeStyle(2, 0xb58a3c, 1);
-
-      const artPanel = this.add.rectangle(0, top + 55, w - 14, 86, 0x1b1b1b, 0.92)
+        .setDisplaySize(
+          w + SHOP_CARD_BG_BACK_WIDTH_DELTA,
+          h + SHOP_CARD_BG_BACK_HEIGHT_DELTA
+        );
+      const bg = this.add.image(
+        SHOP_CARD_BG_OFFSET_X,
+        SHOP_CARD_BG_OFFSET_Y,
+        SHOP_CARD_BG_KEY
+      )
         .setOrigin(0.5, 0.5)
-        .setStrokeStyle(1, 0x6f5d3a, 0.85);
+        .setDisplaySize(
+          w + SHOP_CARD_BG_WIDTH_DELTA,
+          h + SHOP_CARD_BG_HEIGHT_DELTA
+        );
+      const artPanel = this.add.zone(0, top + 55, w - 14, 86).setOrigin(0.5, 0.5);
       const maskW = Math.max(1, artPanel.width + SHOP_CARD_ART_MASK_WIDTH_DELTA);
       const maskH = Math.max(1, artPanel.height + SHOP_CARD_ART_MASK_HEIGHT_DELTA);
       const maskCx = artPanel.x + SHOP_CARD_ART_MASK_OFFSET_X;
@@ -348,13 +346,9 @@
       const cardTop = -h / 2;
       const cardBottom = h / 2;
 
-      const divider1 = this.add.rectangle(0, top + 98, w - 16, 1, 0x6f5d3a, 0.55).setOrigin(0.5, 0.5);
-      const divider2 = this.add.rectangle(0, top + 126, w - 16, 1, 0x6f5d3a, 0.40).setOrigin(0.5, 0.5);
-      const divider3 = this.add.rectangle(0, top + 151, w - 16, 1, 0x6f5d3a, 0.35).setOrigin(0.5, 0.5);
-
       const previewSprite = this.add.sprite(
         0,
-        (artPanel.y + artPanel.height / 2) - artLiftY,
+        (artPanel.y + artPanel.height / 2) - artLiftY + SHOP_CARD_PORTRAIT_OFFSET_Y,
         'swordman_atlas',
         'psd_anim/idle.png'
       )
@@ -367,7 +361,7 @@
         color: '#f0d9a0',
       }).setOrigin(0.5, 0.5).setVisible(false);
 
-      const nameText = this.add.text(0, top + 104, '...', {
+      const nameText = this.add.text(0, top + 104 + SHOP_CARD_NAME_OFFSET_Y, '...', {
         fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
         fontSize: '14px',
         color: '#17130d',
@@ -376,7 +370,7 @@
         wordWrap: { width: w - 16, useAdvancedWrap: true },
       }).setOrigin(0.5, 0);
 
-      const typeText = this.add.text(0, top + 132, '', {
+      const typeText = this.add.text(0, top + 132 + SHOP_CARD_RACE_OFFSET_Y, '', {
         fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
         fontSize: '13px',
         color: '#4f3f25',
@@ -384,26 +378,20 @@
         wordWrap: { width: w - 16, useAdvancedWrap: true },
       }).setOrigin(0.5, 0);
 
-      const figureIcon = this.add.image(
-        SHOP_CARD_FIGURE_ICON_X + SHOP_CARD_FIGURE_OFFSET_X,
-        top + SHOP_CARD_BOTTOM_ROW_Y + SHOP_CARD_FIGURE_OFFSET_Y,
-        'figure_pawn'
-      )
-        .setOrigin(0.5, 0.5)
-        .setDisplaySize(SHOP_CARD_FIGURE_ICON_SIZE, SHOP_CARD_FIGURE_ICON_SIZE)
-        .setVisible(false);
-
-      const costCoin = this.add.image(0, top + SHOP_CARD_BOTTOM_ROW_Y, 'coin')
+      const costCoin = this.add.image(0, top + SHOP_CARD_BOTTOM_ROW_Y + SHOP_CARD_BOTTOM_ROW_OFFSET_Y, 'coin')
         .setOrigin(0.5, 0.5)
         .setDisplaySize(SHOP_CARD_COST_COIN_SIZE, SHOP_CARD_COST_COIN_SIZE);
 
-      const costText = this.add.text(SHOP_CARD_COST_TEXT_RIGHT_X, top + SHOP_CARD_BOTTOM_ROW_Y, '', {
+      const costText = this.add.text(SHOP_CARD_COST_TEXT_RIGHT_X, top + SHOP_CARD_BOTTOM_ROW_Y + SHOP_CARD_BOTTOM_ROW_OFFSET_Y, '', {
         fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-        fontSize: '20px',
-        color: '#7c5b00',
+        fontSize: '18px',
+        color: '#ffd85a',
         fontStyle: 'bold',
         align: 'right',
-      }).setOrigin(1, 0.5);
+      })
+        .setOrigin(1, 0.5)
+        .setStroke('#b35a00', 3)
+        .setShadow(0, 0, '#000000', 2, true, true);
 
       const hit = this.add.zone(0, 0, w, h)
         .setOrigin(0.5, 0.5)
@@ -422,9 +410,8 @@
         .setVisible(false);
 
       card.container = container;
-      card.shadow = shadow;
+      card.bgBack = bgBack;
       card.bg = bg;
-      card.border = border;
       card.artPanel = artPanel;
       card._artPanelLeft = panelLeft;
       card._artPanelRight = panelRight;
@@ -434,16 +421,11 @@
       card._cardRight = cardRight;
       card._cardTop = cardTop;
       card._cardBottom = cardBottom;
-      card._artMaskCy = maskCy;
-      card._artMaskH = maskH;
       card.previewSprite = previewSprite;
-      card.previewUnitY = previewSprite.y;
-      card.previewPortraitY = artPanel.y;
-      card.previewStyleKey = 'default';
+      card.previewPortraitY = artPanel.y + SHOP_CARD_PORTRAIT_OFFSET_Y;
       card.previewFallback = previewFallback;
       card.nameText = nameText;
       card.typeText = typeText;
-      card.figureIcon = figureIcon;
       card.costCoin = costCoin;
       card.costText = costText;
       card.hit = hit;
@@ -451,12 +433,9 @@
 
       card.updateCostLayout = () => {
         const textX = SHOP_CARD_COST_TEXT_RIGHT_X + SHOP_CARD_COST_GROUP_OFFSET_X;
-        const y = top + SHOP_CARD_BOTTOM_ROW_Y + SHOP_CARD_COST_GROUP_OFFSET_Y;
+        const y = top + SHOP_CARD_BOTTOM_ROW_Y + SHOP_CARD_BOTTOM_ROW_OFFSET_Y + SHOP_CARD_COST_GROUP_OFFSET_Y;
         const textW = Number(card.costText.width ?? 0);
         const coinW = Number(card.costCoin.displayWidth ?? SHOP_CARD_COST_COIN_SIZE);
-        const figureX = SHOP_CARD_FIGURE_ICON_X + SHOP_CARD_FIGURE_OFFSET_X;
-        const figureY = top + SHOP_CARD_BOTTOM_ROW_Y + SHOP_CARD_FIGURE_OFFSET_Y;
-        card.figureIcon.setPosition(figureX, figureY);
         card.costText.setPosition(textX, y);
         card.costCoin.setPosition(textX - textW - SHOP_CARD_COST_GAP_PX - (coinW / 2), y);
       };
@@ -513,21 +492,22 @@
         const hovered = enabled && !!card.hovered;
         const pressed = enabled && !!card.pressed;
 
-        const fill = enabled
-          ? (hovered ? 0xfcf4e4 : 0xf6edd7)
-          : 0xaea79b;
-        const fillAlpha = enabled ? 0.97 : 0.62;
-        const borderColor = enabled ? (hovered ? 0xe1b754 : 0xb58a3c) : 0x7f786b;
-
-        card.bg.setFillStyle(fill, fillAlpha);
-        card.border.setStrokeStyle(2, borderColor, 1);
-        card.artPanel.setAlpha(enabled ? 1 : 0.55);
+        if (enabled) {
+          card.bgBack.clearTint();
+          card.bgBack.setAlpha(hovered ? 1 : 0.97);
+          card.bg.clearTint();
+          card.bg.setAlpha(hovered ? 1 : 0.97);
+        } else {
+          card.bgBack.setTint(0x9c9c9c);
+          card.bgBack.setAlpha(0.68);
+          card.bg.setTint(0x9c9c9c);
+          card.bg.setAlpha(0.68);
+        }
         card.container.setScale(pressed ? 0.985 : 1);
         card.previewSprite.setAlpha(enabled ? 1 : 0.55);
         card.previewFallback.setAlpha(enabled ? 1 : 0.55);
         card.nameText.setAlpha(enabled ? 1 : 0.75);
         card.typeText.setAlpha(enabled ? 1 : 0.75);
-        card.figureIcon.setAlpha(enabled ? 1 : 0.75);
         card.costCoin.setAlpha(enabled ? 1 : 0.75);
         card.costText.setAlpha(enabled ? 1 : 0.75);
 
@@ -563,20 +543,15 @@
       });
 
       container.add([
-        shadow,
-        bg,
+        bgBack,
         artPanel,
         previewSprite,
         previewFallback,
-        divider1,
+        bg,
         nameText,
-        divider2,
         typeText,
-        divider3,
-        figureIcon,
         costCoin,
         costText,
-        border,
         hit,
         failHintText,
       ]);
@@ -907,7 +882,6 @@
 
     syncShopUI() {
       const phase = this.battleState?.phase ?? 'prep';
-      const result = this.battleState?.result ?? null;
       const introAllowsShop = !this.sceneLoadIntroActive || !!this.sceneLoadIntroShopVisible;
       const show = !this.testSceneActive && introAllowsShop && (phase === 'prep' || phase === 'battle');
       const mode = !show ? 'hidden' : (this.shopCollapsed ? 'collapsed' : 'open');
@@ -977,11 +951,9 @@
         if (!o) {
           card.enabled = false;
           card.pressed = false;
-          card.previewStyleKey = 'default';
           card.nameText.setText('\u041f\u0443\u0441\u0442\u043e');
           card.typeText.setText('\u2014');
           card.costText.setText('');
-          card.figureIcon?.setVisible(false);
           card.costCoin?.setVisible(false);
           card.previewSprite.setCrop();
           card.previewSprite.setVisible(false);
@@ -994,40 +966,27 @@
         card.enabled = true;
         card.pressed = false;
         card.nameText.setText(String(o.type ?? 'Unknown'));
-        const powerTypeText = String(o.powerType ?? '\u2014');
         const raceKey = String(o.race ?? '').toUpperCase();
         const raceText = SHOP_RACE_LABEL_BY_KEY[raceKey] ?? String(o.race ?? '\u2014');
         card.typeText.setText(raceText);
-        const figureIconKey = SHOP_FIGURE_ICON_BY_POWER_TYPE[powerTypeText] ?? null;
-        const hasFigureIcon = !!(figureIconKey && this.textures?.exists?.(figureIconKey));
-        if (card.figureIcon) {
-          if (hasFigureIcon) {
-            card.figureIcon.setTexture(figureIconKey);
-            card.figureIcon.setVisible(true);
-          } else {
-            card.figureIcon.setVisible(false);
-          }
-        }
         card.costCoin?.setVisible(true);
         card.costText.setText(`${Number(o.cost ?? 0)}`);
         card.updateCostLayout?.();
 
         const customPortraitDef = SHOP_CUSTOM_PORTRAIT_BY_TYPE[String(o.type ?? '')] ?? null;
         const customPortraitKey = String(customPortraitDef?.key ?? '');
-        const portraitStyle = getShopPortraitStyle(customPortraitDef?.style);
-        const portraitStyleKey = String(customPortraitDef?.style ?? 'default');
+        const portraitStyle = getShopPortraitStyle();
         const hasCustomPortrait = !!(customPortraitKey && this.textures?.exists?.(customPortraitKey));
         const portraitFrame = portraitFrameForUnitType(o.type);
         const hasAtlasPortrait = !!(portraitsTexture && portraitFrame && portraitsTexture.has?.(portraitFrame));
         if (hasCustomPortrait || hasAtlasPortrait) {
-          card.previewStyleKey = hasCustomPortrait ? portraitStyleKey : 'default';
           card.previewSprite.setVisible(true);
           card.previewFallback.setVisible(false);
           card.previewSprite.anims?.stop?.();
           card.previewSprite.setCrop();
           card.previewSprite.setOrigin(0.5, 0.5);
           card.previewSprite.setPosition(
-            0,
+            Number(SHOP_CARD_PORTRAIT_OFFSET_X ?? 0),
             Number(card.previewPortraitY ?? card.artPanel?.y ?? 0) + Number(portraitStyle.offsetYPx ?? 0),
           );
           if (hasCustomPortrait) {
@@ -1044,11 +1003,7 @@
           const coverScale = Math.max(panelW / fw, panelH / fh);
           const scale = Math.max(0.12, coverScale * SHOP_PORTRAIT_SCALE * Number(portraitStyle.scaleMul ?? 1));
           card.previewSprite.setScale(scale);
-          if (card.previewStyleKey === 'new') {
-            card.container?.bringToTop?.(card.previewSprite);
-          }
         } else {
-          card.previewStyleKey = 'default';
           card.previewSprite.setCrop();
           card.previewSprite.setVisible(false);
           card.previewFallback.setText(String(o.type ?? '?').slice(0, 1).toUpperCase()).setVisible(true);

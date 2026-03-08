@@ -261,9 +261,11 @@ export default class BattleScene extends Phaser.Scene {
     this.load.image('rank3', '/assets/icons/rank3.png');
     this.load.image('particleStar', '/assets/particles/particle_star.png');
     this.load.image('crownexp', '/assets/icons/crownexp.png');
-    this.load.image('updateMarketIcon', '/assets/icons/update_market.png');
-    this.load.image('lock_open', '/assets/icons/shop/lock_open.png');
-    this.load.image('lock_close', '/assets/icons/shop/lock_close.png');
+    this.load.image('updateMarketIcon', '/assets/shop/update_market.png');
+    this.load.image('lock_open', '/assets/shop/lock_open.png');
+    this.load.image('lock_close', '/assets/shop/lock_close.png');
+    this.load.image('shop_rook_card_back', '/assets/shop/rook_back.png');
+    this.load.image('shop_rook_card', '/assets/shop/rook.png');
     this.load.image('broken_arrow', '/assets/icons/broken_arrow.png');
     this.load.image(TRASH_ICON_CLOSED_KEY, '/assets/icons/trash/trash_close.png');
     this.load.image(TRASH_ICON_OPEN_KEY, '/assets/icons/trash/trash_open.png');
