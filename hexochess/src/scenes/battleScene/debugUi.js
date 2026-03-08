@@ -1075,9 +1075,11 @@ export function installBattleSceneDebugUi(BattleScene) {
     },
 
     syncDebugUI() {
-      if (this.debugBtn) this.debugBtn.setVisible(true);
+      const showTopHud = !this.sceneLoadIntroActive || !!this.sceneLoadIntroHudVisible;
+
+      if (this.debugBtn) this.debugBtn.setVisible(showTopHud);
       if (this.ratingBtn) {
-        this.ratingBtn.setVisible(true);
+        this.ratingBtn.setVisible(showTopHud);
         const isActive = !!this.ratingInfoOpen;
         this.ratingBtnBg?.setFillStyle(isActive ? 0x7a5635 : 0x6b4b2f, 1);
         this.ratingBtnBg?.setStrokeStyle(4, isActive ? 0xc89e68 : 0xb38a5e, 1);
@@ -1090,7 +1092,7 @@ export function installBattleSceneDebugUi(BattleScene) {
       if (this.debugKingModal) this.debugKingModal.setVisible(!!this.debugMenuOpen && !!this.debugKingMenuOpen);
       if (this.debugBotsModal) {
         this.refreshBotsDebugInfo?.();
-        this.debugBotsModal.setVisible(!!this.ratingInfoOpen);
+        this.debugBotsModal.setVisible(showTopHud && !!this.ratingInfoOpen);
       }
       if (this.debugRoundModal) {
         this.refreshRoundDebugInfo?.();
@@ -1110,7 +1112,7 @@ export function installBattleSceneDebugUi(BattleScene) {
         this.battleBtn.setAlpha(canBattle ? 1 : 0.4);
       }
       if (this.roundBattleBtn) {
-        const visible = !this.testSceneActive && !!this.battleState?.matchmaking?.allOpponentsBots && canBattle;
+        const visible = showTopHud && !this.testSceneActive && !!this.battleState?.matchmaking?.allOpponentsBots && canBattle;
         this.roundBattleBtn.setVisible(visible);
         if (this.roundBattleBtnHit) {
           this.roundBattleBtnHit.setVisible(visible);

@@ -908,7 +908,8 @@
     syncShopUI() {
       const phase = this.battleState?.phase ?? 'prep';
       const result = this.battleState?.result ?? null;
-      const show = !this.testSceneActive && (phase === 'prep' || phase === 'battle');
+      const introAllowsShop = !this.sceneLoadIntroActive || !!this.sceneLoadIntroShopVisible;
+      const show = !this.testSceneActive && introAllowsShop && (phase === 'prep' || phase === 'battle');
       const mode = !show ? 'hidden' : (this.shopCollapsed ? 'collapsed' : 'open');
 
       this.positionShop();

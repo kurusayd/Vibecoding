@@ -142,6 +142,35 @@ const BENCH_FOREGROUND_START_SLOT = 4; // 5th slot from top (0-based)
 const BENCH_DEPTH_SLOT_STEP = 6;
 const BENCH_DEPTH_BACKGROUND_BASE = KING_RENDER_DEPTH_BASE - 40;
 const BENCH_DEPTH_FOREGROUND_BASE = KING_RENDER_DEPTH_BASE + 10;
+const BENCH_HEX_PIN_TEXTURE_KEY = 'bench_hex_pin_grass_1';
+const BENCH_HEX_PIN_CONFIG = {
+  // Tune `pin1.png` here for all bench hexes:
+  // - sizePx: overall image size
+  // - offsetXPx: move left/right
+  // - offsetYPx: move up/down
+  enabled: true,
+  applyToAllSlots: true,
+  slot: 0,
+  sizePx: 96,
+  offsetXPx: -2,
+  offsetYPx: 2,
+  depth: 0.5,
+  alpha: 1,
+};
+const BENCH_UNIT_VISUAL_OFFSET_Y_PX = -13; // Tune all bench unit visuals here: negative = raise units above bench hexes
+const SCENE_LOAD_INTRO_TOTAL_MS = 3000;
+const SCENE_LOAD_INTRO_PLAYER_KING_DELAY_MS = 0;
+const SCENE_LOAD_INTRO_PLAYER_KING_TOTAL_MS = 476;
+const SCENE_LOAD_INTRO_PINS_START_DELAY_MS = SCENE_LOAD_INTRO_PLAYER_KING_TOTAL_MS + 44;
+const SCENE_LOAD_INTRO_PIN_DROP_MS = 220;
+const SCENE_LOAD_INTRO_PIN_BOUNCE_MS = 80;
+const SCENE_LOAD_INTRO_PIN_STAGGER_MS = 70;
+const SCENE_LOAD_INTRO_TRASH_REVEAL_GAP_MS = 60;
+const SCENE_LOAD_INTRO_TRASH_DROP_MS = 220;
+const SCENE_LOAD_INTRO_TRASH_BOUNCE_MS = 80;
+const SCENE_LOAD_INTRO_SHOP_REVEAL_GAP_MS = 80;
+const SCENE_LOAD_INTRO_HUD_REVEAL_DELAY_MS = 260;
+const SCENE_LOAD_INTRO_HUD_FADE_MS = 220;
 // Bench depth invariant:
 // - slots 1..4 (0..3) must stay BELOW king
 // - slots 5..8 (4..7) must stay ABOVE king
@@ -241,6 +270,7 @@ export default class BattleScene extends Phaser.Scene {
     this.load.image('projectile_bone', '/assets/projectiles/bone.png');
     this.load.image('projectile_bolt', '/assets/projectiles/bolt.png');
     this.load.image('shop_portrait_siren', '/assets/units/lizard/siren/siren_portrait.png');
+    this.load.image(BENCH_HEX_PIN_TEXTURE_KEY, '/assets/bench/grass/pin1.png');
 
     for (const asset of EXTRA_PORTRAIT_ASSETS) {
       this.load.image(asset.key, asset.path);
@@ -297,6 +327,16 @@ export default class BattleScene extends Phaser.Scene {
     this.enemyKingDisplayName = ENEMY_KING_DISPLAY_NAME;
     this.uiText = UI_TEXT;
     this.useServerBattleReplay = USE_SERVER_BATTLE_REPLAY;
+    this.sceneLoadIntroPlayed = false;
+    this.sceneLoadIntroActive = true;
+    this.sceneLoadIntroPlayerKingUiVisible = false;
+    this.sceneLoadIntroHudVisible = false;
+    this.sceneLoadIntroShopVisible = false;
+    this.sceneLoadIntroTrashVisible = false;
+    this.sceneLoadIntroGridVisible = false;
+    this.sceneLoadIntroTimers = [];
+    this.sceneLoadIntroPinRevealStartedSlots = new Set();
+    this.sceneLoadIntroPinRevealCompletedSlots = new Set();
 
     // фон
     this.bg = this.add.image(0, 0, 'battleBg')
@@ -355,6 +395,8 @@ export default class BattleScene extends Phaser.Scene {
     this.localPlayerKingTextureKey = 'king_princess'; // локальный override только для отображения игрока (debug)
     this.kingLeft.setTexture(this.localPlayerKingTextureKey);
     this.syncKingVisualConfig?.();
+    this.kingLeft.setVisible(false).setAlpha(0);
+    this.kingLeftShadow?.setVisible(false)?.setAlpha?.(0);
 
     const kingTextStyle = {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
@@ -717,7 +759,8 @@ export default class BattleScene extends Phaser.Scene {
     this.kingLeftNameText = this.add.text(0, 0, PLAYER_KING_DISPLAY_NAME, kingNameTextStyle)
       .setDepth(KING_RENDER_DEPTH_BASE + 4)
       .setOrigin(0.5, 1)
-      .setShadow(0, 0, '#000000', 4, true, true);
+      .setShadow(0, 0, '#000000', 4, true, true)
+      .setVisible(false);
 
     this.kingRightNameText = this.add.text(0, 0, ENEMY_KING_DISPLAY_NAME, kingNameTextStyle)
       .setDepth(KING_RENDER_DEPTH_BASE + 4)
@@ -742,6 +785,7 @@ export default class BattleScene extends Phaser.Scene {
     this.gStatic = this.add.graphics().setDepth(0);
     this.gDynamic = this.add.graphics().setDepth(1);
     this.g = this.gDynamic; // совместимость со старым кодом drawHex/drawHexFilled
+    this.benchHexPinSprites = [];
     this.gridStaticDirty = true;
     this.cachedPrepBoardHexCenters = [];
     this.cachedBoardHexCenters = [];
@@ -1011,6 +1055,7 @@ export default class BattleScene extends Phaser.Scene {
     }
 
     this.renderFromState();  // отрисуем то что есть (пока пусто)
+    this.maybeStartSceneLoadIntro?.();
   }
 
   resizeBackground() {
@@ -1229,7 +1274,7 @@ export default class BattleScene extends Phaser.Scene {
   playEntryAutoBenchArc(vu, coreUnit) {
     if (!vu || !coreUnit) return;
     const slot = Number.isInteger(coreUnit?.benchSlot) ? coreUnit.benchSlot : 0;
-    const p = this.benchSlotToScreen(slot);
+    const p = this.getBenchUnitScreen(slot);
     const lift = getUnitGroundLiftPx(coreUnit.type);
     const shadowCfg = getUnitFootShadowConfig(coreUnit.type);
 
@@ -1316,6 +1361,322 @@ export default class BattleScene extends Phaser.Scene {
     this.entryEnemyUnitsVisible = true;
     this.entryEnemyUnitsUiVisible = false;
     this.entryEnemyUnitsUiRevealPlayed = false;
+  }
+
+  clearSceneLoadIntroTimers() {
+    for (const t of (this.sceneLoadIntroTimers ?? [])) {
+      try { t?.remove?.(false); } catch {}
+    }
+    this.sceneLoadIntroTimers = [];
+  }
+
+  stopSceneLoadIntro() {
+    this.clearSceneLoadIntroTimers();
+    this.sceneLoadIntroActive = false;
+    this.tweens.killTweensOf(this.kingLeft);
+    this.tweens.killTweensOf(this.kingLeftShadow);
+    this.tweens.killTweensOf(this.trashIcon);
+    this.tweens.killTweensOf(this.gStatic);
+    this.tweens.killTweensOf(this.gDynamic);
+    for (const sprite of (this.benchHexPinSprites ?? [])) {
+      this.tweens.killTweensOf(sprite);
+    }
+  }
+
+  setSceneLoadIntroInputLocked(locked) {
+    if (this.input) this.input.enabled = !locked;
+  }
+
+  finishSceneLoadIntro() {
+    this.stopSceneLoadIntro();
+    this.sceneLoadIntroPlayed = true;
+    this.sceneLoadIntroHudVisible = true;
+    this.sceneLoadIntroShopVisible = true;
+    this.sceneLoadIntroTrashVisible = true;
+    this.sceneLoadIntroGridVisible = true;
+    this.sceneLoadIntroPlayerKingUiVisible = true;
+    this.sceneLoadIntroPinRevealStartedSlots = new Set();
+    this.sceneLoadIntroPinRevealCompletedSlots = new Set(
+      Array.from({ length: Number(this.benchRows ?? 0) }, (_, idx) => idx)
+        .filter((slot) => this.isBenchHexPinSlot(slot))
+    );
+    this.applyKingVisualConfigFor?.('player');
+    this.positionKings?.();
+    if (this.kingLeft?.active) {
+      const baseScaleX = Number(this.kingLeft.scaleX ?? 1);
+      const baseScaleY = Number(this.kingLeft.scaleY ?? 1);
+      this.kingLeft
+        .setVisible(true)
+        .setAlpha(1)
+        .setScale(baseScaleX, baseScaleY);
+    }
+    if (this.kingLeftShadow?.active) {
+      this.kingLeftShadow
+        .setVisible(true)
+        .setAlpha(KING_SHADOW_ALPHA)
+        .setScale(1, 1);
+    }
+    this.kingLeftNameText?.setVisible(true);
+    this.trashIcon?.setVisible(true)?.setAlpha?.(TRASH_ICON_ALPHA_CLOSED);
+    this.gStatic?.setVisible(true)?.setAlpha?.(1);
+    this.gDynamic?.setVisible(true)?.setAlpha?.(1);
+    this.setSceneLoadIntroInputLocked(false);
+    this.syncBenchHexPinSprites?.();
+    this.syncShopUI?.();
+    this.syncPhaseUI?.();
+    this.syncKingsUI?.();
+    this.drawGrid?.();
+    this.drawKingHpBars?.();
+  }
+
+  maybeStartSceneLoadIntro() {
+    if (this.testSceneActive) return;
+    if (this.sceneLoadIntroPlayed || (this.sceneLoadIntroTimers?.length ?? 0) > 0) return;
+
+    this.sceneLoadIntroActive = true;
+    this.sceneLoadIntroPlayerKingUiVisible = false;
+    this.sceneLoadIntroHudVisible = false;
+    this.sceneLoadIntroShopVisible = false;
+    this.sceneLoadIntroTrashVisible = false;
+    this.sceneLoadIntroGridVisible = false;
+    this.sceneLoadIntroPinRevealStartedSlots?.clear?.();
+    this.sceneLoadIntroPinRevealCompletedSlots?.clear?.();
+    this.kingLeft?.setVisible(false)?.setAlpha?.(0);
+    this.kingLeftShadow?.setVisible(false)?.setAlpha?.(0);
+    this.kingLeftNameText?.setVisible(false);
+    this.trashIcon?.setVisible(false)?.setAlpha?.(0);
+    this.gStatic?.setVisible(false)?.setAlpha?.(0);
+    this.gDynamic?.setVisible(false)?.setAlpha?.(0);
+    this.setSceneLoadIntroInputLocked(true);
+    this.syncBenchHexPinSprites?.();
+    this.syncShopUI?.();
+    this.syncPhaseUI?.();
+    this.syncKingsUI?.();
+    this.drawKingHpBars?.();
+
+    const revealSlots = Array.from({ length: Number(this.benchRows ?? 0) }, (_, idx) => idx)
+      .filter((slot) => this.isBenchHexPinSlot(slot));
+    const pinBounceTotalMs = SCENE_LOAD_INTRO_PIN_BOUNCE_MS * 2;
+    const pinsEndMs = revealSlots.length > 0
+      ? (SCENE_LOAD_INTRO_PINS_START_DELAY_MS
+        + Math.max(0, revealSlots.length - 1) * SCENE_LOAD_INTRO_PIN_STAGGER_MS
+        + SCENE_LOAD_INTRO_PIN_DROP_MS
+        + pinBounceTotalMs)
+      : SCENE_LOAD_INTRO_PINS_START_DELAY_MS;
+    const trashStartMs = pinsEndMs + SCENE_LOAD_INTRO_TRASH_REVEAL_GAP_MS;
+    const trashEndMs = trashStartMs + SCENE_LOAD_INTRO_TRASH_DROP_MS + (SCENE_LOAD_INTRO_TRASH_BOUNCE_MS * 2);
+    const shopStartMs = trashEndMs + SCENE_LOAD_INTRO_SHOP_REVEAL_GAP_MS;
+    const hudStartMs = Math.min(
+      SCENE_LOAD_INTRO_TOTAL_MS - SCENE_LOAD_INTRO_HUD_FADE_MS,
+      shopStartMs + SCENE_LOAD_INTRO_HUD_REVEAL_DELAY_MS
+    );
+
+    const kingTimer = this.time.delayedCall(SCENE_LOAD_INTRO_PLAYER_KING_DELAY_MS, () => {
+      this.playPlayerKingRevealTween?.();
+    });
+    const pinsTimer = this.time.delayedCall(SCENE_LOAD_INTRO_PINS_START_DELAY_MS, () => {
+      this.playSceneLoadBenchPinsReveal?.();
+    });
+    const trashTimer = this.time.delayedCall(trashStartMs, () => {
+      this.playSceneLoadTrashReveal?.();
+    });
+    const shopTimer = this.time.delayedCall(shopStartMs, () => {
+      this.sceneLoadIntroTrashVisible = true;
+      this.sceneLoadIntroShopVisible = true;
+      this.shopCollapsed = false;
+      this.syncShopUI?.();
+    });
+    const hudTimer = this.time.delayedCall(hudStartMs, () => {
+      this.playSceneLoadHudReveal?.();
+    });
+    const finishTimer = this.time.delayedCall(SCENE_LOAD_INTRO_TOTAL_MS, () => {
+      this.finishSceneLoadIntro?.();
+    });
+    this.sceneLoadIntroTimers.push(kingTimer, pinsTimer, trashTimer, shopTimer, hudTimer, finishTimer);
+  }
+
+  playPlayerKingRevealTween() {
+    if (!this.kingLeft?.active) return null;
+    this.tweens.killTweensOf(this.kingLeft);
+    this.tweens.killTweensOf(this.kingLeftShadow);
+    this.applyKingVisualConfigFor?.('player');
+    this.positionKings?.();
+    const baseScaleX = Number(this.kingLeft.scaleX ?? 1);
+    const baseScaleY = Number(this.kingLeft.scaleY ?? 1);
+    const targetX = Number(this.kingLeft.x ?? 0);
+    const targetY = Number(this.kingLeft.y ?? 0);
+    const playerShadowCfg = getKingShadowConfig(this.getPlayerKingVisualKey?.());
+    const startY = targetY - 140;
+    const bounceY = targetY - 18;
+    this.kingLeft
+      .setVisible(true)
+      .setPosition(targetX, startY)
+      .setAlpha(0)
+      .setScale(baseScaleX * 0.9, baseScaleY * 0.9);
+    this.kingLeftShadow
+      ?.setVisible(true)
+      ?.setPosition(targetX, targetY + playerShadowCfg.offsetYPx)
+      ?.setAlpha(0)
+      ?.setScale(0.92, 0.92);
+    this.tweens.add({
+      targets: this.kingLeftShadow,
+      alpha: KING_SHADOW_ALPHA,
+      scaleX: 1,
+      scaleY: 1,
+      ease: 'Quad.Out',
+      duration: 220,
+    });
+    this.tweens.add({
+      targets: this.kingLeft,
+      y: targetY,
+      alpha: 1,
+      scaleX: baseScaleX,
+      scaleY: baseScaleY,
+      ease: 'Quad.In',
+      duration: 392,
+      onComplete: () => {
+        if (!this.kingLeft?.active) return;
+        this.tweens.add({
+          targets: this.kingLeft,
+          y: bounceY,
+          ease: 'Quad.Out',
+          duration: 84,
+          yoyo: true,
+        });
+      },
+    });
+    return this.kingLeft;
+  }
+
+  playSceneLoadBenchPinsReveal() {
+    const revealSlots = Array.from({ length: Number(this.benchRows ?? 0) }, (_, idx) => idx)
+      .filter((slot) => this.isBenchHexPinSlot(slot));
+
+    if (revealSlots.length <= 0) {
+      return;
+    }
+
+    revealSlots.forEach((slot, idx) => {
+      const sprite = this.benchHexPinSprites?.[slot];
+      if (!sprite?.active) return;
+
+      this.sceneLoadIntroPinRevealStartedSlots?.add?.(slot);
+      this.tweens.killTweensOf(sprite);
+
+      const targetX = Number(sprite.x ?? 0);
+      const targetY = Number(sprite.y ?? 0);
+      const startY = targetY - 110;
+      const bounceY = targetY - 10;
+      const baseScaleX = Number(sprite.scaleX ?? 1);
+      const baseScaleY = Number(sprite.scaleY ?? 1);
+
+      sprite
+        .setVisible(true)
+        .setAlpha(0)
+        .setPosition(targetX, startY)
+        .setScale(baseScaleX * 0.92, baseScaleY * 0.92);
+
+      this.tweens.add({
+        targets: sprite,
+        alpha: 1,
+        y: targetY,
+        scaleX: baseScaleX,
+        scaleY: baseScaleY,
+        ease: 'Quad.In',
+        duration: SCENE_LOAD_INTRO_PIN_DROP_MS,
+        delay: Math.round(idx * SCENE_LOAD_INTRO_PIN_STAGGER_MS),
+        onComplete: () => {
+          if (!sprite?.active) return;
+          this.tweens.add({
+            targets: sprite,
+            y: bounceY,
+            ease: 'Quad.Out',
+            duration: SCENE_LOAD_INTRO_PIN_BOUNCE_MS,
+            yoyo: true,
+            onComplete: () => {
+              this.sceneLoadIntroPinRevealCompletedSlots?.add?.(slot);
+            },
+          });
+        },
+      });
+    });
+  }
+
+  playSceneLoadTrashReveal() {
+    if (!this.trashIcon?.active) return null;
+    this.positionTrashUi?.();
+    this.updateTrashVisual?.(false);
+    this.sceneLoadIntroTrashVisible = true;
+    this.tweens.killTweensOf(this.trashIcon);
+    const targetX = Number(this.trashIcon.x ?? 0);
+    const targetY = Number(this.trashIcon.y ?? 0);
+    const startY = targetY - 110;
+    const bounceY = targetY - 10;
+    const baseScaleX = Number(this.trashIcon.scaleX ?? 1);
+    const baseScaleY = Number(this.trashIcon.scaleY ?? 1);
+    this.trashIcon
+      .setVisible(true)
+      .setAlpha(0)
+      .setPosition(targetX, startY)
+      .setScale(baseScaleX * 0.92, baseScaleY * 0.92);
+    this.tweens.add({
+      targets: this.trashIcon,
+      alpha: TRASH_ICON_ALPHA_CLOSED,
+      y: targetY,
+      scaleX: baseScaleX,
+      scaleY: baseScaleY,
+      ease: 'Quad.In',
+      duration: SCENE_LOAD_INTRO_TRASH_DROP_MS,
+      onComplete: () => {
+        if (!this.trashIcon?.active) return;
+        this.tweens.add({
+          targets: this.trashIcon,
+          y: bounceY,
+          ease: 'Quad.Out',
+          duration: SCENE_LOAD_INTRO_TRASH_BOUNCE_MS,
+          yoyo: true,
+        });
+      },
+    });
+    return this.trashIcon;
+  }
+
+  playSceneLoadHudReveal() {
+    this.sceneLoadIntroHudVisible = true;
+    this.sceneLoadIntroGridVisible = true;
+    this.sceneLoadIntroPlayerKingUiVisible = true;
+    this.gStatic?.setVisible(true);
+    this.gDynamic?.setVisible(true);
+    this.syncPhaseUI?.();
+    this.syncKingsUI?.();
+    this.drawGrid?.();
+
+    const hudTargets = [
+      this.coinContainer,
+      this.kingLevelContainer,
+      this.kingXpBuyBtn,
+      this.kingUnitCapHud,
+      this.roundText,
+      this.prepTimerText,
+      this.resultText,
+      this.gStatic,
+      this.gDynamic,
+      this.kingLeftHpBg,
+      this.kingLeftHpLagFill,
+      this.kingLeftHpFill,
+      this.kingLeftNameText,
+    ].filter((x) => x?.active && x.visible !== false);
+
+    for (const target of hudTargets) {
+      this.tweens.killTweensOf(target);
+      target.setAlpha(0);
+      this.tweens.add({
+        targets: target,
+        alpha: 1,
+        duration: SCENE_LOAD_INTRO_HUD_FADE_MS,
+        ease: 'Quad.Out',
+      });
+    }
   }
 
   playEnemyKingRevealTween() {
@@ -1714,6 +2075,15 @@ export default class BattleScene extends Phaser.Scene {
   syncRoundUI() {
     if (!this.roundText || !this.prepTimerText) return;
 
+    const showTopHud = !this.sceneLoadIntroActive || !!this.sceneLoadIntroHudVisible;
+    if (!showTopHud) {
+      this.roundText?.setVisible(false);
+      this.prepTimerText?.setVisible(false);
+      this.resultText?.setVisible(false);
+      this.startGameBtn?.setVisible(false);
+      return;
+    }
+
     const round = Number(this.battleState?.round ?? 1);
     const phase = this.battleState?.phase ?? 'prep';
     const result = this.battleState?.result ?? null;
@@ -1724,6 +2094,7 @@ export default class BattleScene extends Phaser.Scene {
     }
 
     this.roundText.setText(this.testSceneActive ? UI_TEXT.TEST_SCENE : `${UI_TEXT.ROUND} ${round}`);
+    this.roundText.setVisible(true);
 
     // timer line under round title
     const isPrep = (phase === 'prep') && (result == null);
@@ -1867,6 +2238,13 @@ export default class BattleScene extends Phaser.Scene {
     };
 
     drawBar('player', this.kingLeft, this.kingLeftHpBg, this.kingLeftHpLagFill, this.kingLeftHpFill, kings.player);
+    if (!this.sceneLoadIntroPlayerKingUiVisible) {
+      this.kingLeftHpBg.clear();
+      this.kingLeftHpLagFill.clear();
+      this.kingLeftHpFill.clear();
+      this.kingLeftHpText?.setVisible(false);
+      this.kingLeftNameText?.setVisible(false);
+    }
     this.kingLeftShadow?.setVisible?.(this.kingLeft?.visible !== false);
     this.kingLeftShadow?.setAlpha?.(this.kingLeft?.visible === false ? 0 : KING_SHADOW_ALPHA);
 
@@ -3705,7 +4083,7 @@ export default class BattleScene extends Phaser.Scene {
 
         if (u.zone === 'bench') {
           const slot = Number.isInteger(u.benchSlot) ? u.benchSlot : 0;
-          const p = this.benchSlotToScreen(slot);
+          const p = this.getBenchUnitScreen(slot);
 
           created = this.unitSys.spawnUnitAtScreen(p.x, p.y, {
             id: u.id,
@@ -3776,7 +4154,7 @@ export default class BattleScene extends Phaser.Scene {
         // если сервер сказал "bench" — сразу переставим на скамейку
         if (u.zone === 'bench') {
           const slot = Number.isInteger(u.benchSlot) ? u.benchSlot : 0;
-          const p = this.benchSlotToScreen(slot);
+          const p = this.getBenchUnitScreen(slot);
 
           // Визуал ушёл с доски на bench: освобождаем его старую клетку в локальном occupied,
           // иначе следующие спавны/создания визуалов на этой клетке могут падать с "occupied".
@@ -3854,7 +4232,7 @@ export default class BattleScene extends Phaser.Scene {
       // позиция: доска или скамейка
       if (u.zone === 'bench') {
         const slot = Number.isInteger(u.benchSlot) ? u.benchSlot : 0;
-        const p = this.benchSlotToScreen(slot);
+        const p = this.getBenchUnitScreen(slot);
         const isEntryAutoBenchFx =
           !this.testSceneActive &&
           phase === 'entry' &&
@@ -4210,6 +4588,80 @@ export default class BattleScene extends Phaser.Scene {
     this.cachedPrepBoardHexCenters = prepBoard;
     this.cachedBenchHexCenters = benchCells;
     this.cachedBenchSlotScreen = benchSlots;
+    this.syncBenchHexPinSprites();
+  }
+
+  isBenchHexPinSlot(slot) {
+    if (!BENCH_HEX_PIN_CONFIG.enabled) return false;
+    if (BENCH_HEX_PIN_CONFIG.applyToAllSlots) {
+      return Number.isInteger(Number(slot))
+        && Number(slot) >= 0
+        && Number(slot) < Number(this.benchRows ?? 0);
+    }
+    return Number(slot) === Number(BENCH_HEX_PIN_CONFIG.slot);
+  }
+
+  syncBenchHexPinSprites() {
+    const cfg = BENCH_HEX_PIN_CONFIG;
+    const maxSlots = Math.max(
+      Number(this.benchRows ?? 0),
+      Number(this.benchHexPinSprites?.length ?? 0)
+    );
+
+    for (let slot = 0; slot < maxSlots; slot += 1) {
+      let sprite = this.benchHexPinSprites?.[slot] ?? null;
+      if (!sprite?.active) {
+        sprite = this.add.image(0, 0, BENCH_HEX_PIN_TEXTURE_KEY)
+          .setOrigin(0.5, 0.5)
+          .setDepth(cfg.depth)
+          .setVisible(false);
+        this.benchHexPinSprites[slot] = sprite;
+      }
+
+      const shouldShow = this.isBenchHexPinSlot(slot);
+      const screen = shouldShow ? this.benchSlotToScreen(slot) : null;
+      if (!screen) {
+        sprite.setVisible(false);
+        continue;
+      }
+
+      const targetSizePx = Math.max(1, Number(cfg.sizePx ?? 96));
+      const sourceWidthPx = Math.max(1, Number(sprite.width ?? 1));
+      const scale = targetSizePx / sourceWidthPx;
+      const targetX = screen.x + Number(cfg.offsetXPx ?? 0);
+      const targetY = screen.y + Number(cfg.offsetYPx ?? 0);
+
+      if (!this.sceneLoadIntroPlayed && this.isBenchHexPinSlot(slot)) {
+        if (this.sceneLoadIntroPinRevealCompletedSlots?.has?.(slot)) {
+          sprite
+            .setPosition(targetX, targetY)
+            .setScale(scale)
+            .setDepth(Number(cfg.depth ?? 0.5))
+            .setAlpha(Number(cfg.alpha ?? 1))
+            .setVisible(Boolean(cfg.enabled && shouldShow));
+          continue;
+        }
+
+        if (this.sceneLoadIntroPinRevealStartedSlots?.has?.(slot)) {
+          continue;
+        }
+
+        sprite
+          .setPosition(targetX, targetY)
+          .setScale(scale)
+          .setDepth(Number(cfg.depth ?? 0.5))
+          .setAlpha(0)
+          .setVisible(false);
+        continue;
+      }
+
+      sprite
+        .setPosition(targetX, targetY)
+        .setScale(scale)
+        .setDepth(Number(cfg.depth ?? 0.5))
+        .setAlpha(Number(cfg.alpha ?? 1))
+        .setVisible(Boolean(cfg.enabled && shouldShow));
+    }
   }
 
   drawHexOn(g, cx, cy, lineColor = 0xffffff, alpha = 0.5) {
@@ -4347,9 +4799,12 @@ export default class BattleScene extends Phaser.Scene {
       }
     }
 
-    for (const cell of (this.cachedBenchHexCenters ?? [])) {
+    for (const [slot, cell] of (this.cachedBenchHexCenters ?? []).entries()) {
+      if (this.isBenchHexPinSlot(slot)) continue;
       this.drawHexOn(g, cell.x, cell.y, 0xffcc66, 0.45);
     }
+
+    this.syncBenchHexPinSprites();
 
     this.gridStaticDirty = false;
   }
@@ -4555,6 +5010,14 @@ export default class BattleScene extends Phaser.Scene {
     const row = slot; // слот = ряд (0..7)
     const p = this.hexToPixel(0 - Math.floor(row / 2), row);
     return { x: p.x - dx, y: p.y };
+  }
+
+  getBenchUnitScreen(slot) {
+    const p = this.benchSlotToScreen(slot);
+    return {
+      x: Number(p?.x ?? 0),
+      y: Number(p?.y ?? 0) + Number(BENCH_UNIT_VISUAL_OFFSET_Y_PX ?? 0),
+    };
   }
 
 

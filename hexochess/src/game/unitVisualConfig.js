@@ -118,7 +118,7 @@ export const UNIT_VISUAL_CONFIG_BY_TYPE = {
   },
   Incub: {
     // Medium knight profile, close to Crusader.
-    groundLiftPx: 100,
+    groundLiftPx: 104,
     artTargetPx: 160,
     artOffsetXPx: 0,
     hpUiLiftPx: 40,
@@ -155,7 +155,7 @@ export const UNIT_VISUAL_CONFIG_BY_TYPE = {
     footShadowWidthPx: 60,
     footShadowHeightPx: 18,
     footShadowOffsetXPx: 0,
-    footShadowOffsetYPx: 13,
+    footShadowOffsetYPx: 18,
   },
   Priest: {
     groundLiftPx: 100,

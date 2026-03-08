@@ -40,6 +40,7 @@ export function installBattleSceneKingHudUi(BattleScene) {
       const kings = this.battleState?.kings;
       const p = kings?.player ?? { hp: 100, maxHp: 100, coins: 0 };
       const rawCoins = Number(p.coins ?? 0);
+      const showTopHud = !this.sceneLoadIntroActive || !!this.sceneLoadIntroHudVisible;
 
       this.syncCoinHudCompact?.(rawCoins);
 
@@ -56,6 +57,8 @@ export function installBattleSceneKingHudUi(BattleScene) {
 
       this.drawKingXpBar?.(lvl, xp, need);
       this.positionCoinsHUD();
+      this.coinContainer?.setVisible?.(showTopHud);
+      this.kingLevelContainer?.setVisible?.(showTopHud);
 
       if (this.kingXpBuyBtn) {
         const phase = this.battleState?.phase ?? 'prep';
@@ -68,7 +71,7 @@ export function installBattleSceneKingHudUi(BattleScene) {
           phase === 'prep' &&
           !result &&
           level < Number(this.kingMaxLevel ?? KING_MAX_LEVEL);
-        this.kingXpBuyBtn.setVisible(!this.testSceneActive);
+        this.kingXpBuyBtn.setVisible(!this.testSceneActive && showTopHud);
         this.kingXpBuyBtn.setAlpha(canUseXpButton ? 1 : 0.62);
         if (this.kingXpBuyBtnHit?.input) this.kingXpBuyBtnHit.input.enabled = canUseXpButton;
         this.kingXpBuyBtnIcon?.setTint(canUseXpButton ? 0xffffff : 0xb0b0b0);
@@ -150,7 +153,7 @@ export function installBattleSceneKingHudUi(BattleScene) {
         }
         this.kingUnitCapTextGroup?.setPosition?.(-4, Number(this.kingUnitCapTextGroup.y ?? 30));
 
-        this.kingUnitCapHud.setVisible(!this.testSceneActive);
+        this.kingUnitCapHud.setVisible(!this.testSceneActive && showTopHud);
       }
 
       const phase = this.battleState?.phase ?? 'prep';

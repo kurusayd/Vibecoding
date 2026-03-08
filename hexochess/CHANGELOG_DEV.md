@@ -348,3 +348,51 @@
   - server-authoritative test-scene battles;
   - shop lock behavior;
   - king visual config workflow.
+
+## 2026-03-08
+
+### NagaSiren
+- Added new unit `NagaSiren`:
+  - race `LIZARD`;
+  - power type `Слон`;
+  - one-cell melee unit.
+- Connected `siren_atlas` from `public/assets/units/lizard/siren`.
+
+### NagaSiren Ability
+- Added active ability `siren_mirror_image`.
+- Current behavior:
+  - cooldown `20s`;
+  - ready at battle start;
+  - `1s` cast with looping `skill0001...` animation;
+  - summons two nearby copies after cast resolve;
+  - cooldown starts after cast completion.
+- Copy rules:
+  - copies have `30%` HP and ATK of the original;
+  - other combat stats are inherited;
+  - copies do not inherit the ability.
+
+### NagaSiren Illusions
+- Added explicit illusion marker in replay/state (`isIllusion`).
+- Added client readability styling for Siren copies:
+  - art alpha reduced to `0.8`;
+  - synced blue overlay mask above the unit art.
+- Added illusion dodge through the same evade pipeline as Ghost:
+  - no separate special miss mechanic;
+  - evade chance is `30%` for Siren illusions.
+
+### Shop Portraits
+- Added dedicated shop portrait for `NagaSiren` from:
+  - `public/assets/units/lizard/siren/siren_portrait.png`
+- Extended shop portrait pipeline:
+  - shop cards can now use either shared portrait-atlas frames or per-unit custom portrait textures.
+- Added reusable custom portrait preset `new` for future manually-authored portraits.
+- Current `new` portrait style:
+  - scaled up (`1.2`);
+  - shifted upward (`-26px`);
+  - rendered above the decorative card frame so the art stays visually dominant.
+
+### Docs
+- Refreshed `PROJECT_MEMORY.md` with:
+  - `NagaSiren` content/ability invariants;
+  - Siren illusion rules;
+  - custom shop portrait workflow and `new` portrait style.

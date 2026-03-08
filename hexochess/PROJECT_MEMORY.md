@@ -402,3 +402,76 @@
   - buying any shop unit reopens the lock;
   - when returning from battle to `prep`, preserved offers remain for that transition and then lock reopens.
 - Server-side control goes through `shopToggleLock`.
+
+## 25) Session Addendum (2026-03-08)
+- Documentation refresh date: 2026-03-08.
+
+### NagaSiren Unit Invariant
+- Added unit `NagaSiren`.
+- Current catalog role:
+  - `race = LIZARD`
+  - `powerType = Слон`
+  - single-cell unit
+  - melee attacker
+- Atlas integration uses:
+  - `atlasKey = siren_atlas`
+  - `atlasPath = /assets/units/lizard/siren/siren_atlas`
+- `NagaSiren` is now part of the normal content pipeline:
+  - catalog;
+  - atlas config;
+  - visual config;
+  - shop / portrait handling.
+
+### NagaSiren Active Ability Invariant
+- `NagaSiren` uses active ability `siren_mirror_image`.
+- Current server-authoritative behavior:
+  - cooldown = `20s`;
+  - battle starts with ability ready (`nextAbilityAt = 0`);
+  - cast time = `1s`;
+  - during cast, `skill0001...` loop animation is used;
+  - on resolve, Siren summons two copies on the nearest free vertical cells above / below, with fallback search if those cells are occupied;
+  - cooldown restart happens after cast resolve, not at cast start.
+
+### NagaSiren Illusion Invariant
+- Siren copies are explicitly marked as `isIllusion`.
+- Illusion stats:
+  - `HP = 30%` of original Siren max HP;
+  - `ATK = 30%` of original Siren attack;
+  - movement / attack speed / range / projectile / accuracy stay copied from the original;
+  - copies never inherit the active ability.
+- Illusion dodge uses the same authoritative evade pipeline as `Ghost`, but with a different chance:
+  - `Ghost` evade chance = `50%`;
+  - `NagaSiren` illusion evade chance = `30%`.
+- Replay / readability invariant:
+  - illusion dodge still surfaces through the same miss/evasion event family already used by Ghost;
+  - no separate second evade mechanic should be introduced for this case.
+
+### NagaSiren Illusion Visual Invariant
+- Siren illusions have dedicated readability styling on the client.
+- Current visual rule:
+  - base art alpha is reduced to `0.8`;
+  - a synced blue overlay sprite is rendered above the art.
+- Overlay follows:
+  - animation frame changes;
+  - movement;
+  - facing / flip changes;
+  - unit destruction lifecycle.
+
+### Shop Portrait Workflow Invariant
+- Shop portraits now support two paths:
+  - shared portrait atlas (`unitPortraitsAtlas`);
+  - per-unit custom portrait textures.
+- `NagaSiren` is the first unit using a dedicated custom shop portrait:
+  - `/assets/units/lizard/siren/siren_portrait.png`
+  - preload key: `shop_portrait_siren`
+- Custom shop portraits can be assigned per unit without changing the old atlas path for legacy portraits.
+
+### Shop Portrait Style `new`
+- Added reusable custom portrait style preset `new` in shop UI.
+- Purpose: support the new full-card portrait look for future manually drawn shop portraits.
+- Current `new` style settings:
+  - enlarged relative scale (`scaleMul = 1.2`);
+  - vertical offset upward (`offsetYPx = -26`).
+- Render-order invariant:
+  - `new` style portraits must render above the decorative card border / separators;
+  - the portrait art is intended to be visually dominant and must not be clipped by the frame styling.

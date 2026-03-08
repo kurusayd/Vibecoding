@@ -11,6 +11,7 @@ export function installBattleSceneLifecycle(BattleScene) {
         this.scale?.off?.('resize', this._onResizeHandler);
         this._onResizeHandler = null;
       }
+      this.stopSceneLoadIntro?.();
       this.stopServerBattleReplayPlayback?.();
       this.stopBattleEntryReveal?.();
       this.ws?.close?.();
@@ -25,6 +26,7 @@ export function installBattleSceneLifecycle(BattleScene) {
         this.dragBoardHover = null;
         this.dragBenchHoverSlot = null;
         this.hoverPickupCell = null;
+        if (this.sceneLoadIntroActive) this.finishSceneLoadIntro?.();
         this.layout();
         this.drawGrid();
 
