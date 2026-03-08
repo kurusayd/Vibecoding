@@ -264,6 +264,11 @@ export default class BattleScene extends Phaser.Scene {
     this.load.image('updateMarketIcon', '/assets/shop/update_market.png');
     this.load.image('lock_open', '/assets/shop/lock_open.png');
     this.load.image('lock_close', '/assets/shop/lock_close.png');
+    this.load.image('shop_card_power_pawn', '/assets/shop/pawn.png');
+    this.load.image('shop_card_power_knight', '/assets/shop/knight.png');
+    this.load.image('shop_card_power_bishop', '/assets/shop/bishop.png');
+    this.load.image('shop_card_power_rook', '/assets/shop/rook2.png');
+    this.load.image('shop_card_power_queen', '/assets/shop/queen.png');
     this.load.image('shop_rook_card_back', '/assets/shop/rook_back.png');
     this.load.image('shop_rook_card', '/assets/shop/rook.png');
     this.load.image('broken_arrow', '/assets/icons/broken_arrow.png');

@@ -1,9 +1,17 @@
 ﻿export function installBattleSceneShopUi(BattleScene) {
   const SHOP_PORTRAIT_ATLAS_KEY = 'unitPortraitsAtlas';
   const SHOP_PORTRAIT_FRAME_PREFIX = 'ALL PORTRAITS/PREPEARE for Atlas/';
+  // Main shop tuning. If you need to move or resize the whole shop again, edit only this block.
+  const SHOP_UI_TUNING = Object.freeze({
+    offsetX: 80,
+    cardScale: 1.3,
+  });
+
   // Portraits are square (256x256), but shop art panel is rectangular.
   // Cover mode fills the whole gray panel (with crop if needed). Tune one multiplier here.
-  const SHOP_PORTRAIT_SCALE = 1.05;
+  const SHOP_CARD_BASE_WIDTH = 132;
+  const SHOP_CARD_BASE_HEIGHT = 188;
+  const SHOP_PORTRAIT_SCALE = 1.3;
   const SHOP_PORTRAIT_STYLE_PRESETS = {
     default: {
       scaleMul: 1.2,
@@ -18,6 +26,18 @@
       key: 'shop_portrait_siren',
     },
   };
+  const SHOP_CARD_POWER_ART_KEY_BY_POWER_TYPE = Object.freeze({
+    'Пешка': 'shop_card_power_pawn',
+    PAWN: 'shop_card_power_pawn',
+    'Конь': 'shop_card_power_knight',
+    KNIGHT: 'shop_card_power_knight',
+    'Слон': 'shop_card_power_bishop',
+    BISHOP: 'shop_card_power_bishop',
+    'Ладья': 'shop_card_power_rook',
+    ROOK: 'shop_card_power_rook',
+    'Ферзь': 'shop_card_power_queen',
+    QUEEN: 'shop_card_power_queen',
+  });
   const SHOP_RACE_LABEL_BY_KEY = {
     HUMAN: 'Люди',
     UNDEAD: 'Нежить',
@@ -25,26 +45,33 @@
     GOD: 'Боги',
     DEMON: 'Демоны',
   };
-  const SHOP_CARD_PORTRAIT_OFFSET_X = -2;
-  const SHOP_CARD_PORTRAIT_OFFSET_Y = -40;
-  const SHOP_CARD_NAME_OFFSET_Y = -28;
-  const SHOP_CARD_RACE_OFFSET_Y = -23;
-  const SHOP_CARD_BOTTOM_ROW_OFFSET_Y = -40;
-  const SHOP_CARD_BOTTOM_ROW_Y = 172;
+  // Internal preset for the fitted card skin. Normally this block should not need changes.
+  const SHOP_CARD_ART_PRESET = Object.freeze({
+    portraitOffsetX: 3,
+    portraitOffsetY: -37,
+    nameOffsetY: 36,
+    raceOffsetY: 40,
+    bottomRowOffsetY: -40,
+    bottomRowY: 172,
+    bgBackOffsetY: 57,
+    bgBackWidthDelta: 30,
+    bgBackHeightDelta: 30,
+    bgOffsetX: 0,
+    bgOffsetY: 87,
+    bgWidthDelta: 30,
+    bgHeightDelta: 30,
+    powerArtOffsetX: 0,
+    powerArtOffsetY: 78,
+    powerArtScale: 0.37,
+    costTextRightX: 55,
+    costGroupOffsetX: -31,
+    costGroupOffsetY: 100,
+    costGapPx: 6,
+    costCoinSize: 28,
+  });
   const SHOP_CARD_BG_BACK_KEY = 'shop_rook_card_back';
-  const SHOP_CARD_BG_BACK_OFFSET_Y = 22;
-  const SHOP_CARD_BG_BACK_WIDTH_DELTA = 30;
-  const SHOP_CARD_BG_BACK_HEIGHT_DELTA = 30;
   const SHOP_CARD_BG_KEY = 'shop_rook_card';
-  const SHOP_CARD_BG_OFFSET_X = 0;
-  const SHOP_CARD_BG_OFFSET_Y = 55;
-  const SHOP_CARD_BG_WIDTH_DELTA = 30;
-  const SHOP_CARD_BG_HEIGHT_DELTA = 30;
-  const SHOP_CARD_COST_TEXT_RIGHT_X = 55;
-  const SHOP_CARD_COST_GROUP_OFFSET_X = -31;
-  const SHOP_CARD_COST_GROUP_OFFSET_Y = 40;
-  const SHOP_CARD_COST_GAP_PX = 6;
-  const SHOP_CARD_COST_COIN_SIZE = 28;  // Shop art mask tuning (debug-visible black panel for now).
+  // Shop art mask tuning.
   const SHOP_CARD_ART_MASK_OFFSET_X = 0;
   const SHOP_CARD_ART_MASK_OFFSET_Y = 0;
   const SHOP_CARD_ART_MASK_WIDTH_DELTA = 0;
@@ -91,10 +118,11 @@
       this.shopRefreshRequestTimer = null;
       this.shopLockToggleBusy = false;
       this.shopCardLayout = {
-        width: 132,
-        height: 188,
+        width: Math.round(SHOP_CARD_BASE_WIDTH * SHOP_UI_TUNING.cardScale),
+        height: Math.round(SHOP_CARD_BASE_HEIGHT * SHOP_UI_TUNING.cardScale),
         gap: 10,
         bottomMargin: 10,
+        scale: SHOP_UI_TUNING.cardScale,
       };
 
       const offerCount = Number(this.shopOfferCount ?? 5);
@@ -280,8 +308,39 @@
         this.playPressFeedback?.(this.shopOpenBtnBody ?? this.shopOpenBtn, { scaleTo: 0.96, duration: 70 });
       });
 
+      this._shopOutsideTapHandler = (_pointer, currentlyOver) => {
+        if (this.shopCollapsed || this.shopUiMode !== 'open') return;
+        if (this.isPointerOverShopUi?.(currentlyOver)) return;
+        this.collapseShopUi?.();
+      };
+      this.input?.on?.('pointerdown', this._shopOutsideTapHandler);
+      this.events?.once?.('shutdown', () => {
+        this.input?.off?.('pointerdown', this._shopOutsideTapHandler);
+      });
+
       this.positionShop();
       this.syncShopUI();
+    },
+
+    isPointerOverShopUi(currentlyOver) {
+      const over = Array.isArray(currentlyOver) ? currentlyOver : [];
+      if (!over.length) return false;
+
+      const directHits = [
+        this.shopToggleBtnHit,
+        this.shopRefreshBtnHit,
+        this.shopLockBtnHit,
+        this.shopOpenBtnHit,
+      ].filter(Boolean);
+      for (const target of directHits) {
+        if (over.includes(target)) return true;
+      }
+
+      for (const card of (this.shopCards ?? [])) {
+        if (card?.hit && over.includes(card.hit)) return true;
+      }
+
+      return false;
     },
 
     collapseShopUi() {
@@ -293,11 +352,16 @@
     },
 
     createShopCard(index) {
-      const layout = this.shopCardLayout ?? { width: 132, height: 188 };
+      const layout = this.shopCardLayout ?? {
+        width: Math.round(SHOP_CARD_BASE_WIDTH * SHOP_UI_TUNING.cardScale),
+        height: Math.round(SHOP_CARD_BASE_HEIGHT * SHOP_UI_TUNING.cardScale),
+        scale: SHOP_UI_TUNING.cardScale,
+      };
       const w = layout.width;
       const h = layout.height;
       const top = -h / 2;
-      const artLiftY = Number(this.shopCardArtLiftY ?? 75);
+      const cardScale = Number(layout.scale ?? SHOP_UI_TUNING.cardScale);
+      const artLiftY = Number(this.shopCardArtLiftY ?? (75 * cardScale));
 
       const card = {
         index,
@@ -313,26 +377,37 @@
         .setScrollFactor(0);
 
       const bgBack = this.add.image(
-        SHOP_CARD_BG_OFFSET_X,
-        SHOP_CARD_BG_BACK_OFFSET_Y,
+        SHOP_CARD_ART_PRESET.bgOffsetX,
+        SHOP_CARD_ART_PRESET.bgBackOffsetY,
         SHOP_CARD_BG_BACK_KEY
-      )
-        .setOrigin(0.5, 0.5)
-        .setDisplaySize(
-          w + SHOP_CARD_BG_BACK_WIDTH_DELTA,
-          h + SHOP_CARD_BG_BACK_HEIGHT_DELTA
-        );
+      ).setOrigin(0.5, 0.5);
+      bgBack.setDisplaySize(
+        w + SHOP_CARD_ART_PRESET.bgBackWidthDelta,
+        Math.max(
+          1,
+          (w + SHOP_CARD_ART_PRESET.bgBackWidthDelta)
+            * (Number(bgBack.height ?? 1) / Math.max(1, Number(bgBack.width ?? 1)))
+        )
+      );
       const bg = this.add.image(
-        SHOP_CARD_BG_OFFSET_X,
-        SHOP_CARD_BG_OFFSET_Y,
+        SHOP_CARD_ART_PRESET.bgOffsetX,
+        SHOP_CARD_ART_PRESET.bgOffsetY,
         SHOP_CARD_BG_KEY
-      )
-        .setOrigin(0.5, 0.5)
-        .setDisplaySize(
-          w + SHOP_CARD_BG_WIDTH_DELTA,
-          h + SHOP_CARD_BG_HEIGHT_DELTA
-        );
-      const artPanel = this.add.zone(0, top + 55, w - 14, 86).setOrigin(0.5, 0.5);
+      ).setOrigin(0.5, 0.5);
+      bg.setDisplaySize(
+        w + SHOP_CARD_ART_PRESET.bgWidthDelta,
+        Math.max(
+          1,
+          (w + SHOP_CARD_ART_PRESET.bgWidthDelta)
+            * (Number(bg.height ?? 1) / Math.max(1, Number(bg.width ?? 1)))
+        )
+      );
+      const artPanel = this.add.zone(
+        0,
+        top + (55 * cardScale),
+        w - (14 * cardScale),
+        86 * cardScale
+      ).setOrigin(0.5, 0.5);
       const maskW = Math.max(1, artPanel.width + SHOP_CARD_ART_MASK_WIDTH_DELTA);
       const maskH = Math.max(1, artPanel.height + SHOP_CARD_ART_MASK_HEIGHT_DELTA);
       const maskCx = artPanel.x + SHOP_CARD_ART_MASK_OFFSET_X;
@@ -348,7 +423,7 @@
 
       const previewSprite = this.add.sprite(
         0,
-        (artPanel.y + artPanel.height / 2) - artLiftY + SHOP_CARD_PORTRAIT_OFFSET_Y,
+        (artPanel.y + artPanel.height / 2) - artLiftY + SHOP_CARD_ART_PRESET.portraitOffsetY,
         'swordman_atlas',
         'psd_anim/idle.png'
       )
@@ -361,7 +436,7 @@
         color: '#f0d9a0',
       }).setOrigin(0.5, 0.5).setVisible(false);
 
-      const nameText = this.add.text(0, top + 104 + SHOP_CARD_NAME_OFFSET_Y, '...', {
+      const nameText = this.add.text(0, top + 104 + SHOP_CARD_ART_PRESET.nameOffsetY, '...', {
         fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
         fontSize: '14px',
         color: '#17130d',
@@ -370,7 +445,16 @@
         wordWrap: { width: w - 16, useAdvancedWrap: true },
       }).setOrigin(0.5, 0);
 
-      const typeText = this.add.text(0, top + 132 + SHOP_CARD_RACE_OFFSET_Y, '', {
+      const powerTypeArt = this.add.image(
+        SHOP_CARD_ART_PRESET.powerArtOffsetX,
+        top + SHOP_CARD_ART_PRESET.nameOffsetY + SHOP_CARD_ART_PRESET.powerArtOffsetY,
+        'shop_card_power_pawn'
+      )
+        .setOrigin(0.5, 0.5)
+        .setScale(cardScale * SHOP_CARD_ART_PRESET.powerArtScale)
+        .setVisible(false);
+
+      const typeText = this.add.text(0, top + 132 + SHOP_CARD_ART_PRESET.raceOffsetY, '', {
         fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
         fontSize: '13px',
         color: '#4f3f25',
@@ -378,13 +462,13 @@
         wordWrap: { width: w - 16, useAdvancedWrap: true },
       }).setOrigin(0.5, 0);
 
-      const costCoin = this.add.image(0, top + SHOP_CARD_BOTTOM_ROW_Y + SHOP_CARD_BOTTOM_ROW_OFFSET_Y, 'coin')
+      const costCoin = this.add.image(0, top + SHOP_CARD_ART_PRESET.bottomRowY + SHOP_CARD_ART_PRESET.bottomRowOffsetY, 'coin')
         .setOrigin(0.5, 0.5)
-        .setDisplaySize(SHOP_CARD_COST_COIN_SIZE, SHOP_CARD_COST_COIN_SIZE);
+        .setDisplaySize(SHOP_CARD_ART_PRESET.costCoinSize, SHOP_CARD_ART_PRESET.costCoinSize);
 
-      const costText = this.add.text(SHOP_CARD_COST_TEXT_RIGHT_X, top + SHOP_CARD_BOTTOM_ROW_Y + SHOP_CARD_BOTTOM_ROW_OFFSET_Y, '', {
+      const costText = this.add.text(SHOP_CARD_ART_PRESET.costTextRightX, top + SHOP_CARD_ART_PRESET.bottomRowY + SHOP_CARD_ART_PRESET.bottomRowOffsetY, '', {
         fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
-        fontSize: '18px',
+        fontSize: '26px',
         color: '#ffd85a',
         fontStyle: 'bold',
         align: 'right',
@@ -422,8 +506,11 @@
       card._cardTop = cardTop;
       card._cardBottom = cardBottom;
       card.previewSprite = previewSprite;
-      card.previewPortraitY = artPanel.y + SHOP_CARD_PORTRAIT_OFFSET_Y;
+      card.cardScale = cardScale;
+      card.previewPortraitY = artPanel.y + SHOP_CARD_ART_PRESET.portraitOffsetY;
       card.previewFallback = previewFallback;
+      card.powerTypeArt = powerTypeArt;
+      card.powerTypeArtBaseY = top + SHOP_CARD_ART_PRESET.nameOffsetY + SHOP_CARD_ART_PRESET.powerArtOffsetY;
       card.nameText = nameText;
       card.typeText = typeText;
       card.costCoin = costCoin;
@@ -432,12 +519,12 @@
       card.failHintText = failHintText;
 
       card.updateCostLayout = () => {
-        const textX = SHOP_CARD_COST_TEXT_RIGHT_X + SHOP_CARD_COST_GROUP_OFFSET_X;
-        const y = top + SHOP_CARD_BOTTOM_ROW_Y + SHOP_CARD_BOTTOM_ROW_OFFSET_Y + SHOP_CARD_COST_GROUP_OFFSET_Y;
+        const textX = SHOP_CARD_ART_PRESET.costTextRightX + SHOP_CARD_ART_PRESET.costGroupOffsetX;
+        const y = top + SHOP_CARD_ART_PRESET.bottomRowY + SHOP_CARD_ART_PRESET.bottomRowOffsetY + SHOP_CARD_ART_PRESET.costGroupOffsetY;
         const textW = Number(card.costText.width ?? 0);
-        const coinW = Number(card.costCoin.displayWidth ?? SHOP_CARD_COST_COIN_SIZE);
+        const coinW = Number(card.costCoin.displayWidth ?? SHOP_CARD_ART_PRESET.costCoinSize);
         card.costText.setPosition(textX, y);
-        card.costCoin.setPosition(textX - textW - SHOP_CARD_COST_GAP_PX - (coinW / 2), y);
+        card.costCoin.setPosition(textX - textW - SHOP_CARD_ART_PRESET.costGapPx - (coinW / 2), y);
       };
 
       card.applyArtCrop = () => {
@@ -506,6 +593,7 @@
         card.container.setScale(pressed ? 0.985 : 1);
         card.previewSprite.setAlpha(enabled ? 1 : 0.55);
         card.previewFallback.setAlpha(enabled ? 1 : 0.55);
+        card.powerTypeArt.setAlpha(enabled ? 1 : 0.75);
         card.nameText.setAlpha(enabled ? 1 : 0.75);
         card.typeText.setAlpha(enabled ? 1 : 0.75);
         card.costCoin.setAlpha(enabled ? 1 : 0.75);
@@ -548,6 +636,7 @@
         previewSprite,
         previewFallback,
         bg,
+        powerTypeArt,
         nameText,
         typeText,
         costCoin,
@@ -588,9 +677,15 @@
     positionShop() {
       if (!this.shopCards?.length) return;
 
-      const layout = this.shopCardLayout ?? { width: 132, height: 188, gap: 10, bottomMargin: 10 };
+      const layout = this.shopCardLayout ?? {
+        width: Math.round(SHOP_CARD_BASE_WIDTH * SHOP_UI_TUNING.cardScale),
+        height: Math.round(SHOP_CARD_BASE_HEIGHT * SHOP_UI_TUNING.cardScale),
+        gap: 10,
+        bottomMargin: 10,
+        scale: SHOP_UI_TUNING.cardScale,
+      };
       const totalW = this.shopCards.length * layout.width + (this.shopCards.length - 1) * layout.gap;
-      let x = this.scale.width / 2 - totalW / 2 + layout.width / 2;
+      let x = this.scale.width / 2 - totalW / 2 + layout.width / 2 + SHOP_UI_TUNING.offsetX;
       const y = this.scale.height - layout.bottomMargin - layout.height / 2;
 
       for (const card of this.shopCards) {
@@ -599,17 +694,8 @@
       }
 
       if (this.shopToggleBtn) {
-        const firstCard = this.shopCards?.[0] ?? null;
-        const firstCardLeftX = Number(firstCard?.container?.x ?? x) - layout.width / 2;
-        if (this.shopLockBtn) {
-          const lockHalfW = (this.shopLockBtn.width ?? this.shopLockBtn.displayWidth ?? 0) / 2;
-          const lockHalfH = (this.shopLockBtn.height ?? this.shopLockBtn.displayHeight ?? 0) / 2;
-          const tileBottomY = y + layout.height / 2;
-          const lockY = tileBottomY - lockHalfH;
-          this.shopLockBtn.setPosition(firstCardLeftX - lockHalfW - 8 - 28, lockY);
-        }
-
-        const rightEdge = this.scale.width / 2 + totalW / 2;
+        const lastCard = this.shopCards?.[this.shopCards.length - 1] ?? null;
+        const rightEdge = Number(lastCard?.container?.x ?? x) + layout.width / 2;
         const btnX = rightEdge + 18;
         const btnY = y - layout.height / 2 + 16;
         this.shopToggleBtn.setPosition(btnX - 10, btnY - 15);
@@ -621,6 +707,12 @@
           const refreshY = tileBottomY - refreshHalfH;
           const leftEdgeX = btnX - xHalfW;
           this.shopRefreshBtn.setPosition(leftEdgeX + 8, refreshY);
+
+          if (this.shopLockBtn) {
+            const lockHalfH = (this.shopLockBtn.height ?? this.shopLockBtn.displayHeight ?? 0) / 2;
+            const lockY = refreshY - refreshHalfH - lockHalfH - 8;
+            this.shopLockBtn.setPosition(leftEdgeX + 8, lockY);
+          }
         }
       }
 
@@ -714,7 +806,7 @@
       if (btn === this.shopToggleBtn) return mode === 'open';
       if (btn === this.shopLockBtn) return mode === 'open';
       if (btn === this.shopRefreshBtn) return mode === 'open';
-      if (btn === this.shopOpenBtn) return mode === 'collapsed' || mode === 'open';
+      if (btn === this.shopOpenBtn) return mode === 'collapsed';
 
       return false;
     },
@@ -860,7 +952,7 @@
         this.setShopButtonVisual(this.shopToggleBtn, true, { immediate, slideY: 6 });
         this.setShopButtonVisual(this.shopLockBtn, true, { immediate, slideY: 6 });
         this.setShopButtonVisual(this.shopRefreshBtn, true, { immediate, slideY: 6 });
-        this.setShopButtonVisual(this.shopOpenBtn, true, { immediate: true, slideY: 10 });
+        this.setShopButtonVisual(this.shopOpenBtn, false, { immediate: true, slideY: 10 });
         return;
       }
 
@@ -954,6 +1046,7 @@
           card.nameText.setText('\u041f\u0443\u0441\u0442\u043e');
           card.typeText.setText('\u2014');
           card.costText.setText('');
+          card.powerTypeArt?.setVisible(false);
           card.costCoin?.setVisible(false);
           card.previewSprite.setCrop();
           card.previewSprite.setVisible(false);
@@ -966,6 +1059,21 @@
         card.enabled = true;
         card.pressed = false;
         card.nameText.setText(String(o.type ?? 'Unknown'));
+        const powerTypeText = String(o.powerType ?? '\u2014');
+        const powerTypeArtKey = SHOP_CARD_POWER_ART_KEY_BY_POWER_TYPE[powerTypeText] ?? null;
+        if (card.powerTypeArt) {
+          if (powerTypeArtKey && this.textures?.exists?.(powerTypeArtKey)) {
+            card.powerTypeArt.setTexture(powerTypeArtKey);
+            card.powerTypeArt.setPosition(
+              SHOP_CARD_ART_PRESET.powerArtOffsetX,
+              Number(card.powerTypeArtBaseY ?? 0)
+            );
+            card.powerTypeArt.setScale(Number(card.cardScale ?? 1) * SHOP_CARD_ART_PRESET.powerArtScale);
+            card.powerTypeArt.setVisible(true);
+          } else {
+            card.powerTypeArt.setVisible(false);
+          }
+        }
         const raceKey = String(o.race ?? '').toUpperCase();
         const raceText = SHOP_RACE_LABEL_BY_KEY[raceKey] ?? String(o.race ?? '\u2014');
         card.typeText.setText(raceText);
@@ -986,7 +1094,7 @@
           card.previewSprite.setCrop();
           card.previewSprite.setOrigin(0.5, 0.5);
           card.previewSprite.setPosition(
-            Number(SHOP_CARD_PORTRAIT_OFFSET_X ?? 0),
+            Number(SHOP_CARD_ART_PRESET.portraitOffsetX ?? 0),
             Number(card.previewPortraitY ?? card.artPanel?.y ?? 0) + Number(portraitStyle.offsetYPx ?? 0),
           );
           if (hasCustomPortrait) {
