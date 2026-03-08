@@ -22,6 +22,9 @@
     Swordsman: 'swordman',
   };
   const SHOP_CUSTOM_PORTRAIT_BY_TYPE = {
+    Monk: {
+      key: 'shop_portrait_monk',
+    },
     NagaSiren: {
       key: 'shop_portrait_siren',
     },
@@ -63,7 +66,7 @@
     powerArtOffsetX: 0,
     powerArtOffsetY: 78,
     powerArtScale: 0.37,
-    costTextRightX: 55,
+    costTextRightX: 57,
     costGroupOffsetX: -31,
     costGroupOffsetY: 100,
     costGapPx: 6,
