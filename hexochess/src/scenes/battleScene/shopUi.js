@@ -25,11 +25,29 @@
     Angel: {
       key: 'shop_portrait_angel',
     },
+    BonesGolem: {
+      key: 'shop_portrait_bones_golem',
+    },
+    Crossbowman: {
+      key: 'shop_portrait_crossbowman',
+    },
     Crusader: {
       key: 'shop_portrait_crusader',
     },
+    Devil: {
+      key: 'shop_portrait_devil',
+    },
+    Ghost: {
+      key: 'shop_portrait_ghost',
+    },
+    Headless: {
+      key: 'shop_portrait_headless',
+    },
     Incub: {
       key: 'shop_portrait_incub',
+    },
+    Lich: {
+      key: 'shop_portrait_lich',
     },
     Knight: {
       key: 'shop_portrait_knight',
@@ -40,8 +58,32 @@
     NagaSiren: {
       key: 'shop_portrait_siren',
     },
+    Priest: {
+      key: 'shop_portrait_priest',
+    },
+    Skeleton: {
+      key: 'shop_portrait_skeleton',
+    },
+    SkeletonArcher: {
+      key: 'shop_portrait_skeleton_archer',
+    },
     Succub: {
       key: 'shop_portrait_succub',
+    },
+    Swordsman: {
+      key: 'shop_portrait_swordman',
+    },
+    Undertaker: {
+      key: 'shop_portrait_undertaker',
+    },
+    Vampire: {
+      key: 'shop_portrait_vampire',
+    },
+    Worm: {
+      key: 'shop_portrait_worm',
+    },
+    Zombie: {
+      key: 'shop_portrait_zombie',
     },
   };
   const SHOP_CARD_POWER_ART_KEY_BY_POWER_TYPE = Object.freeze({

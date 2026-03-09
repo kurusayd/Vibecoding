@@ -276,13 +276,27 @@ export default class BattleScene extends Phaser.Scene {
     this.load.image(TRASH_ICON_OPEN_KEY, '/assets/icons/trash/trash_open.png');
     this.load.image('projectile_bone', '/assets/projectiles/bone.png');
     this.load.image('projectile_bolt', '/assets/projectiles/bolt.png');
+    this.load.image('shop_portrait_bones_golem', '/assets/units/undead/bones_golem/bonny_portrait.png');
+    this.load.image('shop_portrait_ghost', '/assets/units/undead/ghost/ghost_portrait.png');
     this.load.image('shop_portrait_angel', '/assets/units/gods/angel/angel_portrait.png');
+    this.load.image('shop_portrait_crossbowman', '/assets/units/human/crossbowman/crossbowman_portrait.png');
     this.load.image('shop_portrait_crusader', '/assets/units/human/crusader/crusader_portrait.png');
+    this.load.image('shop_portrait_devil', '/assets/units/demons/devil/devis_portrait.png');
+    this.load.image('shop_portrait_headless', '/assets/units/undead/headless/headless_portrait.png');
     this.load.image('shop_portrait_incub', '/assets/units/demons/incub/incub_portrait.png');
     this.load.image('shop_portrait_knight', '/assets/units/human/knight/knight_portrait.png');
+    this.load.image('shop_portrait_lich', '/assets/units/undead/lich/lich_portrait.png');
     this.load.image('shop_portrait_monk', '/assets/units/lizard/monk/monk_portrait.png');
+    this.load.image('shop_portrait_priest', '/assets/units/human/priest/priest_portrait.png');
+    this.load.image('shop_portrait_skeleton', '/assets/units/undead/skeleton/skeleton_portrait.png');
+    this.load.image('shop_portrait_skeleton_archer', '/assets/units/undead/skeleton_archer/sarcher_portrait.png');
     this.load.image('shop_portrait_siren', '/assets/units/lizard/siren/siren_portrait.png');
     this.load.image('shop_portrait_succub', '/assets/units/demons/succub/succub_portrait.png');
+    this.load.image('shop_portrait_swordman', '/assets/units/human/swordman/swordman_portrait.png');
+    this.load.image('shop_portrait_undertaker', '/assets/units/undead/undertaker/undertaker_portrait.png');
+    this.load.image('shop_portrait_vampire', '/assets/units/undead/vampire/vampire_portrait.png');
+    this.load.image('shop_portrait_worm', '/assets/units/undead/worm/worm_portrait.png');
+    this.load.image('shop_portrait_zombie', '/assets/units/undead/zombie/zombie_portrait.png');
     this.load.image(BENCH_HEX_PIN_TEXTURE_KEY, '/assets/bench/grass/pin1.png');
 
     for (const asset of EXTRA_PORTRAIT_ASSETS) {
