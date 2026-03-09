@@ -22,6 +22,9 @@
     Swordsman: 'swordman',
   };
   const SHOP_CUSTOM_PORTRAIT_BY_TYPE = {
+    Angel: {
+      key: 'shop_portrait_angel',
+    },
     Crusader: {
       key: 'shop_portrait_crusader',
     },

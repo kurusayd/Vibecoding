@@ -276,6 +276,7 @@ export default class BattleScene extends Phaser.Scene {
     this.load.image(TRASH_ICON_OPEN_KEY, '/assets/icons/trash/trash_open.png');
     this.load.image('projectile_bone', '/assets/projectiles/bone.png');
     this.load.image('projectile_bolt', '/assets/projectiles/bolt.png');
+    this.load.image('shop_portrait_angel', '/assets/units/gods/angel/angel_portrait.png');
     this.load.image('shop_portrait_crusader', '/assets/units/human/crusader/crusader_portrait.png');
     this.load.image('shop_portrait_incub', '/assets/units/demons/incub/incub_portrait.png');
     this.load.image('shop_portrait_knight', '/assets/units/human/knight/knight_portrait.png');
