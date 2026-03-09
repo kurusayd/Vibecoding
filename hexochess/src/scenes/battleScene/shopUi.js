@@ -37,6 +37,9 @@
     NagaSiren: {
       key: 'shop_portrait_siren',
     },
+    Succub: {
+      key: 'shop_portrait_succub',
+    },
   };
   const SHOP_CARD_POWER_ART_KEY_BY_POWER_TYPE = Object.freeze({
     'Пешка': 'shop_card_power_pawn',

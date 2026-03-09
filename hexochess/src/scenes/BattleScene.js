@@ -281,6 +281,7 @@ export default class BattleScene extends Phaser.Scene {
     this.load.image('shop_portrait_knight', '/assets/units/human/knight/knight_portrait.png');
     this.load.image('shop_portrait_monk', '/assets/units/lizard/monk/monk_portrait.png');
     this.load.image('shop_portrait_siren', '/assets/units/lizard/siren/siren_portrait.png');
+    this.load.image('shop_portrait_succub', '/assets/units/demons/succub/succub_portrait.png');
     this.load.image(BENCH_HEX_PIN_TEXTURE_KEY, '/assets/bench/grass/pin1.png');
 
     for (const asset of EXTRA_PORTRAIT_ASSETS) {

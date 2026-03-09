@@ -20,9 +20,9 @@ const DEFAULT_FOOT_SHADOW_OFFSET_Y_PX = 10;
 export const UNIT_VISUAL_CONFIG_BY_TYPE = {
   Angel: {
     groundLiftPx: 117,
-    artTargetPx: 210,
+    artTargetPx: 190,
     artOffsetXPx: 10,
-    hpUiLiftPx: 75,
+    hpUiLiftPx: 82,
     footShadowWidthPx: 76,
     footShadowHeightPx: 24,
     footShadowOffsetXPx: 0,
