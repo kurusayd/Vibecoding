@@ -64,10 +64,10 @@ const KING_UI = {
     lagAlpha: 1,
     fillColor: 0x76c56f,
     fillAlpha: 0.95,
-    frameColor: 0x1b1b1b,
+    frameColor: 0x5a5a5a,
     frameAlpha: 0.85,
-    pixelFrameColor: 0x000000,
-    pixelFrameAlpha: 0.9,
+    pixelFrameColor: 0x4a4a4a,
+    pixelFrameAlpha: 0.82,
     highlightColor: 0xffffff,
     highlightAlpha: 0.14,
   },
@@ -266,6 +266,7 @@ export default class BattleScene extends Phaser.Scene {
     this.load.image('updateMarketIcon', '/assets/shop/update_market.png');
     this.load.image('lock_open', '/assets/shop/lock_open.png');
     this.load.image('lock_close', '/assets/shop/lock_close.png');
+    this.load.image('shop_dice', '/assets/shop/dice.png');
     this.load.image('shop_card_power_pawn', '/assets/shop/pawn.png');
     this.load.image('shop_card_power_knight', '/assets/shop/knight.png');
     this.load.image('shop_card_power_bishop', '/assets/shop/bishop.png');
@@ -499,6 +500,10 @@ export default class BattleScene extends Phaser.Scene {
 
     // --- KING LEVEL UI (crown + xp bar) ---
     this.kingLevelExpanded = false;
+    this.kingHpExpanded = {
+      player: false,
+      enemy: false,
+    };
 
     this.kingLevelContainer = this.add.container(0, 0)
       .setScrollFactor(0)
@@ -558,6 +563,8 @@ export default class BattleScene extends Phaser.Scene {
       const over = currentlyOver || [];
 
       const overLevel = this.kingLevelHit && over.includes(this.kingLevelHit);
+      const overPlayerHp = this.kingLeftHpHit && over.includes(this.kingLeftHpHit);
+      const overEnemyHp = this.kingRightHpHit && over.includes(this.kingRightHpHit);
 
       const overCoins = this.coinHit && over.includes(this.coinHit);
       const overCoinPopup = this.coinPopupHit && over.includes(this.coinPopupHit); // ? важно
@@ -567,6 +574,13 @@ export default class BattleScene extends Phaser.Scene {
         this.kingLevelExpanded = false;
         this.kingLevelXpText?.setVisible(false);
         this.positionCoinsHUD();
+      }
+
+      if (!overPlayerHp && !overEnemyHp) {
+        if (this.kingHpExpanded?.player) this.kingHpExpanded.player = false;
+        if (this.kingHpExpanded?.enemy) this.kingHpExpanded.enemy = false;
+        this.kingLeftHpText?.setVisible(false);
+        this.kingRightHpText?.setVisible(false);
       }
 
       // закрытие попапа золота: закрываем только если тап НЕ по блоку золота и НЕ по самому попапу
@@ -764,40 +778,70 @@ export default class BattleScene extends Phaser.Scene {
     };
 
     const hpTextStyle = { //вставляем текст НР бара короля поверх полоски
-      fontFamily: kingTextStyle.fontFamily,
-      fontSize: '16px',
+      fontFamily: 'CormorantSC-Bold, CormorantSC-SemiBold, CormorantSC-Regular, Georgia, serif',
+      fontSize: '32px',
       color: '#ffffff',
+      fontStyle: 'bold',
     };
 
     this.kingLeftHpText = this.add.text(0, 0, '', hpTextStyle)
       .setDepth(KING_RENDER_DEPTH_BASE + 4)
-      .setOrigin(0.5, 0.5)
-      .setShadow(0, 0, '#000000', 4, true, true);
+      .setOrigin(1, 0.5)
+      .setStroke('#5a5a5a', 2)
+      .setShadow(0, 0, '#000000', 2, true, true)
+      .setVisible(false);
 
     this.kingRightHpText = this.add.text(0, 0, '', hpTextStyle)
       .setDepth(KING_RENDER_DEPTH_BASE + 4)
-      .setOrigin(0.5, 0.5)
-      .setShadow(0, 0, '#000000', 4, true, true);
+      .setOrigin(1, 0.5)
+      .setStroke('#5a5a5a', 2)
+      .setShadow(0, 0, '#000000', 2, true, true)
+      .setVisible(false);
+
+    this.kingLeftHpHit = this.add.zone(0, 0, 1, 1)
+      .setDepth(KING_RENDER_DEPTH_BASE + 5)
+      .setOrigin(0, 0)
+      .setInteractive({ useHandCursor: true })
+      .setVisible(false);
+    this.kingLeftHpHit.on('pointerdown', (pointer) => {
+      pointer?.event?.stopPropagation?.();
+      const next = !Boolean(this.kingHpExpanded?.player);
+      this.kingHpExpanded.player = next;
+      this.kingLeftHpText?.setVisible(next);
+      this.drawKingHpBars?.();
+    });
+
+    this.kingRightHpHit = this.add.zone(0, 0, 1, 1)
+      .setDepth(KING_RENDER_DEPTH_BASE + 5)
+      .setOrigin(0, 0)
+      .setInteractive({ useHandCursor: true })
+      .setVisible(false);
+    this.kingRightHpHit.on('pointerdown', (pointer) => {
+      pointer?.event?.stopPropagation?.();
+      const next = !Boolean(this.kingHpExpanded?.enemy);
+      this.kingHpExpanded.enemy = next;
+      this.kingRightHpText?.setVisible(next);
+      this.drawKingHpBars?.();
+    });
 
     const kingNameTextStyle = {
-      fontFamily: kingTextStyle.fontFamily,
+      fontFamily: 'CormorantSC-SemiBold, CormorantSC-Regular, Georgia, serif',
       fontSize: '15px',
       color: '#ffffff',
+      fontStyle: 'bold',
     };
 
     this.kingLeftNameText = this.add.text(0, 0, PLAYER_KING_DISPLAY_NAME, kingNameTextStyle)
       .setDepth(KING_RENDER_DEPTH_BASE + 4)
-      .setOrigin(0.5, 1)
-      .setShadow(0, 0, '#000000', 4, true, true)
+      .setOrigin(0, 1)
+      .setStroke('#5a5a5a', 1)
       .setVisible(false);
 
     this.kingRightNameText = this.add.text(0, 0, ENEMY_KING_DISPLAY_NAME, kingNameTextStyle)
       .setDepth(KING_RENDER_DEPTH_BASE + 4)
-      .setOrigin(0.5, 1)
-      .setShadow(0, 0, '#000000', 4, true, true)
+      .setOrigin(0, 1)
+      .setStroke('#5a5a5a', 1)
       .setVisible(false);
-
-    this.kingRightHpText.setVisible(false);
     this.kingRightShadow.setVisible(false);
 
 
@@ -2257,12 +2301,20 @@ export default class BattleScene extends Phaser.Scene {
 
       // Numeric HP text hidden by design: HP is shown only via bar (details in Rating).
       const hpText = (kingSprite === this.kingLeft) ? this.kingLeftHpText : this.kingRightHpText;
-      hpText?.setVisible(false);
+      const hpSide = (kingSprite === this.kingLeft) ? 'player' : 'enemy';
+      hpText?.setText(`${Math.round(targetHp)}`);
+      hpText?.setPosition(x + barWidth - 4, y + (barHeight / 2) + 2);
+      hpText?.setVisible(Boolean(this.kingHpExpanded?.[hpSide]));
+
+      const hpHit = (kingSprite === this.kingLeft) ? this.kingLeftHpHit : this.kingRightHpHit;
+      hpHit?.setPosition(x - 6, y - 6);
+      hpHit?.setSize(barWidth + 12, barHeight + 12);
+      hpHit?.setVisible(true);
 
       // имя короля над полоской HP
       const kingNameText = (kingSprite === this.kingLeft) ? this.kingLeftNameText : this.kingRightNameText;
       if (kingNameText) {
-        kingNameText.setPosition(kingSprite.x, y - 4);
+        kingNameText.setPosition(x, y - 4);
         kingNameText.setVisible(true);
       }
 
@@ -2274,6 +2326,7 @@ export default class BattleScene extends Phaser.Scene {
       this.kingLeftHpLagFill.clear();
       this.kingLeftHpFill.clear();
       this.kingLeftHpText?.setVisible(false);
+      this.kingLeftHpHit?.setVisible(false);
       this.kingLeftNameText?.setVisible(false);
     }
     this.kingLeftShadow?.setVisible?.(this.kingLeft?.visible !== false);
@@ -2296,6 +2349,7 @@ export default class BattleScene extends Phaser.Scene {
       this.kingRightHpLagFill.clear();
       this.kingRightHpFill.clear();
       this.kingRightHpText?.setVisible(false);
+      this.kingRightHpHit?.setVisible(false);
       this.kingRightNameText?.setVisible(false);
       this.kingRightShadow?.setVisible?.(false);
     }

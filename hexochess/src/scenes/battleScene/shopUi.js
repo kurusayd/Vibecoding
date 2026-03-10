@@ -167,6 +167,13 @@
   const BUTTON_SHADOW_ALPHA = 0.35;
   const BUTTON_SHADOW_OFFSET_X = 2;
   const BUTTON_SHADOW_OFFSET_Y = 3;
+  const SHOP_LEVEL_GUIDE_ROWS = Object.freeze([
+    { label: 'Пешка', iconKey: 'shop_card_power_pawn' },
+    { label: 'Конь', iconKey: 'shop_card_power_knight' },
+    { label: 'Слон', iconKey: 'shop_card_power_bishop' },
+    { label: 'Ладья', iconKey: 'shop_card_power_rook' },
+    { label: 'Ферзь', iconKey: 'shop_card_power_queen' },
+  ]);
 
   Object.assign(BattleScene.prototype, {
     initShopUI() {
@@ -225,6 +232,46 @@
         this.playPressFeedback?.(this.shopToggleBtnBody ?? this.shopToggleBtn, { scaleTo: 0.96, duration: 70 });
       });
 
+      this.shopDiceBtn = this.add.container(0, 0)
+        .setDepth(10000)
+        .setScrollFactor(0);
+      this.shopDiceBtnBody = this.add.container(30, 0);
+      this.shopDiceBtnShadow = this.add.rectangle(BUTTON_SHADOW_OFFSET_X, BUTTON_SHADOW_OFFSET_Y, 62, 66, BUTTON_SHADOW_COLOR, BUTTON_SHADOW_ALPHA)
+        .setOrigin(0.5, 0.5);
+      this.shopDiceBtnBg = this.add.rectangle(0.5, 0.5, 59, 63, 0xd8c8aa, 0.93)
+        .setOrigin(0.5, 0.5)
+        .setStrokeStyle(4, 0x8f6d39, 1);
+      this.shopDiceBtnLabel = this.add.text(0, -2, '%', {
+        fontFamily: 'CormorantSC-SemiBold, CormorantSC-Regular, Georgia, serif',
+        fontSize: '30px',
+        fontStyle: 'bold',
+        color: '#5d4324',
+      }).setOrigin(0.5, 0.5).setStroke('#efe0be', 1);
+      this.shopDiceBtnQuestion = this.add.text(18, -17, '?', {
+        fontFamily: 'CormorantSC-SemiBold, CormorantSC-Regular, Georgia, serif',
+        fontSize: '18px',
+        fontStyle: 'bold',
+        color: '#5d4324',
+      }).setOrigin(0.5, 0.5).setStroke('#efe0be', 1);
+      this.shopDiceBtnBody.add([
+        this.shopDiceBtnShadow,
+        this.shopDiceBtnBg,
+        this.shopDiceBtnLabel,
+        this.shopDiceBtnQuestion,
+      ]);
+      this.shopDiceBtn.add(this.shopDiceBtnBody);
+      this.shopDiceBtn.setSize(60, 64);
+      this.shopDiceBtnHit = this.add.zone(30, 0, 60, 64)
+        .setOrigin(0.5, 0.5)
+        .setInteractive({ useHandCursor: true });
+      this.shopDiceBtn.add(this.shopDiceBtnHit);
+
+      this.shopDiceBtnHit.on('pointerdown', (pointer) => {
+        pointer?.event?.stopPropagation?.();
+        this.playPressFeedback?.(this.shopDiceBtnBody, { scaleTo: 0.96, duration: 70 });
+        this.toggleShopLevelGuideModal?.();
+      });
+
       this.shopRefreshBtn = this.add.container(0, 0)
         .setDepth(10000)
         .setScrollFactor(0);
@@ -238,7 +285,7 @@
         .setOrigin(0.5, 0.5)
         .setStrokeStyle(4, 0x8f6d39, 1);
 
-      this.shopRefreshBtnIcon = this.add.image(0, -9, 'updateMarketIcon')
+      this.shopRefreshBtnIcon = this.add.image(0, -9, 'shop_dice')
         .setOrigin(0.5, 0.5)
         .setDisplaySize(36, 36);
 
@@ -333,6 +380,8 @@
         });
       });
 
+      this.initShopLevelGuideModal?.();
+
       this.shopOpenBtn = this.add.container(0, 0)
         .setDepth(10000)
         .setScrollFactor(0)
@@ -388,9 +437,11 @@
 
       const directHits = [
         this.shopToggleBtnHit,
+        this.shopDiceBtnHit,
         this.shopRefreshBtnHit,
         this.shopLockBtnHit,
         this.shopOpenBtnHit,
+        this.shopLevelGuideHit,
       ].filter(Boolean);
       for (const target of directHits) {
         if (over.includes(target)) return true;
@@ -762,14 +813,23 @@
 
         if (this.shopRefreshBtn) {
           const xHalfW = (this.shopToggleBtn.width ?? this.shopToggleBtn.displayWidth ?? 0) / 2;
+          const diceHalfH = (this.shopDiceBtn?.height ?? this.shopDiceBtn?.displayHeight ?? 0) / 2;
+          const lockHalfH = (this.shopLockBtn?.height ?? this.shopLockBtn?.displayHeight ?? 0) / 2;
           const refreshHalfH = (this.shopRefreshBtn.height ?? this.shopRefreshBtn.displayHeight ?? 0) / 2;
           const tileBottomY = y + layout.height / 2;
           const refreshY = tileBottomY - refreshHalfH;
           const leftEdgeX = btnX - xHalfW;
           this.shopRefreshBtn.setPosition(leftEdgeX + 8, refreshY);
 
-          if (this.shopLockBtn) {
-            const lockHalfH = (this.shopLockBtn.height ?? this.shopLockBtn.displayHeight ?? 0) / 2;
+          if (this.shopDiceBtn) {
+            const diceY = refreshY - refreshHalfH - diceHalfH - 8;
+            this.shopDiceBtn.setPosition(leftEdgeX + 8, diceY);
+
+            if (this.shopLockBtn) {
+              const lockY = diceY - diceHalfH - lockHalfH - 8;
+              this.shopLockBtn.setPosition(leftEdgeX + 8, lockY);
+            }
+          } else if (this.shopLockBtn) {
             const lockY = refreshY - refreshHalfH - lockHalfH - 8;
             this.shopLockBtn.setPosition(leftEdgeX + 8, lockY);
           }
@@ -785,6 +845,10 @@
           view.y + view.height - 30 - btnH / 2,
         );
       }
+
+      if (this.shopLevelGuideVisible) {
+        this.positionShopLevelGuideModal?.();
+      }
     },
 
     stopShopUiTweens() {
@@ -792,6 +856,8 @@
         if (card?.container) this.tweens.killTweensOf(card.container);
       }
       if (this.shopToggleBtn) this.tweens.killTweensOf(this.shopToggleBtn);
+      if (this.shopDiceBtn) this.tweens.killTweensOf(this.shopDiceBtn);
+      if (this.shopDiceBtnBody) this.tweens.killTweensOf(this.shopDiceBtnBody);
       if (this.shopRefreshBtn) this.tweens.killTweensOf(this.shopRefreshBtn);
       if (this.shopRefreshBtnBody) this.tweens.killTweensOf(this.shopRefreshBtnBody);
       if (this.shopLockBtn) this.tweens.killTweensOf(this.shopLockBtn);
@@ -864,6 +930,7 @@
       const mode = this.shopUiMode ?? 'hidden';
 
       if (btn === this.shopToggleBtn) return mode === 'open';
+      if (btn === this.shopDiceBtn) return mode === 'open';
       if (btn === this.shopLockBtn) return mode === 'open';
       if (btn === this.shopRefreshBtn) return mode === 'open';
       if (btn === this.shopOpenBtn) return mode === 'collapsed';
@@ -1006,10 +1073,23 @@
       if (this.shopToggleBtnLabel) {
         this.shopToggleBtnLabel.setColor('#f6e9ec');
       }
+      if (this.shopDiceBtnBg) {
+        this.shopDiceBtnBg.setFillStyle(0xd8c8aa, 0.93);
+        this.shopDiceBtnBg.setStrokeStyle(4, 0x8f6d39, 1);
+      }
+      if (this.shopDiceBtnLabel) {
+        this.shopDiceBtnLabel.setColor('#5d4324');
+        this.shopDiceBtnLabel.setStroke('#efe0be', 1);
+      }
+      if (this.shopDiceBtnQuestion) {
+        this.shopDiceBtnQuestion.setColor('#5d4324');
+        this.shopDiceBtnQuestion.setStroke('#efe0be', 1);
+      }
 
       if (mode === 'open') {
         this.setShopCardsVisual(true, { immediate });
         this.setShopButtonVisual(this.shopToggleBtn, true, { immediate, slideY: 6 });
+        this.setShopButtonVisual(this.shopDiceBtn, true, { immediate, slideY: 6 });
         this.setShopButtonVisual(this.shopLockBtn, true, { immediate, slideY: 6 });
         this.setShopButtonVisual(this.shopRefreshBtn, true, { immediate, slideY: 6 });
         this.setShopButtonVisual(this.shopOpenBtn, false, { immediate: true, slideY: 10 });
@@ -1019,6 +1099,7 @@
       if (mode === 'collapsed') {
         this.setShopCardsVisual(false, { immediate });
         this.setShopButtonVisual(this.shopToggleBtn, false, { immediate, slideY: 6 });
+        this.setShopButtonVisual(this.shopDiceBtn, false, { immediate, slideY: 6 });
         this.setShopButtonVisual(this.shopLockBtn, false, { immediate, slideY: 6 });
         this.setShopButtonVisual(this.shopRefreshBtn, false, { immediate, slideY: 6 });
         this.setShopButtonVisual(this.shopOpenBtn, true, { immediate: true, slideY: 10 });
@@ -1027,6 +1108,7 @@
 
       this.setShopCardsVisual(false, { immediate });
       this.setShopButtonVisual(this.shopToggleBtn, false, { immediate, slideY: 6 });
+      this.setShopButtonVisual(this.shopDiceBtn, false, { immediate, slideY: 6 });
       this.setShopButtonVisual(this.shopLockBtn, false, { immediate, slideY: 6 });
       this.setShopButtonVisual(this.shopRefreshBtn, false, { immediate, slideY: 6 });
       this.setShopButtonVisual(this.shopOpenBtn, false, { immediate: true, slideY: 10 });
@@ -1060,7 +1142,19 @@
         this.shopOpenBtn.setAlpha(isActive ? 1 : 0.94);
       }
 
+      if (mode !== 'open') this.hideShopLevelGuideModal?.();
+
       if (!show) return;
+
+      if (this.shopDiceBtn) {
+        const canOpenGuide = (mode === 'open');
+        this.shopDiceBtnShadow?.setFillStyle(BUTTON_SHADOW_COLOR, 1);
+        this.shopDiceBtnShadow?.setAlpha(canOpenGuide ? BUTTON_SHADOW_ALPHA : 0.18);
+        this.shopDiceBtnLabel?.setAlpha(canOpenGuide ? 1 : 0.6);
+        this.shopDiceBtnQuestion?.setAlpha(canOpenGuide ? 1 : 0.6);
+        if (this.shopDiceBtnHit?.input) this.shopDiceBtnHit.input.enabled = canOpenGuide;
+        this.shopDiceBtn.setAlpha(canOpenGuide ? 1 : 0.78);
+      }
 
       const isShopLocked = Boolean(this.battleState?.shop?.locked);
       const refreshCost = 2;
@@ -1179,6 +1273,172 @@
 
         card.refreshVisual();
       }
+    },
+
+    initShopLevelGuideModal() {
+      const modalPaddingLeft = 26;
+      const modalPaddingRight = 22;
+      const firstColW = 118;
+      const colW = 38;
+      const rowH = 46;
+      const levels = Math.min(11, Math.max(1, Number(this.kingMaxLevel ?? 20)));
+      const tableWidth = firstColW + colW * levels;
+      const tableHeight = rowH * (SHOP_LEVEL_GUIDE_ROWS.length + 1);
+      const modalWidth = tableWidth + modalPaddingLeft + modalPaddingRight;
+      const modalHeight = 410;
+      const left = -modalWidth / 2 + modalPaddingLeft;
+      const top = -130;
+      const modal = this.add.container(0, 0)
+        .setDepth(15040)
+        .setScrollFactor(0)
+        .setVisible(false);
+      const shadow = this.add.rectangle(0, 0, modalWidth + 20, modalHeight + 20, 0x000000, 0.42).setOrigin(0.5, 0.5);
+      const bg = this.add.rectangle(0, 0, modalWidth, modalHeight, 0x1c1410, 0.96)
+        .setOrigin(0.5, 0.5)
+        .setStrokeStyle(3, 0xc18a42, 0.95);
+      const title = this.add.text(left, -180, 'Шанс выпадения фигур', {
+        fontFamily: 'CormorantSC-SemiBold, CormorantSC-Regular, Georgia, serif',
+        fontSize: '28px',
+        fontStyle: 'bold',
+        color: '#f7e7c7',
+      }).setOrigin(0, 0.5).setStroke('#5a5a5a', 1);
+
+      const table = this.add.container(0, 8);
+
+      const tableBg = this.add.rectangle(0, 0, tableWidth, tableHeight, 0x241b16, 0.74)
+        .setOrigin(0, 0);
+      tableBg.setPosition(left, top);
+      table.add(tableBg);
+
+      for (let col = 0; col <= levels; col += 1) {
+        const x = left + (col === 0 ? firstColW : firstColW + colW * (col - 1));
+        table.add(this.add.rectangle(x, top, 1, tableHeight, 0x8f6d39, 0.85).setOrigin(0, 0));
+      }
+      for (let row = 0; row <= SHOP_LEVEL_GUIDE_ROWS.length + 1; row += 1) {
+        const y = top + rowH * row;
+        table.add(this.add.rectangle(left, y, tableWidth, 1, 0x8f6d39, 0.85).setOrigin(0, 0));
+      }
+
+      for (let level = 1; level <= levels; level += 1) {
+        const levelLabel = level >= 11 ? '11+' : `${level}`;
+        table.add(this.add.text(left + firstColW + colW * (level - 1) + colW / 2, top + rowH / 2, levelLabel, {
+          fontFamily: 'CormorantSC-SemiBold, CormorantSC-Regular, Georgia, serif',
+          fontSize: '18px',
+          fontStyle: 'bold',
+          color: '#f7e7c7',
+        }).setOrigin(0.5, 0.5));
+      }
+
+      SHOP_LEVEL_GUIDE_ROWS.forEach((row, idx) => {
+        const y = top + rowH * (idx + 1) + rowH / 2;
+        table.add(this.add.image(left + 18, y, row.iconKey)
+          .setOrigin(0.5, 0.5)
+          .setDisplaySize(22, 22));
+        table.add(this.add.text(left + 36, y, row.label, {
+          fontFamily: 'CormorantSC-SemiBold, CormorantSC-Regular, Georgia, serif',
+          fontSize: '18px',
+          fontStyle: 'bold',
+          color: '#f3e6cb',
+        }).setOrigin(0, 0.5));
+
+        for (let level = 1; level <= levels; level += 1) {
+          table.add(this.add.text(left + firstColW + colW * (level - 1) + colW / 2, y, '-', {
+            fontFamily: 'CormorantSC-Regular, Georgia, serif',
+            fontSize: '16px',
+            color: '#b7aa96',
+          }).setOrigin(0.5, 0.5));
+        }
+      });
+
+      const hint = this.add.text(left, 176, 'Пока это базовая таблица уровней для будущего наполнения.', {
+        fontFamily: 'CormorantSC-Regular, Georgia, serif',
+        fontSize: '18px',
+        color: '#baa88f',
+      }).setOrigin(0, 0.5);
+      const hit = this.add.zone(0, 0, modalWidth, modalHeight).setOrigin(0.5, 0.5).setInteractive();
+
+      modal.add([shadow, bg, title, table, hint, hit]);
+      this.shopLevelGuideModal = modal;
+      this.shopLevelGuideHit = hit;
+      this.shopLevelGuideVisible = false;
+      this.shopLevelGuideModalWidth = modalWidth;
+      this.shopLevelGuideModalHeight = modalHeight;
+
+      this._shopLevelGuideOutsideTapHandler = (_pointer, currentlyOver) => {
+        if (!this.shopLevelGuideVisible) return;
+        const over = currentlyOver || [];
+        const overModal = this.shopLevelGuideHit && over.includes(this.shopLevelGuideHit);
+        const overDice = this.shopDiceBtnHit && over.includes(this.shopDiceBtnHit);
+        if (!overModal && !overDice) this.hideShopLevelGuideModal?.();
+      };
+      this.input?.on?.('pointerdown', this._shopLevelGuideOutsideTapHandler);
+      this.events?.once?.('shutdown', () => {
+        this.input?.off?.('pointerdown', this._shopLevelGuideOutsideTapHandler);
+      });
+    },
+
+    toggleShopLevelGuideModal() {
+      if (this.shopLevelGuideVisible) {
+        this.hideShopLevelGuideModal?.();
+        return;
+      }
+      this.showShopLevelGuideModal?.();
+    },
+
+    showShopLevelGuideModal() {
+      if (!this.shopLevelGuideModal) return;
+      this.shopLevelGuideVisible = true;
+      this.positionShopLevelGuideModal?.();
+      this.shopLevelGuideModal.setVisible(true).setAlpha(1);
+    },
+
+    hideShopLevelGuideModal() {
+      this.shopLevelGuideVisible = false;
+      this.shopLevelGuideModal?.setVisible(false);
+    },
+
+    positionShopLevelGuideModal() {
+      if (!this.shopLevelGuideModal) return;
+
+      const modalW = Number(this.shopLevelGuideModalWidth ?? 960);
+      const modalH = Number(this.shopLevelGuideModalHeight ?? 410);
+      const gap = 14;
+      const edgeMargin = 12;
+      const buttons = [
+        this.shopToggleBtn,
+        this.shopDiceBtn,
+        this.shopLockBtn,
+        this.shopRefreshBtn,
+      ].filter(Boolean);
+
+      const view = this.scale.getViewPort();
+      let x = view.x + view.width / 2;
+      let y = view.y + view.height / 2;
+
+      if (buttons.length > 0) {
+        let leftEdge = Infinity;
+        let topEdge = Infinity;
+        let bottomEdge = -Infinity;
+        for (const btn of buttons) {
+          const halfW = Number(btn.width ?? btn.displayWidth ?? 0) / 2;
+          const halfH = Number(btn.height ?? btn.displayHeight ?? 0) / 2;
+          leftEdge = Math.min(leftEdge, Number(btn.x ?? 0) - halfW);
+          topEdge = Math.min(topEdge, Number(btn.y ?? 0) - halfH);
+          bottomEdge = Math.max(bottomEdge, Number(btn.y ?? 0) + halfH);
+        }
+        if (Number.isFinite(leftEdge)) x = leftEdge - gap - modalW / 2;
+        if (Number.isFinite(topEdge) && Number.isFinite(bottomEdge)) y = (topEdge + bottomEdge) / 2;
+      }
+
+      const minX = view.x + edgeMargin + modalW / 2;
+      const maxX = view.x + view.width - edgeMargin - modalW / 2;
+      const minY = view.y + edgeMargin + modalH / 2;
+      const maxY = view.y + view.height - edgeMargin - modalH / 2;
+
+      this.shopLevelGuideModal.setPosition(
+        Phaser.Math.Clamp(x, minX, maxX),
+        Phaser.Math.Clamp(y, minY, maxY),
+      );
     },
   });
 }
