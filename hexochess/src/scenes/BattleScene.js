@@ -66,6 +66,8 @@ const KING_UI = {
     fillAlpha: 0.95,
     frameColor: 0x1b1b1b,
     frameAlpha: 0.85,
+    pixelFrameColor: 0x000000,
+    pixelFrameAlpha: 0.9,
     highlightColor: 0xffffff,
     highlightAlpha: 0.14,
   },
@@ -2250,6 +2252,8 @@ export default class BattleScene extends Phaser.Scene {
       // thin frame to separate bar from the king portrait
       hpBg.lineStyle(1, KING_UI.hpBar.frameColor, KING_UI.hpBar.frameAlpha);
       hpBg.strokeRoundedRect(x, y, barWidth, barHeight, barRadius);
+      hpBg.lineStyle(1, KING_UI.hpBar.pixelFrameColor, KING_UI.hpBar.pixelFrameAlpha);
+      hpBg.strokeRoundedRect(x - 1, y - 1, barWidth + 2, barHeight + 2, barRadius);
 
       // Numeric HP text hidden by design: HP is shown only via bar (details in Rating).
       const hpText = (kingSprite === this.kingLeft) ? this.kingLeftHpText : this.kingRightHpText;
