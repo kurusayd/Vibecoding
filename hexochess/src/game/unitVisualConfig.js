@@ -210,14 +210,14 @@ export const UNIT_VISUAL_CONFIG_BY_TYPE = {
   },
   Swordsman: {
     // Baseline example config. Use this as reference when tuning other units.
-    groundLiftPx: 95,
-    artTargetPx: 140,
-    artOffsetXPx: 15,
+    groundLiftPx: 112,
+    artTargetPx: 180,
+    artOffsetXPx: 22,
     hpUiLiftPx: 35,
-    footShadowWidthPx: 70,
+    footShadowWidthPx: 72,
     footShadowHeightPx: 17,
     footShadowOffsetXPx: 0,
-    footShadowOffsetYPx: 10,
+    footShadowOffsetYPx: 13,
   },
   Undertaker: {
     // Same visual profile as Crusader for now.

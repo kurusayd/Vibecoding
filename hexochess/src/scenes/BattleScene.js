@@ -6,13 +6,21 @@ import { getUnitArtOffsetXPx, getUnitFootShadowConfig, getUnitGroundLiftPx } fro
 import {
   atlasIdleFrame,
   atlasDeadFrame,
+  atlasIdleAttackFrame,
+  atlasPrepareToAttackFrame,
+  atlasSkillFrame,
+  atlasWalkFirstFrame,
+  atlasWalkFallbackFrame,
   atlasWalkFrameRegex,
+  atlasAttackFallbackFrame,
   atlasAttackFrameRegex,
   atlasSpellFrameRegex,
   UNIT_ATLAS_DEFS,
   UNIT_ATLAS_DEF_BY_TYPE,
   UNIT_ANIMS_BY_TYPE,
 } from '../game/unitAtlasConfig.js';
+import { getPreparedAttackConfig } from '../../shared/preparedAttackConfig.js';
+import { STEP_MOVE_TRAVEL_MS, getStepMoveWaitMs } from '../../shared/stepMovementConfig.js';
 import { WSClient } from '../net/wsClient.js';
 import { createFullscreenButton, positionFullscreenButton } from '../game/ui.js';
 import { updateHpBar } from '../game/hpbar.js';
@@ -108,6 +116,9 @@ const MISS_HINT_TEXT = 'miss';
 const MISS_HINT_RISE_PX = 34;
 const MISS_HINT_DURATION_MS = 520;
 const MISS_HINT_THROTTLE_MS = 200;
+const COUNTER_HINT_TEXT = 'COUNTER';
+const COUNTER_HINT_RISE_PX = 28;
+const COUNTER_HINT_DURATION_MS = 560;
 const CROSSBOWMAN_TRAIL_ALPHA = 0.18;
 const CROSSBOWMAN_TRAIL_WIDTH_PX = 6;
 const CROSSBOWMAN_TRAIL_MAX_LENGTH_PX = 144;
@@ -129,6 +140,8 @@ const TRASH_COIN_BURST_SCALE_START = 0.11;
 const TRASH_COIN_BURST_SCALE_END = 0.035;
 const TRASH_COIN_BURST_ALPHA = 0.95;
 const WORM_SWALLOW_ABILITY_KEY = 'worm_swallow';
+const SWORDSMAN_COUNTER_ABILITY_KEY = 'swordsman_counter';
+const SWORDSMAN_COUNTER_SKILL_DEFAULT_MS = 300;
 const WORM_FAT_ANIMS = {
   idle: 'worm_fat_idle',
   walk: 'worm_fat_walk',
@@ -885,12 +898,16 @@ export default class BattleScene extends Phaser.Scene {
           .filter((name) => atlasWalkFrameRegex(def).test(name))
           .sort()
           .map((frame) => ({ key: def.atlasKey, frame }));
+        const walkFallbackFrame = atlasWalkFallbackFrame(def);
+        const hasWalkFallbackFrame = !!texture?.has?.(walkFallbackFrame);
 
         this.anims.create({
           key: def.walkAnim,
           frames: walkFrames.length > 0
             ? walkFrames
-            : [{ key: def.atlasKey, frame: atlasIdleFrame(def) }],
+            : (hasWalkFallbackFrame
+              ? [{ key: def.atlasKey, frame: walkFallbackFrame }]
+              : [{ key: def.atlasKey, frame: atlasIdleFrame(def) }]),
           frameRate: 12,
           repeat: -1,
         });
@@ -902,12 +919,16 @@ export default class BattleScene extends Phaser.Scene {
           .filter((name) => atlasAttackFrameRegex(def).test(name))
           .sort()
           .map((frame) => ({ key: def.atlasKey, frame }));
+        const attackFallbackFrame = atlasAttackFallbackFrame(def);
+        const hasAttackFallbackFrame = !!texture?.has?.(attackFallbackFrame);
 
         this.anims.create({
           key: def.attackAnim,
           frames: attackFrames.length > 0
             ? attackFrames
-            : [{ key: def.atlasKey, frame: atlasIdleFrame(def) }],
+            : (hasAttackFallbackFrame
+              ? [{ key: def.atlasKey, frame: attackFallbackFrame }]
+              : [{ key: def.atlasKey, frame: atlasIdleFrame(def) }]),
           frameRate: 12,
           repeat: 0,
         });
@@ -2515,7 +2536,28 @@ export default class BattleScene extends Phaser.Scene {
       const target = byId.get(ev.targetId);
       if (attacker) {
         attacker.attackSeq = Number(ev.attackSeq ?? (Number(attacker.attackSeq ?? 0) + 1));
-        if (pendingAttackAnimIds) pendingAttackAnimIds.add(attacker.id);
+        attacker._preparedAttackIntervalMs = Math.max(0, Number(ev.preparedAttackIntervalMs ?? 0));
+        attacker._preparedAttackHitDelayMs = Math.max(0, Number(ev.preparedAttackHitDelayMs ?? 0));
+        attacker._preparedAttackHoldMs = Math.max(0, Number(ev.preparedAttackHoldMs ?? 0));
+        if (!(getPreparedAttackConfig(attacker.type) && !Boolean(ev?.isRanged))) {
+          if (pendingAttackAnimIds) pendingAttackAnimIds.add(attacker.id);
+        }
+      }
+      if (attacker && getPreparedAttackConfig(attacker.type) && !Boolean(ev?.isRanged)) {
+        const vu = this.unitSys?.findUnit?.(attacker.id);
+        if (vu) {
+          const nowMs = Number(this.time?.now ?? 0);
+          const preparedCfg = getPreparedAttackConfig(attacker.type);
+          const hitDelayMs = Math.max(0, Number(ev.preparedAttackHitDelayMs ?? attacker._preparedAttackHitDelayMs ?? 0));
+          const prepareLeadMs = Math.min(
+            hitDelayMs,
+            Math.max(0, Number(preparedCfg?.prepareLeadMs ?? 200)),
+          );
+          vu._preparedAttackCycleUntilMs = nowMs + Math.max(0, Number(ev.preparedAttackIntervalMs ?? attacker._preparedAttackIntervalMs ?? 0));
+          vu._preparedAttackPrepareFromMs = nowMs + Math.max(0, hitDelayMs - prepareLeadMs);
+          vu._preparedAttackPoseUntilMs = nowMs + hitDelayMs;
+          vu._preparedAttackFrameUntilMs = 0;
+        }
       }
         if (attacker && target) {
           if (Boolean(ev?.isRanged) === true) {
@@ -2540,7 +2582,17 @@ export default class BattleScene extends Phaser.Scene {
     }
 
     if (ev.type === 'damage') {
+      const attacker = byId.get(ev.attackerId);
       const target = byId.get(ev.targetId);
+      if (attacker && getPreparedAttackConfig(attacker.type) && !Boolean(ev.skipPreparedAttackVisual)) {
+        const vu = this.unitSys?.findUnit?.(attacker.id);
+        if (vu) {
+          if (target) this.faceUnitVisualTowardCoreUnit(vu, target);
+          vu._preparedAttackPoseUntilMs = 0;
+          vu._preparedAttackPrepareFromMs = 0;
+          vu._preparedAttackFrameUntilMs = Number(this.time?.now ?? 0) + Math.max(0, Number(attacker._preparedAttackHoldMs ?? 400));
+        }
+      }
       if (target) {
         if (Number.isFinite(Number(ev.targetMaxHp))) target.maxHp = Number(ev.targetMaxHp);
         if (Number.isFinite(Number(ev.targetHp))) target.hp = Number(ev.targetHp);
@@ -2570,11 +2622,24 @@ export default class BattleScene extends Phaser.Scene {
     if (ev.type === 'ability_cast') {
       const caster = byId.get(ev.casterId);
       if (caster) {
+        const abilityKey = String(ev?.abilityKey ?? '');
+        if (abilityKey === SWORDSMAN_COUNTER_ABILITY_KEY) {
+          const vu = this.unitSys?.findUnit?.(caster.id);
+          const target = byId.get(ev.targetId);
+          const skillFrame = this.getUnitSkillStaticFrame(caster);
+          if (vu && skillFrame) {
+            if (target) this.faceUnitVisualTowardCoreUnit(vu, target);
+            vu._skillFrameMoveTweenRef = vu._moveTween ?? null;
+            vu._skillFrameUntilMs = Number(this.time?.now ?? 0) + Math.max(0, Number(ev.displayMs ?? SWORDSMAN_COUNTER_SKILL_DEFAULT_MS));
+          }
+          this.showCombatCounterHint?.(caster);
+          return;
+        }
+
         const castTimeMs = Math.max(0, Number(ev.castTimeMs ?? 0));
         if (castTimeMs > 0 && this.pendingAbilityCastAnimIds) this.pendingAbilityCastAnimIds.add(caster.id);
         this.startUnitAbilityCastUi?.(caster, castTimeMs);
 
-        const abilityKey = String(ev?.abilityKey ?? '');
         if (abilityKey === 'undertaker_active' || abilityKey === WORM_SWALLOW_ABILITY_KEY || abilityKey === 'siren_mirror_image') {
           const replayToken = Number(this.serverReplayPlayback?.token ?? 0);
           if (castTimeMs <= 0) {
@@ -2692,7 +2757,17 @@ export default class BattleScene extends Phaser.Scene {
     }
 
     if (ev.type === 'miss') {
+      const attacker = byId.get(ev.attackerId);
       const target = byId.get(ev.targetId);
+      if (attacker && getPreparedAttackConfig(attacker.type) && !Boolean(ev.skipPreparedAttackVisual)) {
+        const vu = this.unitSys?.findUnit?.(attacker.id);
+        if (vu) {
+          if (target) this.faceUnitVisualTowardCoreUnit(vu, target);
+          vu._preparedAttackPoseUntilMs = 0;
+          vu._preparedAttackPrepareFromMs = 0;
+          vu._preparedAttackFrameUntilMs = Number(this.time?.now ?? 0) + Math.max(0, Number(attacker._preparedAttackHoldMs ?? 400));
+        }
+      }
       if (target) {
         this.showCombatMissHint(target);
         const targetType = String(target.type ?? '').toLowerCase();
@@ -3226,6 +3301,33 @@ export default class BattleScene extends Phaser.Scene {
     });
   }
 
+  showCombatCounterHint(coreUnitLike) {
+    if (!coreUnitLike) return;
+    const pos = this.getUnitVisualCenter(coreUnitLike);
+    if (!pos) return;
+    const t = this.add.text(pos.x, pos.y - 52, COUNTER_HINT_TEXT, {
+      fontFamily: 'CormorantSC-Bold, CormorantSC-SemiBold, CormorantSC-Regular, Georgia, serif',
+      fontSize: '20px',
+      color: '#fff1c4',
+      fontStyle: 'bold',
+      stroke: '#6a5a3a',
+      strokeThickness: 2,
+    })
+      .setOrigin(0.5, 1)
+      .setDepth(2602)
+      .setAlpha(1)
+      .setShadow(0, 1, '#000000', 8, true, true);
+
+    this.tweens.add({
+      targets: t,
+      y: t.y - COUNTER_HINT_RISE_PX,
+      alpha: 0,
+      duration: COUNTER_HINT_DURATION_MS,
+      ease: 'Sine.In',
+      onComplete: () => t.destroy(),
+    });
+  }
+
   playGhostMissFadeFx(coreUnitLike) {
     if (!coreUnitLike) return;
     const vu = this.unitSys?.findUnit?.(coreUnitLike.id);
@@ -3272,10 +3374,7 @@ export default class BattleScene extends Phaser.Scene {
     }
 
     const progress = (nowMs - startAt) / Math.max(1, endAt - startAt);
-    if (progress < 0.5) {
-      return { q: fromQ, r: fromR };
-    }
-    return { q: toQ, r: toR };
+    return progress < 0.5 ? { q: fromQ, r: fromR } : { q: toQ, r: toR };
   }
 
   getUnitScreenAnchor(coreUnitLike, fallbackVu = null) {
@@ -3313,6 +3412,106 @@ export default class BattleScene extends Phaser.Scene {
     }
 
     return null;
+  }
+
+  onUnitVisualMoveComplete(unitLike) {
+    const vu = this.unitSys?.findUnit?.(unitLike?.id);
+    if (!vu?.art?.active) return;
+
+    const latest = (this.battleState?.units ?? []).find((u) => Number(u?.id) === Number(unitLike?.id));
+    if (!latest || latest.dead || latest.zone !== 'board') return;
+    if (vu._attackAnimPlaying || vu._castAnimPlaying || vu._moveTween) return;
+
+    const wormFatActive =
+      this.isWormFatCore?.(latest) &&
+      this.anims.exists(WORM_FAT_ANIMS.idle);
+    const animDef = wormFatActive
+      ? WORM_FAT_ANIMS
+      : UNIT_ANIMS_BY_TYPE[latest.type];
+    if (!animDef || !this.anims.exists(animDef.idle)) return;
+
+    vu._staticWalkFrameActive = false;
+    vu.art.play(animDef.idle, true);
+  }
+
+  getPreparedAttackStaticFrames(coreUnitLike) {
+    const atlasCfg = UNIT_ATLAS_DEF_BY_TYPE[String(coreUnitLike?.type ?? '')] ?? null;
+    const preparedCfg = getPreparedAttackConfig(coreUnitLike?.type);
+    if (!atlasCfg || !preparedCfg) return null;
+    const texture = this.textures?.get?.(atlasCfg.atlasKey);
+    const idleAttackFrame = texture?.has?.(atlasIdleAttackFrame(atlasCfg))
+      ? atlasIdleAttackFrame(atlasCfg)
+      : (texture?.has?.(atlasIdleFrame(atlasCfg)) ? atlasIdleFrame(atlasCfg) : null);
+    const prepareFrame = texture?.has?.(atlasPrepareToAttackFrame(atlasCfg))
+      ? atlasPrepareToAttackFrame(atlasCfg)
+      : null;
+    const attackFrame = atlasAttackFallbackFrame(atlasCfg);
+    if (!idleAttackFrame || !texture?.has?.(attackFrame)) return null;
+    return {
+      atlasCfg,
+      idleAttackFrame,
+      prepareFrame,
+      attackFrame,
+      config: preparedCfg,
+    };
+  }
+
+  getUnitSkillStaticFrame(coreUnitLike) {
+    const atlasCfg = UNIT_ATLAS_DEF_BY_TYPE[String(coreUnitLike?.type ?? '')] ?? null;
+    if (!atlasCfg) return null;
+    const texture = this.textures?.get?.(atlasCfg.atlasKey);
+    const skillFrame = atlasSkillFrame(atlasCfg);
+    if (!texture?.has?.(skillFrame)) return null;
+    return { atlasCfg, skillFrame };
+  }
+
+  applyUnitStaticArtFrame(vu, atlasKey, frameName) {
+    if (!vu?.art?.active || !atlasKey || !frameName) return;
+    vu.art.anims?.stop?.();
+    if (vu.art.texture?.key !== atlasKey) {
+      vu.art.setTexture(atlasKey, frameName);
+    } else if (vu.art.frame?.name !== frameName) {
+      vu.art.setFrame(frameName);
+    }
+    if (vu.artOverlay?.active) {
+      vu.artOverlay.setTexture(atlasKey, frameName);
+      vu.artOverlay.setPosition(Number(vu.art.x ?? 0), Number(vu.art.y ?? 0));
+      vu.artOverlay.setScale(Number(vu.art.scaleX ?? 1), Number(vu.art.scaleY ?? 1));
+      vu.artOverlay.setFlipX(Boolean(vu.art.flipX));
+      vu.artOverlay.setAngle(Number(vu.art.angle ?? 0));
+      vu.artOverlay.setOrigin(Number(vu.art.originX ?? 0.5), Number(vu.art.originY ?? 1));
+      vu.artOverlay.setDepth(Number(vu.art.depth ?? 0) + 0.1);
+    }
+  }
+
+  refreshPreparedAttackPoseFrames() {
+    const phase = this.battleState?.phase ?? 'prep';
+    const result = this.battleState?.result ?? null;
+    if (phase !== 'battle' || result) return;
+
+    const nowMs = Number(this.time?.now ?? 0);
+    for (const core of (this.battleState?.units ?? [])) {
+      if (!core || core.dead || core.zone !== 'board') continue;
+      const preparedAttackFrames = this.getPreparedAttackStaticFrames(core);
+      if (!preparedAttackFrames) continue;
+
+      const vu = this.unitSys?.findUnit?.(core.id);
+      if (!vu?.art?.active) continue;
+      if (vu._moveTween || vu._castAnimPlaying || vu._deathPrepActive) continue;
+      if (Number(vu._skillFrameUntilMs ?? 0) > nowMs) continue;
+      const cycleActive = Number(vu._preparedAttackCycleUntilMs ?? 0) > nowMs;
+      const prepareActive =
+        !!preparedAttackFrames.prepareFrame &&
+        Number(vu._preparedAttackPoseUntilMs ?? 0) > nowMs &&
+        Number(vu._preparedAttackPrepareFromMs ?? 0) <= nowMs;
+      const attackActive = Number(vu._preparedAttackFrameUntilMs ?? 0) > nowMs;
+      if (!cycleActive && !attackActive) continue;
+
+      const targetFrame = attackActive
+        ? preparedAttackFrames.attackFrame
+        : (prepareActive ? preparedAttackFrames.prepareFrame : preparedAttackFrames.idleAttackFrame);
+      this.applyUnitStaticArtFrame(vu, preparedAttackFrames.atlasCfg.atlasKey, targetFrame);
+    }
   }
 
   getKnightMirroredAnchorShiftPx(unitLike, q, r, mirrored) {
@@ -3970,6 +4169,7 @@ export default class BattleScene extends Phaser.Scene {
     const atk = Number(core.atk ?? 0);
     const atkSpd = Number(core.attackSpeed ?? 1);
     const moveSpd = Number(core.moveSpeed ?? 1);
+    const moveWaitMs = getStepMoveWaitMs(moveSpd);
     const rangeMax = Number(core.attackRangeMax ?? 1);
     const rangeFull = Number(core.attackRangeFullDamage ?? rangeMax);
     const projectileSpeed = Number(core.projectileSpeed ?? 0);
@@ -4002,7 +4202,7 @@ export default class BattleScene extends Phaser.Scene {
       `HP: ${hp}/${maxHp}`,
       `ATK: ${atk}`,
       `ATK SPD: ${atkSpd.toFixed(2)}/s`,
-      `MOVE SPD: ${moveSpd.toFixed(2)} hex/s`,
+      `MOVE WAIT: ${moveWaitMs} ms`,
       `ACCURACY: ${Math.round(accuracy * 100)}%`,
       isMelee ? 'RANGE: MELEE' : (isLongRanged ? `RANGE: ${rangeFull}` : `RANGE: ${rangeMax}`),
     ];
@@ -4276,7 +4476,7 @@ export default class BattleScene extends Phaser.Scene {
             phase !== 'entry' ||
             u.team !== 'enemy' ||
             !!this.entryEnemyUnitsUiVisible;
-          if (created.hpBar) created.hpBar.setVisible((phase !== 'prep') && canShowEntryEnemyUnitUi);
+          if (created.hpBar) created.hpBar.setVisible((phase !== 'prep') && canShowEntryEnemyUnitUi && !u.dead);
           if (created.rankIcon) created.rankIcon.setVisible((phase === 'prep') && !u.dead);
           updateHpBar(this, created);
         }
@@ -4355,8 +4555,7 @@ export default class BattleScene extends Phaser.Scene {
         }
       } else {
         const result = this.battleState?.result ?? null;
-        // Скорость визуального перемещения по умолчанию: 2 секунды на 1 гекс.
-        const MOVE_TWEEN_MS = 2000;
+        const MOVE_TWEEN_MS = STEP_MOVE_TRAVEL_MS;
         const replayMoveTweenMs = Number(u?._replayMoveTweenMs ?? NaN);
         const moveTweenMs = (Number.isFinite(replayMoveTweenMs) && replayMoveTweenMs > 0)
           ? replayMoveTweenMs
@@ -4383,7 +4582,7 @@ export default class BattleScene extends Phaser.Scene {
           phase !== 'entry' ||
           u.team !== 'enemy' ||
           !!this.entryEnemyUnitsUiVisible;
-        if (vu?.hpBar) vu.hpBar.setVisible((phase !== 'prep') && canShowEntryEnemyUnitUi);
+        if (vu?.hpBar) vu.hpBar.setVisible((phase !== 'prep') && canShowEntryEnemyUnitUi && !u.dead);
         if (vu?.rankIcon) vu.rankIcon.setVisible((phase === 'prep') && !u.dead);
         const fromBenchToBoard = prevZone === 'bench';
         const shouldBounceOnPlace =
@@ -4471,6 +4670,13 @@ export default class BattleScene extends Phaser.Scene {
         vu._artFacingMirrored = baseMirrored;
         vu.art.setFlipX(baseMirrored);
         if (vu.artOverlay?.active) vu.artOverlay.setFlipX(baseMirrored);
+        if (result) {
+          vu._skillFrameUntilMs = 0;
+          vu._preparedAttackCycleUntilMs = 0;
+          vu._preparedAttackPrepareFromMs = 0;
+          vu._preparedAttackPoseUntilMs = 0;
+          vu._preparedAttackFrameUntilMs = 0;
+        }
         if (u.zone === 'board' && Number.isFinite(vu.q) && Number.isFinite(vu.r)) {
           vu.art.setX(this.getUnitArtWorldXByFacing(vu, vu.q, vu.r, baseMirrored));
           if (vu.artOverlay?.active) vu.artOverlay.setX(vu.art.x);
@@ -4508,14 +4714,119 @@ export default class BattleScene extends Phaser.Scene {
         !!animDef.spell &&
         this.anims.exists(animDef.spell) &&
         !!vu._castAnimPlaying;
+      const skillFrameInfo = this.getUnitSkillStaticFrame(u);
+      const skillFrameActive =
+        !!skillFrameInfo &&
+        Number(vu._skillFrameUntilMs ?? 0) > Number(this.time?.now ?? 0);
+      const skillMoveTweenRef = vu._skillFrameMoveTweenRef ?? null;
+      const preparedAttackFrames = this.getPreparedAttackStaticFrames(u);
+      const preparedAttackCycleUntilMs = Number(vu._preparedAttackCycleUntilMs ?? 0);
+      const preparedAttackPoseUntilMs = Number(vu._preparedAttackPoseUntilMs ?? 0);
+      const preparedAttackPrepareFromMs = Number(vu._preparedAttackPrepareFromMs ?? 0);
+      const preparedAttackFrameUntilMs = Number(vu._preparedAttackFrameUntilMs ?? 0);
+      const preparedAttackFrameActive =
+        !!preparedAttackFrames &&
+        preparedAttackFrameUntilMs > Number(this.time?.now ?? 0);
+      if (skillFrameActive && (
+        wantAttack ||
+        (wantWalk && vu._moveTween && vu._moveTween !== skillMoveTweenRef)
+      )) {
+        vu._skillFrameUntilMs = 0;
+      }
+      const preparedAttackPrepareActive =
+        !!preparedAttackFrames?.prepareFrame &&
+        preparedAttackPoseUntilMs > Number(this.time?.now ?? 0) &&
+        preparedAttackPrepareFromMs <= Number(this.time?.now ?? 0);
+      const isPreparedAttackFrameShown = !!(
+        preparedAttackFrames &&
+        (
+          vu.art?.frame?.name === preparedAttackFrames.idleAttackFrame ||
+          vu.art?.frame?.name === preparedAttackFrames.prepareFrame ||
+          vu.art?.frame?.name === preparedAttackFrames.attackFrame
+        )
+      );
+      const isSkillFrameShown = !!(
+        skillFrameInfo &&
+        vu.art?.frame?.name === skillFrameInfo.skillFrame
+      );
+      const atlasFrameType = wormFatActive ? 'WormFat' : u.type;
+      const atlasCfgForFrames = UNIT_ATLAS_DEF_BY_TYPE[atlasFrameType] ?? UNIT_ATLAS_DEF_BY_TYPE[u.type] ?? null;
+      const staticWalkFrame = atlasCfgForFrames
+        ? (
+          this.textures?.get?.(atlasCfgForFrames.atlasKey)?.has?.(atlasWalkFirstFrame(atlasCfgForFrames))
+            ? atlasWalkFirstFrame(atlasCfgForFrames)
+            : atlasWalkFallbackFrame(atlasCfgForFrames)
+        )
+        : null;
+      const deathPrepActive = Boolean(vu._deathPrepActive) && Number(vu._deathPrepUntilMs ?? 0) > Number(this.time?.now ?? 0);
+      if (deathPrepActive) continue;
+      const wantsSkillFrame =
+        !!skillFrameInfo &&
+        Number(vu._skillFrameUntilMs ?? 0) > Number(this.time?.now ?? 0) &&
+        (phase === 'battle') &&
+        !result &&
+        (u.zone === 'board') &&
+        !u.dead &&
+        !wantAttack;
+      if (wantsSkillFrame) {
+        vu._staticWalkFrameActive = false;
+        this.applyUnitStaticArtFrame(vu, skillFrameInfo.atlasCfg.atlasKey, skillFrameInfo.skillFrame);
+        continue;
+      }
+      const wantsPreparedAttackPose =
+        !!preparedAttackFrames &&
+        (preparedAttackCycleUntilMs > Number(this.time?.now ?? 0) || preparedAttackFrameActive) &&
+        (phase === 'battle') &&
+        !result &&
+        (u.zone === 'board') &&
+        !u.dead &&
+        !wantWalk &&
+        !wantKnightChargeMove &&
+        !wantCast;
+      if (wantsPreparedAttackPose) {
+        const targetFrame = preparedAttackFrameActive
+          ? preparedAttackFrames.attackFrame
+          : (preparedAttackPrepareActive ? preparedAttackFrames.prepareFrame : preparedAttackFrames.idleAttackFrame);
+        vu._staticWalkFrameActive = false;
+        this.applyUnitStaticArtFrame(vu, preparedAttackFrames.atlasCfg.atlasKey, targetFrame);
+        continue;
+      }
+      const isStaticWalkFrameShown = !!(staticWalkFrame && vu.art?.frame?.name === staticWalkFrame);
+      const wantStaticWalkFrame = wantWalk && !wantKnightChargeMove && !wantAttack && !wantCast;
+      if (wantStaticWalkFrame && atlasCfgForFrames && vu.art?.active) {
+        vu._staticWalkFrameActive = true;
+        vu.art.anims?.stop?.();
+        if (vu.art.texture?.key !== atlasCfgForFrames.atlasKey) {
+          vu.art.setTexture(atlasCfgForFrames.atlasKey, staticWalkFrame);
+        } else if (vu.art.frame?.name !== staticWalkFrame) {
+          vu.art.setFrame(staticWalkFrame);
+        }
+        if (vu.artOverlay?.active) {
+          vu.artOverlay.setTexture(atlasCfgForFrames.atlasKey, staticWalkFrame);
+          vu.artOverlay.setPosition(Number(vu.art.x ?? 0), Number(vu.art.y ?? 0));
+          vu.artOverlay.setScale(Number(vu.art.scaleX ?? 1), Number(vu.art.scaleY ?? 1));
+          vu.artOverlay.setFlipX(Boolean(vu.art.flipX));
+          vu.artOverlay.setAngle(Number(vu.art.angle ?? 0));
+          vu.artOverlay.setOrigin(Number(vu.art.originX ?? 0.5), Number(vu.art.originY ?? 1));
+          vu.artOverlay.setDepth(Number(vu.art.depth ?? 0) + 0.1);
+        }
+        continue;
+      }
+      if (vu._staticWalkFrameActive) vu._staticWalkFrameActive = false;
       const animKey = u.dead
         ? animDef.dead
-        : (wantCast ? animDef.spell : (wantAttack ? animDef.attack : (wantKnightChargeMove ? KNIGHT_CHARGE_MOVE_ANIM : (wantWalk ? animDef.walk : animDef.idle))));
+        : (wantCast ? animDef.spell : (wantAttack ? animDef.attack : (wantKnightChargeMove ? KNIGHT_CHARGE_MOVE_ANIM : animDef.idle)));
       const forceReplayCast = wantCast && !!vu._castAnimForceReplay;
       const forceReplayAttack = wantAttack && !!vu._attackAnimForceReplay;
 
       // не дёргаем play каждый тик/рендер если уже играет то же самое
-      if (!forceReplayCast && !forceReplayAttack && vu.art.anims?.getName?.() === animKey) continue;
+      if (
+        !vu._staticWalkFrameActive &&
+        !forceReplayCast &&
+        !forceReplayAttack &&
+        vu.art.anims?.getName?.() === animKey &&
+        !(animKey === animDef.idle && (isStaticWalkFrameShown || isPreparedAttackFrameShown || isSkillFrameShown))
+      ) continue;
 
       if (this.anims.exists(animKey)) {
         vu.art.play(animKey, true);
@@ -4540,9 +4851,18 @@ export default class BattleScene extends Phaser.Scene {
                 (latest.zone === 'board') &&
                 !!vu._moveTween;
 
-              const fallbackAnimKey = shouldWalk ? animDef.walk : animDef.idle;
+              if (shouldWalk && atlasCfgForFrames) {
+                vu._staticWalkFrameActive = true;
+                vu.art.anims?.stop?.();
+                vu.art.setTexture(atlasCfgForFrames.atlasKey, staticWalkFrame);
+                if (vu.artOverlay?.active) vu.artOverlay.setTexture(atlasCfgForFrames.atlasKey, staticWalkFrame);
+                return;
+              }
+
+              const fallbackAnimKey = animDef.idle;
               if (!this.anims.exists(fallbackAnimKey)) return;
-              if (vu.art.anims?.getName?.() === fallbackAnimKey) return;
+              if (!vu._staticWalkFrameActive && vu.art.anims?.getName?.() === fallbackAnimKey) return;
+              vu._staticWalkFrameActive = false;
               vu.art.play(fallbackAnimKey, true);
             });
           }
@@ -4568,9 +4888,18 @@ export default class BattleScene extends Phaser.Scene {
               (latest.zone === 'board') &&
               !!vu._moveTween;
 
-            const fallbackAnimKey = shouldWalk ? animDef.walk : animDef.idle;
+            if (shouldWalk && atlasCfgForFrames) {
+              vu._staticWalkFrameActive = true;
+              vu.art.anims?.stop?.();
+              vu.art.setTexture(atlasCfgForFrames.atlasKey, staticWalkFrame);
+              if (vu.artOverlay?.active) vu.artOverlay.setTexture(atlasCfgForFrames.atlasKey, staticWalkFrame);
+              return;
+            }
+
+            const fallbackAnimKey = animDef.idle;
             if (!this.anims.exists(fallbackAnimKey)) return;
-            if (vu.art.anims?.getName?.() === fallbackAnimKey) return;
+            if (!vu._staticWalkFrameActive && vu.art.anims?.getName?.() === fallbackAnimKey) return;
+            vu._staticWalkFrameActive = false;
             vu.art.play(fallbackAnimKey, true);
           });
         }
@@ -5108,6 +5437,7 @@ export default class BattleScene extends Phaser.Scene {
 
   update(time, delta) {
     this.unitSys.update(delta / 1000);
+    this.refreshPreparedAttackPoseFrames?.();
 
     const dt = delta / 1000;
     const lagSpeed = KING_UI.hpLagSpeed;

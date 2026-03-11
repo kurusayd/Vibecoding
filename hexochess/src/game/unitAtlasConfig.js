@@ -12,7 +12,28 @@ export function atlasIdleFrame(def) {
 }
 
 export function atlasDeadFrame(def) {
+  if (atlasUsesNewFrameConventions(def)) return atlasFrameName(def, 'die.png');
   return atlasFrameName(def, 'dead.png');
+}
+
+export function atlasPrepareToDieFrame(def) {
+  return atlasFrameName(def, 'prepeare_to_die.png');
+}
+
+export function atlasPrepareToAttackFrame(def) {
+  return atlasFrameName(def, 'prepeare_to_attack.png');
+}
+
+export function atlasIdleAttackFrame(def) {
+  return atlasFrameName(def, 'idle_attack.png');
+}
+
+export function atlasSkillFrame(def) {
+  return atlasFrameName(def, 'skill.png');
+}
+
+export function atlasUsesNewFrameConventions(def) {
+  return /(^|[_/\\-])new(\.|$|[_/\\-])/i.test(String(def?.atlasPath ?? ''));
 }
 
 export function atlasWalkFrameRegex(def) {
@@ -22,11 +43,23 @@ export function atlasWalkFrameRegex(def) {
   return new RegExp(`^${escapedPrefix}/walk_?\\d{4}\\.png$`);
 }
 
+export function atlasWalkFirstFrame(def) {
+  return atlasFrameName(def, 'walk0001.png');
+}
+
+export function atlasWalkFallbackFrame(def) {
+  return atlasFrameName(def, 'walk.png');
+}
+
 export function atlasAttackFrameRegex(def) {
   const prefix = atlasFramePrefix(def);
   if (!prefix) return /^attack_?\d{4}\.png$/;
   const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return new RegExp(`^${escapedPrefix}/attack_?\\d{4}\\.png$`);
+}
+
+export function atlasAttackFallbackFrame(def) {
+  return atlasFrameName(def, 'attack.png');
 }
 
 export function atlasSpellFrameRegex(def) {
@@ -41,7 +74,7 @@ export const UNIT_ATLAS_DEFS = [
   {
     type: 'Swordsman',
     atlasKey: 'swordman_atlas',
-    atlasPath: '/assets/units/human/swordman/atlas/swordman_atlas',
+    atlasPath: '/assets/units/human/swordman/atlas/swordman_atlas_new',
     idleAnim: 'swordman_idle',
     walkAnim: 'swordman_walk',
     attackAnim: 'swordman_attack',

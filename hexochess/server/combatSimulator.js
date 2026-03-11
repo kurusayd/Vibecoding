@@ -7,6 +7,8 @@ import {
   getOccupiedCellsFromAnchor,
 } from '../shared/battleCore.js';
 import { UNIT_CATALOG } from '../shared/unitCatalog.js';
+import { getPreparedAttackConfig } from '../shared/preparedAttackConfig.js';
+import { STEP_MOVE_TRAVEL_MS, getStepMoveTimings } from '../shared/stepMovementConfig.js';
 import { BATTLE_DURATION_SECONDS } from './battlePhases.js';
 
 const GRID_COLS = 12;
@@ -29,6 +31,9 @@ const KNIGHT_CHARGE_ABILITY_KEY = 'knight_charge';
 const KNIGHT_CHARGE_CAST_TIME_MS = 1000;
 const KNIGHT_CHARGE_SPEED_MULT = 2;
 const WORM_SWALLOW_ABILITY_KEY = 'worm_swallow';
+const SWORDSMAN_COUNTER_ABILITY_KEY = 'swordsman_counter';
+const SWORDSMAN_COUNTER_TRIGGER_CHANCE = 1.0;
+const SWORDSMAN_COUNTER_SKILL_MS = 300;
 const WORM_SWALLOW_DIGEST_MS = 6000;
 const WORM_SWALLOW_CHANCE = 0.5;
 const WORM_DIGEST_SPEED_MULT = 0.7;
@@ -425,6 +430,7 @@ export function performAttackIn(simState, attackerId, targetId, timeMs) {
   const isHit = Math.random() < accuracy;
   const projectileSpeed = Math.max(0, Number(attacker.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED));
   const isRanged = isRangedAttackUnit(attacker);
+  const preparedAttackCfg = !isRanged ? getPreparedAttackConfig(attacker.type) : null;
   const isCrossbowmanShot = hasCrossbowmanLineShotPassive(attacker);
   const actualDist = lineShotMeta?.canShoot ? Number(lineShotMeta.dist) : dist;
   const projectileTravelMs = isCrossbowmanShot
@@ -457,6 +463,9 @@ export function performAttackIn(simState, attackerId, targetId, timeMs) {
     projectileForceStraight: isCrossbowmanShot,
     projectileTargetQ: Number(lineShotMeta?.targetCell?.q ?? target.q ?? 0),
     projectileTargetR: Number(lineShotMeta?.targetCell?.r ?? target.r ?? 0),
+    preparedAttackIntervalMs: Number(preparedAttackCfg?.attackIntervalMs ?? 0),
+    preparedAttackHitDelayMs: Number(preparedAttackCfg?.hitDelayMs ?? 0),
+    preparedAttackHoldMs: Number(preparedAttackCfg?.attackHoldMs ?? 0),
   };
 }
 
@@ -507,6 +516,39 @@ function hasWormSwallowPassive(unit) {
   return !!unit
     && String(unit.abilityType ?? 'none') === 'passive'
     && String(unit.abilityKey ?? '') === WORM_SWALLOW_ABILITY_KEY;
+}
+
+function hasSwordsmanCounterPassive(unit) {
+  return !!unit
+    && String(unit.abilityType ?? 'none') === 'passive'
+    && String(unit.abilityKey ?? '') === SWORDSMAN_COUNTER_ABILITY_KEY;
+}
+
+function tryTriggerSwordsmanCounterIn(simState, defender, incomingEvent, timeMs, { collectTimeline = false, events = [], pendingCounterEvents = null } = {}) {
+  if (!hasSwordsmanCounterPassive(defender)) return false;
+  if (!defender || defender.dead || defender.zone !== 'board') return false;
+  const incomingDamageSource = String(incomingEvent?.damageSource ?? '');
+  if (incomingDamageSource === SWORDSMAN_COUNTER_ABILITY_KEY) return false;
+  if (incomingDamageSource !== 'attack') return false;
+
+  const attacker = findUnitByIdIn(simState, incomingEvent?.attackerId);
+  if (!attacker || attacker.dead || attacker.zone !== 'board') return false;
+  if (String(attacker.team ?? '') === String(defender.team ?? '')) return false;
+  if (Math.random() >= SWORDSMAN_COUNTER_TRIGGER_CHANCE) return false;
+  if (!Array.isArray(pendingCounterEvents)) return false;
+  const dueAt = Math.max(
+    Number(timeMs ?? 0),
+    Number(defender.nextAttackAt ?? 0),
+  );
+  pendingCounterEvents.push({
+    t: dueAt,
+    casterId: Number(defender.id),
+    targetId: Number(attacker.id),
+    casterTeam: defender.team,
+    damage: Math.max(1, Math.round(Number(defender.atk ?? 1))),
+    displayMs: SWORDSMAN_COUNTER_SKILL_MS,
+  });
+  return true;
 }
 
 function releaseWormSwallowedVictimIn(simState, wormId, timeMs, { collectTimeline = false, events = [] } = {}) {
@@ -962,6 +1004,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
   const events = [];
   const snapshots = [];
   const pendingDamageEvents = [];
+  const pendingCounterEvents = [];
   const pendingSummonEvents = [];
   const pendingDigestEvents = [];
   const projectileHitRegistry = new Map();
@@ -1083,8 +1126,67 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
           });
         }
 
+        if (!Boolean(dmgRes.killed)) {
+          tryTriggerSwordsmanCounterIn(simState, liveTarget, next, dueAt, { collectTimeline, events, pendingCounterEvents });
+        }
+
         if (dmgRes.killed) {
           releaseWormSwallowedVictimIn(simState, liveTarget.id, dueAt, { collectTimeline, events });
+        }
+      }
+    }
+
+    if (pendingCounterEvents.length > 0) {
+      pendingCounterEvents.sort((a, b) => Number(a?.t ?? 0) - Number(b?.t ?? 0));
+      while (pendingCounterEvents.length > 0) {
+        const next = pendingCounterEvents[0];
+        const dueAt = Number(next?.t ?? Infinity);
+        if (!Number.isFinite(dueAt) || dueAt > tickTimeMs + 1e-6) break;
+        pendingCounterEvents.shift();
+
+        const caster = findUnitByIdIn(simState, next.casterId);
+        const target = findUnitByIdIn(simState, next.targetId);
+        if (!caster || caster.dead || caster.zone !== 'board') continue;
+        if (!target || target.dead || target.zone !== 'board') continue;
+        if (String(caster.team ?? '') === String(target.team ?? '')) continue;
+
+        caster.attackSeq = Number(caster.attackSeq ?? 0) + 1;
+        const attackSeq = Number(caster.attackSeq ?? 0);
+
+        if (collectTimeline) {
+          events.push({
+            t: dueAt,
+            type: 'ability_cast',
+            casterId: Number(caster.id),
+            targetId: Number(target.id),
+            abilityKey: SWORDSMAN_COUNTER_ABILITY_KEY,
+            castTimeMs: 0,
+            displayMs: Number(next.displayMs ?? SWORDSMAN_COUNTER_SKILL_MS),
+          });
+        }
+
+        const counterDmgRes = applyDamageToUnitIn(simState, target.id, next.damage);
+        if (!counterDmgRes.success) continue;
+
+        if (collectTimeline) {
+          events.push({
+            t: dueAt,
+            type: 'damage',
+            attackerId: Number(caster.id),
+            targetId: Number(target.id),
+            attackerTeam: caster.team,
+            attackSeq,
+            damage: Number(counterDmgRes.damage ?? 0),
+            targetHp: Number(counterDmgRes.targetHp ?? 0),
+            targetMaxHp: Number(counterDmgRes.targetMaxHp ?? 0),
+            killed: Boolean(counterDmgRes.killed),
+            damageSource: SWORDSMAN_COUNTER_ABILITY_KEY,
+            skipPreparedAttackVisual: true,
+          });
+        }
+
+        if (counterDmgRes.killed) {
+          releaseWormSwallowedVictimIn(simState, target.id, dueAt, { collectTimeline, events });
         }
       }
     }
@@ -1290,7 +1392,9 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
       const abilityCooldownSec = Math.max(0, Number(me.abilityCooldown ?? 0));
       const abilityIntervalMs = abilityCooldownSec * 1000;
       const attackIntervalMs = 1000 / Math.max(0.1, attackSpeed * digestSpeedMult);
-      const moveIntervalMs = 1000 / Math.max(0.1, moveSpeed * digestSpeedMult);
+      const moveTimings = getStepMoveTimings(moveSpeed, digestSpeedMult);
+      const moveTravelMs = Number(moveTimings.travelMs ?? STEP_MOVE_TRAVEL_MS);
+      const moveWaitMs = Number(moveTimings.waitMs ?? 0);
       me.nextAttackAt = Math.max(0, Number(me.nextAttackAt ?? 0));
       me.nextMoveAt = Math.max(0, Number(me.nextMoveAt ?? 0));
       me.nextActionAt = Math.max(0, Number(me.nextActionAt ?? 0));
@@ -1536,6 +1640,8 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
           if (res.success) {
             me.attackSeq = Number(me.attackSeq ?? 0) + 1;
             const attackSeq = Number(me.attackSeq ?? 0);
+            const preparedAttackHitDelayMs = Math.max(0, Number(res.preparedAttackHitDelayMs ?? 0));
+            const usesPreparedAttackTiming = !Boolean(res.isRanged) && preparedAttackHitDelayMs > 0;
             if (collectTimeline) {
               events.push({
                 t: tickTimeMs,
@@ -1555,6 +1661,9 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
                 projectileForceStraight: Boolean(res.projectileForceStraight),
                 projectileTargetQ: Number(res.projectileTargetQ ?? liveTarget.q ?? 0),
                 projectileTargetR: Number(res.projectileTargetR ?? liveTarget.r ?? 0),
+                preparedAttackIntervalMs: Number(res.preparedAttackIntervalMs ?? 0),
+                preparedAttackHitDelayMs: preparedAttackHitDelayMs,
+                preparedAttackHoldMs: Number(res.preparedAttackHoldMs ?? 0),
               });
             }
 
@@ -1607,6 +1716,19 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
                   enableSkeletonArcherBounce: hasSkeletonArcherBounce,
                 });
               }
+            } else if (usesPreparedAttackTiming) {
+              pendingDamageEvents.push({
+                t: tickTimeMs + preparedAttackHitDelayMs,
+                attackerId: me.id,
+                targetId: liveTarget.id,
+                attackerTeam: me.team,
+                attackSeq,
+                damage: Number(res.damage ?? 1),
+                damageSource: 'attack',
+                projectileSpeed: 0,
+                missed: res.isHit !== true,
+                enableSkeletonArcherBounce: false,
+              });
             } else if (res.isHit !== true) {
               if (collectTimeline) {
                 events.push({
@@ -1649,6 +1771,14 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
                   damageSource: 'attack',
                 });
               }
+              if (dmgRes.success && !Boolean(dmgRes.killed)) {
+                tryTriggerSwordsmanCounterIn(simState, liveTarget, {
+                  attackerId: me.id,
+                  attackerTeam: me.team,
+                  attackSeq,
+                  damageSource: 'attack',
+                }, tickTimeMs, { collectTimeline, events, pendingCounterEvents });
+              }
               if (dmgRes.success && dmgRes.killed) {
                 releaseWormSwallowedVictimIn(simState, liveTarget.id, tickTimeMs, { collectTimeline, events });
               }
@@ -1671,21 +1801,23 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
 
         const from = { q: me.q, r: me.r };
         const moved = moveUnit(simState, me.id, step.q, step.r);
-        const moveReadyAt = Math.max(me.nextMoveAt, tickTimeMs) + moveIntervalMs;
+        const moveTravelEndsAt = Math.max(tickTimeMs, Number(me.nextActionAt ?? 0)) + moveTravelMs;
+        const moveReadyAt = moveTravelEndsAt + moveWaitMs;
         me.nextMoveAt = moveReadyAt;
-        me.nextActionAt = Math.max(me.nextActionAt, moveReadyAt);
+        me.nextActionAt = Math.max(me.nextActionAt, moveTravelEndsAt);
         me.moveFromQ = from.q;
         me.moveFromR = from.r;
         me.moveStartAt = tickTimeMs;
-        me.moveEndAt = moveReadyAt;
+        me.moveEndAt = moveTravelEndsAt;
         unitActions += 1;
         if (!moved) break;
 
         if (collectTimeline) {
           events.push({
             tStart: tickTimeMs,
-            t: tickTimeMs + moveIntervalMs,
-            durationMs: moveIntervalMs,
+            t: moveTravelEndsAt,
+            durationMs: moveTravelMs,
+            waitMs: moveWaitMs,
             type: 'move',
             unitId: me.id,
             team: me.team,

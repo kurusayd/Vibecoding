@@ -75,7 +75,7 @@ export function addUnit(state, unit) {
   const attackRangeMax = Math.max(1, Number(unit.attackRangeMax ?? DEFAULT_ATTACK_RANGE_MAX));
   const attackRangeFullDamage = Math.max(1, Number(unit.attackRangeFullDamage ?? attackRangeMax));
   const attackSpeed = Math.max(0.1, Number(unit.attackSpeed ?? DEFAULT_ATTACK_SPEED));
-  const moveSpeed = Math.max(1, Number(unit.moveSpeed ?? DEFAULT_MOVE_SPEED));
+  const moveSpeed = Math.max(0.1, Number(unit.moveSpeed ?? DEFAULT_MOVE_SPEED));
   const projectileSpeed = Math.max(0, Number(unit.projectileSpeed ?? DEFAULT_PROJECTILE_SPEED));
   const accuracy = Math.max(0, Math.min(1, Number(unit.accuracy ?? DEFAULT_ACCURACY)));
   const abilityCooldown = Math.max(0, Number(unit.abilityCooldown ?? DEFAULT_ABILITY_COOLDOWN));

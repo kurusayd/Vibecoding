@@ -876,6 +876,9 @@ const GHOST_EVASION_DODGE_CHANCE = 0.5;
 const UNDERTAKER_SUMMON_TYPE = 'SimpleSkeleton';
 const UNDERTAKER_ABILITY_KEY = 'undertaker_active';
 const UNDERTAKER_CAST_TIME_MS = 1000;
+const SWORDSMAN_COUNTER_ABILITY_KEY = 'swordsman_counter';
+const SWORDSMAN_COUNTER_TRIGGER_CHANCE = 1.0;
+const SWORDSMAN_COUNTER_SKILL_MS = 300;
 const WORM_SWALLOW_ABILITY_KEY = 'worm_swallow';
 const WORM_SWALLOW_DIGEST_MS = 6000;
 const WORM_SWALLOW_CHANCE = 0.5;
@@ -1541,6 +1544,39 @@ function hasWormSwallowPassive(unit) {
     && String(unit.abilityKey ?? '') === WORM_SWALLOW_ABILITY_KEY;
 }
 
+function hasSwordsmanCounterPassive(unit) {
+  if (!unit) return false;
+  return String(unit.abilityType ?? 'none') === 'passive'
+    && String(unit.abilityKey ?? '') === SWORDSMAN_COUNTER_ABILITY_KEY;
+}
+
+function tryTriggerSwordsmanCounterIn(simState, defender, incomingEvent, timeMs, { collectTimeline = false, events = [], pendingCounterEvents = null } = {}) {
+  if (!hasSwordsmanCounterPassive(defender)) return false;
+  if (!defender || defender.dead || defender.zone !== 'board') return false;
+  const incomingDamageSource = String(incomingEvent?.damageSource ?? '');
+  if (incomingDamageSource === SWORDSMAN_COUNTER_ABILITY_KEY) return false;
+  if (incomingDamageSource !== 'attack') return false;
+
+  const attacker = findUnitByIdIn(simState, incomingEvent?.attackerId);
+  if (!attacker || attacker.dead || attacker.zone !== 'board') return false;
+  if (String(attacker.team ?? '') === String(defender.team ?? '')) return false;
+  if (Math.random() >= SWORDSMAN_COUNTER_TRIGGER_CHANCE) return false;
+  if (!Array.isArray(pendingCounterEvents)) return false;
+  const dueAt = Math.max(
+    Number(timeMs ?? 0),
+    Number(defender.nextAttackAt ?? 0),
+  );
+  pendingCounterEvents.push({
+    t: dueAt,
+    casterId: Number(defender.id),
+    targetId: Number(attacker.id),
+    casterTeam: defender.team,
+    damage: Math.max(1, Math.round(Number(defender.atk ?? 1))),
+    displayMs: SWORDSMAN_COUNTER_SKILL_MS,
+  });
+  return true;
+}
+
 function releaseWormSwallowedVictimIn(simState, wormId, timeMs, { collectTimeline = false, events = [] } = {}) {
   const worm = findUnitByIdIn(simState, wormId);
   if (!worm) return false;
@@ -1723,6 +1759,7 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
   const events = [];
   const snapshots = [];
   const pendingDamageEvents = [];
+  const pendingCounterEvents = [];
   const pendingSummonEvents = [];
   const pendingDigestEvents = [];
   let simNextUnitId = (simState.units ?? []).reduce((mx, u) => Math.max(mx, Number(u?.id ?? 0)), 0) + 1;
@@ -1835,8 +1872,66 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
             ...(chainMeta ?? {}),
           });
         }
+        if (!Boolean(dmgRes.killed)) {
+          tryTriggerSwordsmanCounterIn(simState, liveTarget, next, dueAt, { collectTimeline, events, pendingCounterEvents });
+        }
         if (dmgRes.killed) {
           releaseWormSwallowedVictimIn(simState, next.targetId, dueAt, { collectTimeline, events });
+        }
+      }
+    }
+
+    if (pendingCounterEvents.length > 0) {
+      pendingCounterEvents.sort((a, b) => Number(a?.t ?? 0) - Number(b?.t ?? 0));
+      while (pendingCounterEvents.length > 0) {
+        const next = pendingCounterEvents[0];
+        const dueAt = Number(next?.t ?? Infinity);
+        if (!Number.isFinite(dueAt) || dueAt > tickTimeMs + 1e-6) break;
+        pendingCounterEvents.shift();
+
+        const caster = findUnitByIdIn(simState, next.casterId);
+        const target = findUnitByIdIn(simState, next.targetId);
+        if (!caster || caster.dead || caster.zone !== 'board') continue;
+        if (!target || target.dead || target.zone !== 'board') continue;
+        if (String(caster.team ?? '') === String(target.team ?? '')) continue;
+
+        caster.attackSeq = Number(caster.attackSeq ?? 0) + 1;
+        const attackSeq = Number(caster.attackSeq ?? 0);
+
+        if (collectTimeline) {
+          events.push({
+            t: dueAt,
+            type: 'ability_cast',
+            casterId: Number(caster.id),
+            targetId: Number(target.id),
+            abilityKey: SWORDSMAN_COUNTER_ABILITY_KEY,
+            castTimeMs: 0,
+            displayMs: Number(next.displayMs ?? SWORDSMAN_COUNTER_SKILL_MS),
+          });
+        }
+
+        const counterDmgRes = applyDamageToUnitIn(simState, target.id, next.damage);
+        if (!counterDmgRes.success) continue;
+
+        if (collectTimeline) {
+          events.push({
+            t: dueAt,
+            type: 'damage',
+            attackerId: Number(caster.id),
+            targetId: Number(target.id),
+            attackerTeam: caster.team,
+            attackSeq,
+            damage: Number(counterDmgRes.damage ?? 0),
+            targetHp: Number(counterDmgRes.targetHp ?? 0),
+            targetMaxHp: Number(counterDmgRes.targetMaxHp ?? 0),
+            killed: Boolean(counterDmgRes.killed),
+            damageSource: SWORDSMAN_COUNTER_ABILITY_KEY,
+            skipPreparedAttackVisual: true,
+          });
+        }
+
+        if (counterDmgRes.killed) {
+          releaseWormSwallowedVictimIn(simState, target.id, dueAt, { collectTimeline, events });
         }
       }
     }
@@ -2216,6 +2311,14 @@ function simulateBattleReplayFromState(sourceState, opts = {}) {
                     killed: Boolean(dmgRes.killed),
                     damageSource: 'attack',
                   });
+                }
+                if (dmgRes.success && !Boolean(dmgRes.killed)) {
+                  tryTriggerSwordsmanCounterIn(simState, liveTarget, {
+                    attackerId: me.id,
+                    attackerTeam: me.team,
+                    attackSeq,
+                    damageSource: 'attack',
+                  }, tickTimeMs, { collectTimeline, events, pendingCounterEvents });
                 }
                 if (dmgRes.success && dmgRes.killed) {
                   releaseWormSwallowedVictimIn(simState, liveTarget.id, tickTimeMs, { collectTimeline, events });

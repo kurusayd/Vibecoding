@@ -1,7 +1,13 @@
 ﻿import { updateHpBar } from './hpbar.js';
 import Phaser from 'phaser';
 import { getUnitArtOffsetXPx, getUnitArtTargetPx, getUnitFootShadowConfig, getUnitGroundLiftPx } from './unitVisualConfig.js';
-import { atlasIdleFrame, atlasDeadFrame, UNIT_ATLAS_DEF_BY_TYPE } from './unitAtlasConfig.js';
+import {
+  atlasIdleFrame,
+  atlasDeadFrame,
+  atlasPrepareToDieFrame,
+  atlasUsesNewFrameConventions,
+  UNIT_ATLAS_DEF_BY_TYPE,
+} from './unitAtlasConfig.js';
 import { boardDepth, hasBoardCoords } from './depthOrder.js';
 
 export function cellKey(q, r) {
@@ -483,6 +489,8 @@ export function createUnitSystem(scene) {
       try { u.dragHandle.disableInteractive?.(); } catch {}
       if (u.dragHandle.input) u.dragHandle.input.enabled = false;
     }
+    try { u._deathPrepTimer?.remove?.(false); } catch {}
+    u._deathPrepTimer = null;
 
     u.sprite.destroy();
     u.label.destroy();
@@ -599,7 +607,11 @@ export function createUnitSystem(scene) {
       duration: tweenMs,
       ease: 'Linear',
       onUpdate: () => updateHpBar(scene, u),
-      onComplete: () => { u._moveTween = null; updateHpBar(scene, u); }
+      onComplete: () => {
+        u._moveTween = null;
+        updateHpBar(scene, u);
+        scene.onUnitVisualMoveComplete?.(u);
+      }
     });
 
     if (u.art) {
@@ -648,7 +660,9 @@ export function createUnitSystem(scene) {
     const u = findUnit(id);
     if (!u) return;
 
+    const wasDead = Boolean(u.dead);
     const nextDead = Boolean(dead);
+    if (wasDead === nextDead) return;
     u.dead = nextDead;
 
     if (nextDead) {
@@ -668,8 +682,13 @@ export function createUnitSystem(scene) {
     if (u.art) {
       const atlasCfg = UNIT_ATLAS_DEF_BY_TYPE[u.type] ?? null;
       const deadAnim = atlasCfg?.deadAnim ?? null;
+      const usesNewDeathFlow = atlasUsesNewFrameConventions(atlasCfg);
+      const prepareToDieFrame = atlasCfg ? atlasPrepareToDieFrame(atlasCfg) : null;
+      const hasPrepareToDieFrame = !!(atlasCfg && scene.textures?.get?.(atlasCfg.atlasKey)?.has?.(prepareToDieFrame));
 
       if (nextDead) {
+        try { u._deathPrepTimer?.remove?.(false); } catch {}
+        u._deathPrepTimer = null;
         if (u._moveTween) {
           try { u._moveTween.stop(); } catch {}
           u._moveTween = null;
@@ -682,11 +701,36 @@ export function createUnitSystem(scene) {
           try { u._shadowMoveTween.stop(); } catch {}
           u._shadowMoveTween = null;
         }
-        if (deadAnim && scene.anims.exists(deadAnim) && u.art.anims?.getName?.() !== deadAnim) {
+        if (usesNewDeathFlow && hasPrepareToDieFrame) {
+          u._deathPrepActive = true;
+          u._deathPrepUntilMs = Number(scene?.time?.now ?? 0) + 300;
+          u.art.anims?.stop?.();
+          u.art.setFrame(prepareToDieFrame);
+          syncArtOverlay(u);
+          u._deathPrepTimer = scene.time.delayedCall(300, () => {
+            u._deathPrepTimer = null;
+            u._deathPrepActive = false;
+            u._deathPrepUntilMs = 0;
+            if (!u?.art?.active) return;
+            if (!u.dead) return;
+            if (deadAnim && scene.anims.exists(deadAnim) && u.art.anims?.getName?.() !== deadAnim) {
+              u.art.play(deadAnim);
+            } else if (u.art.frame?.name !== atlasDeadFrame(atlasCfg)) {
+              u.art.setFrame(atlasDeadFrame(atlasCfg));
+              syncArtOverlay(u);
+            }
+          });
+        } else if (deadAnim && scene.anims.exists(deadAnim) && u.art.anims?.getName?.() !== deadAnim) {
           u.art.play(deadAnim);
         } else if (u.art.frame?.name !== atlasDeadFrame(atlasCfg)) {
           u.art.setFrame(atlasDeadFrame(atlasCfg));
+          syncArtOverlay(u);
         }
+      } else {
+        try { u._deathPrepTimer?.remove?.(false); } catch {}
+        u._deathPrepTimer = null;
+        u._deathPrepActive = false;
+        u._deathPrepUntilMs = 0;
       }
       updateArtDepth(u);
       updateFootShadowDepth(u);

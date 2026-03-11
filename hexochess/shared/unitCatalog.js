@@ -15,7 +15,7 @@ const ATTACK_MODE_MELEE = 'melee';
 const ATTACK_MODE_RANGED = 'ranged';
 
 export const UNIT_CATALOG = [
-  { race: 'HUMAN',  type: 'Swordsman',      label: 'SWORDSMAN',       powerType: POWER_TYPE_PAWN,   hp: 60,  atk: 20, attackSpeed: 1.0, moveSpeed: 1.4, attackRangeMax: 1,  attackRangeFullDamage: 1, projectileSpeed: 0, attackMode: ATTACK_MODE_MELEE },
+  { race: 'HUMAN',  type: 'Swordsman',      label: 'SWORDSMAN',       powerType: POWER_TYPE_PAWN,   hp: 60,  atk: 20, attackSpeed: 0.6667, moveSpeed: 1.4, attackRangeMax: 1,  attackRangeFullDamage: 1, projectileSpeed: 0, attackMode: ATTACK_MODE_MELEE, abilityType: ABILITY_PASSIVE, abilityKey: 'swordsman_counter' },
   { race: 'HUMAN',  type: 'Priest',         label: 'PRIEST',          powerType: POWER_TYPE_BISHOP, hp: 60,  atk: 20, attackSpeed: 0.65, moveSpeed: 0.9, attackRangeMax: 20, attackRangeFullDamage: 5, projectileSpeed: 6.0, attackMode: ATTACK_MODE_RANGED },
   { race: 'LIZARD', type: 'Monk',           label: 'MONK',            powerType: POWER_TYPE_PAWN,   hp: 60,  atk: 20, attackSpeed: 1.1, moveSpeed: 1.9, attackRangeMax: 1,  attackRangeFullDamage: 1, projectileSpeed: 0, attackMode: ATTACK_MODE_MELEE },
   { race: 'LIZARD', type: 'NagaSiren',      label: 'NAGA SIREN',      powerType: POWER_TYPE_BISHOP, hp: 120, atk: 12, attackSpeed: 0.95, moveSpeed: 1.3, attackRangeMax: 1,  attackRangeFullDamage: 1, projectileSpeed: 0, attackMode: ATTACK_MODE_MELEE, abilityType: ABILITY_ACTIVE, abilityKey: 'siren_mirror_image', abilityCooldown: 20 },
