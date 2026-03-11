@@ -1,5 +1,19 @@
 ﻿export function installBattleSceneShopUi(BattleScene) {
   const SHOP_PORTRAIT_ATLAS_KEY = 'unitPortraitsAtlas';
+  const SHOP_ODDS_LAST_LEVEL = 11;
+  const SHOP_ODDS_BY_POWER_TYPE = Object.freeze({
+    'Пешка': Object.freeze([100, 85, 70, 55, 45, 35, 25, 20, 20, 15, 15]),
+    'Конь': Object.freeze([0, 15, 25, 35, 35, 35, 30, 30, 25, 25, 20]),
+    'Слон': Object.freeze([0, 0, 5, 10, 18, 25, 35, 32, 27, 25, 20]),
+    'Ладья': Object.freeze([0, 0, 0, 0, 2, 5, 10, 17, 25, 29, 36]),
+    'Ферзь': Object.freeze([0, 0, 0, 0, 0, 0, 0, 1, 3, 6, 9]),
+  });
+  const getShopOddsForPowerTypeAtLevel = (powerType, level) => {
+    const byLevel = SHOP_ODDS_BY_POWER_TYPE[String(powerType ?? '')];
+    if (!byLevel) return 0;
+    const safeLevel = Math.max(1, Math.min(SHOP_ODDS_LAST_LEVEL, Math.floor(Number(level ?? 1))));
+    return Number(byLevel[safeLevel - 1] ?? 0);
+  };
   const SHOP_PORTRAIT_FRAME_PREFIX = 'ALL PORTRAITS/PREPEARE for Atlas/';
   // Main shop tuning. If you need to move or resize the whole shop again, edit only this block.
   const SHOP_UI_TUNING = Object.freeze({
@@ -1143,6 +1157,7 @@
       }
 
       if (mode !== 'open') this.hideShopLevelGuideModal?.();
+      this.updateShopLevelGuideModalHighlight?.();
 
       if (!show) return;
 
@@ -1277,11 +1292,11 @@
 
     initShopLevelGuideModal() {
       const modalPaddingLeft = 26;
-      const modalPaddingRight = 22;
-      const firstColW = 118;
-      const colW = 38;
+      const modalPaddingRight = 26;
+      const firstColW = 132;
+      const colW = 48;
       const rowH = 46;
-      const levels = Math.min(11, Math.max(1, Number(this.kingMaxLevel ?? 20)));
+      const levels = Math.min(SHOP_ODDS_LAST_LEVEL, Math.max(1, Number(this.kingMaxLevel ?? 20)));
       const tableWidth = firstColW + colW * levels;
       const tableHeight = rowH * (SHOP_LEVEL_GUIDE_ROWS.length + 1);
       const modalWidth = tableWidth + modalPaddingLeft + modalPaddingRight;
@@ -1296,7 +1311,7 @@
       const bg = this.add.rectangle(0, 0, modalWidth, modalHeight, 0x1c1410, 0.96)
         .setOrigin(0.5, 0.5)
         .setStrokeStyle(3, 0xc18a42, 0.95);
-      const title = this.add.text(left, -180, 'Шанс выпадения фигур', {
+      const title = this.add.text(left, -180, 'Шанс выпадения фигур, %', {
         fontFamily: 'CormorantSC-SemiBold, CormorantSC-Regular, Georgia, serif',
         fontSize: '28px',
         fontStyle: 'bold',
@@ -1310,6 +1325,23 @@
       tableBg.setPosition(left, top);
       table.add(tableBg);
 
+      this.shopLevelGuideColumnHighlights = [];
+      for (let level = 1; level <= levels; level += 1) {
+        const highlight = this.add.rectangle(
+          left + firstColW + colW * (level - 1),
+          top,
+          colW,
+          tableHeight,
+          0xd9b15f,
+          0.16,
+        )
+          .setOrigin(0, 0)
+          .setStrokeStyle(2, 0xe7c97a, 0.38)
+          .setVisible(false);
+        this.shopLevelGuideColumnHighlights.push(highlight);
+        table.add(highlight);
+      }
+
       for (let col = 0; col <= levels; col += 1) {
         const x = left + (col === 0 ? firstColW : firstColW + colW * (col - 1));
         table.add(this.add.rectangle(x, top, 1, tableHeight, 0x8f6d39, 0.85).setOrigin(0, 0));
@@ -1321,12 +1353,26 @@
 
       for (let level = 1; level <= levels; level += 1) {
         const levelLabel = level >= 11 ? '11+' : `${level}`;
-        table.add(this.add.text(left + firstColW + colW * (level - 1) + colW / 2, top + rowH / 2, levelLabel, {
-          fontFamily: 'CormorantSC-SemiBold, CormorantSC-Regular, Georgia, serif',
-          fontSize: '18px',
-          fontStyle: 'bold',
-          color: '#f7e7c7',
-        }).setOrigin(0.5, 0.5));
+        const headerCenterX = left + firstColW + colW * (level - 1) + colW / 2;
+        const crown = this.add.image(headerCenterX, top + rowH / 2 - 2, 'crownexp')
+          .setOrigin(0.5, 0.5)
+          .setScale(0.145);
+        const headerText = this.add.text(
+          headerCenterX + (level >= 10 ? -1 : 0),
+          top + rowH / 2 + 1,
+          levelLabel,
+          {
+            fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+            fontSize: level >= 11 ? '11px' : '14px',
+            color: '#f2e8ff',
+            fontStyle: 'bold',
+          }
+        )
+          .setOrigin(0.5, 0.5)
+          .setStroke('#43256e', 3)
+          .setShadow(0, 0, '#1d102f', 2, true, true);
+        table.add(crown);
+        table.add(headerText);
       }
 
       SHOP_LEVEL_GUIDE_ROWS.forEach((row, idx) => {
@@ -1342,15 +1388,16 @@
         }).setOrigin(0, 0.5));
 
         for (let level = 1; level <= levels; level += 1) {
-          table.add(this.add.text(left + firstColW + colW * (level - 1) + colW / 2, y, '-', {
+          const oddsValue = getShopOddsForPowerTypeAtLevel(row.label, level);
+          table.add(this.add.text(left + firstColW + colW * (level - 1) + colW / 2, y, `${oddsValue}`, {
             fontFamily: 'CormorantSC-Regular, Georgia, serif',
             fontSize: '16px',
-            color: '#b7aa96',
+            color: oddsValue > 0 ? '#dcc79b' : '#7f7468',
           }).setOrigin(0.5, 0.5));
         }
       });
 
-      const hint = this.add.text(left, 176, 'Пока это базовая таблица уровней для будущего наполнения.', {
+      const hint = this.add.text(left, 176, 'Шансы магазина уже связаны с текущим уровнем короля.', {
         fontFamily: 'CormorantSC-Regular, Georgia, serif',
         fontSize: '18px',
         color: '#baa88f',
@@ -1363,6 +1410,7 @@
       this.shopLevelGuideVisible = false;
       this.shopLevelGuideModalWidth = modalWidth;
       this.shopLevelGuideModalHeight = modalHeight;
+      this.shopLevelGuideLevels = levels;
 
       this._shopLevelGuideOutsideTapHandler = (_pointer, currentlyOver) => {
         if (!this.shopLevelGuideVisible) return;
@@ -1388,6 +1436,7 @@
     showShopLevelGuideModal() {
       if (!this.shopLevelGuideModal) return;
       this.shopLevelGuideVisible = true;
+      this.updateShopLevelGuideModalHighlight?.();
       this.positionShopLevelGuideModal?.();
       this.shopLevelGuideModal.setVisible(true).setAlpha(1);
     },
@@ -1395,6 +1444,22 @@
     hideShopLevelGuideModal() {
       this.shopLevelGuideVisible = false;
       this.shopLevelGuideModal?.setVisible(false);
+    },
+
+    updateShopLevelGuideModalHighlight() {
+      const highlights = this.shopLevelGuideColumnHighlights ?? [];
+      if (!highlights.length) return;
+
+      const maxLevel = Math.max(1, Number(this.shopLevelGuideLevels ?? highlights.length));
+      const currentLevel = Phaser.Math.Clamp(
+        Number(this.battleState?.kings?.player?.level ?? 1),
+        1,
+        maxLevel,
+      );
+
+      highlights.forEach((highlight, idx) => {
+        highlight?.setVisible(idx === (currentLevel - 1));
+      });
     },
 
     positionShopLevelGuideModal() {

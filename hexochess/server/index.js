@@ -27,6 +27,10 @@ import {
 import { UNIT_CATALOG } from '../shared/unitCatalog.js';
 import { baseIncomeForRound, interestIncome, streakBonus, COINS_CAP } from '../shared/economy.js';
 import { canManageShopInPhase, canMergeBoardUnitsInPhase, clampCoins } from '../shared/gameRules.js';
+import {
+  SHOP_ODDS_POWER_TYPES,
+  getShopOddsForPowerTypeAtLevel,
+} from '../shared/shopOddsConfig.js';
 import { getBotProfileByIndex, getBotProfileById } from './botProfiles.js';
 import {
   BATTLE_DURATION_SECONDS as CONFIG_BATTLE_DURATION_SECONDS,
@@ -824,6 +828,32 @@ function randInt(n) {
   return Math.floor(Math.random() * n);
 }
 
+function rollShopPowerTypeByKingLevel(level, sourcePool) {
+  const availablePowerTypes = new Set(
+    (Array.isArray(sourcePool) ? sourcePool : [])
+      .map((unit) => String(unit?.powerType ?? '').trim())
+      .filter(Boolean)
+  );
+  const weightedPowerTypes = SHOP_ODDS_POWER_TYPES
+    .map((powerType) => ({
+      powerType,
+      weight: availablePowerTypes.has(powerType)
+        ? Math.max(0, Number(getShopOddsForPowerTypeAtLevel(powerType, level)))
+        : 0,
+    }))
+    .filter((entry) => entry.weight > 0);
+
+  if (!weightedPowerTypes.length) return null;
+
+  const totalWeight = weightedPowerTypes.reduce((sum, entry) => sum + entry.weight, 0);
+  let roll = Math.random() * totalWeight;
+  for (const entry of weightedPowerTypes) {
+    roll -= entry.weight;
+    if (roll < 0) return entry.powerType;
+  }
+  return weightedPowerTypes[weightedPowerTypes.length - 1]?.powerType ?? null;
+}
+
 // ---- SHOP + UNIT CATALOG (MVP) ----
 // С†РµРЅР° СЃС‚СЂРѕРіРѕ РїРѕ "СЃРёР»Рµ" (С€Р°С…РјР°С‚РЅРѕРјСѓ С‚РёРїСѓ)
 const COST_BY_POWER_TYPE = {
@@ -856,8 +886,14 @@ const SNAPSHOT_STEP_MS = COMBAT_SNAPSHOT_STEP_MS;
 function makeRandomOffer() {
   const catalogPool = UNIT_CATALOG.filter((u) => !SHOP_EXCLUDED_UNIT_TYPES.has(String(u?.type ?? '')));
   const sourcePool = catalogPool.length > 0 ? catalogPool : UNIT_CATALOG;
-  const base = sourcePool.length
-    ? sourcePool[randInt(sourcePool.length)]
+  const playerKingLevel = Number(state.kings?.player?.level ?? 1);
+  const rolledPowerType = rollShopPowerTypeByKingLevel(playerKingLevel, sourcePool);
+  const matchingPool = rolledPowerType
+    ? sourcePool.filter((unit) => String(unit?.powerType ?? '').trim() === rolledPowerType)
+    : [];
+  const effectivePool = matchingPool.length > 0 ? matchingPool : sourcePool;
+  const base = effectivePool.length
+    ? effectivePool[randInt(effectivePool.length)]
     : {
       type: 'Swordsman',
       powerType: '\u041f\u0435\u0448\u043a\u0430', // Пешка
