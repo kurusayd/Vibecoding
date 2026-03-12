@@ -4,6 +4,7 @@ import { createUnitSystem } from '../game/units.js';
 import { getKingHpBarOffsetYPx, getKingOffsetXPx, getKingShadowConfig, getKingSizePx } from '../game/kingVisualConfig.js';
 import { getUnitArtOffsetXPx, getUnitFootShadowConfig, getUnitGroundLiftPx } from '../game/unitVisualConfig.js';
 import {
+  atlasFramePrefix,
   atlasIdleFrame,
   atlasDeadFrame,
   atlasIdleAttackFrame,
@@ -146,6 +147,10 @@ const TRASH_COIN_BURST_ALPHA = 0.95;
 const WORM_SWALLOW_ABILITY_KEY = 'worm_swallow';
 const SWORDSMAN_COUNTER_ABILITY_KEY = 'swordsman_counter';
 const SWORDSMAN_COUNTER_SKILL_DEFAULT_MS = 300;
+const UNIT_RECEIVE_DAMAGE_FRAME_MS = 300;
+const UNIT_ATTACK_IMPACT_PULSE_SCALE_MUL = 1.1;
+const UNIT_ATTACK_IMPACT_PULSE_GROW_MS = 70;
+const UNIT_ATTACK_IMPACT_PULSE_SHRINK_MS = 90;
 const WORM_FAT_ANIMS = {
   idle: 'worm_fat_idle',
   walk: 'worm_fat_walk',
@@ -2105,6 +2110,57 @@ export default class BattleScene extends Phaser.Scene {
     }
   }
 
+  playUnitAttackImpactPulse(vu, {
+    scaleMul = UNIT_ATTACK_IMPACT_PULSE_SCALE_MUL,
+    growMs = UNIT_ATTACK_IMPACT_PULSE_GROW_MS,
+    shrinkMs = UNIT_ATTACK_IMPACT_PULSE_SHRINK_MS,
+  } = {}) {
+    if (!vu) return;
+
+    const targets = [vu.art, vu.artOverlay, vu.sprite].filter((obj) => obj?.active);
+    for (const obj of targets) {
+      const storedBaseX = Number(obj.getData?.('__attackPulseBaseScaleX'));
+      const storedBaseY = Number(obj.getData?.('__attackPulseBaseScaleY'));
+      const baseScaleX = Number.isFinite(storedBaseX) ? storedBaseX : Number(obj.scaleX ?? 1);
+      const baseScaleY = Number.isFinite(storedBaseY) ? storedBaseY : Number(obj.scaleY ?? 1);
+
+      obj.setData?.('__attackPulseBaseScaleX', baseScaleX);
+      obj.setData?.('__attackPulseBaseScaleY', baseScaleY);
+
+      this.tweens.killTweensOf(obj);
+      if (Math.abs((obj.scaleX ?? 1) - baseScaleX) > 1e-6 || Math.abs((obj.scaleY ?? 1) - baseScaleY) > 1e-6) {
+        obj.setScale(baseScaleX, baseScaleY);
+      }
+
+      this.tweens.add({
+        targets: obj,
+        scaleX: baseScaleX * scaleMul,
+        scaleY: baseScaleY * scaleMul,
+        duration: growMs,
+        ease: 'Quad.Out',
+        yoyo: true,
+        hold: Math.max(0, Number(shrinkMs ?? 0)),
+        onComplete: () => {
+          if (obj?.active) obj.setScale(baseScaleX, baseScaleY);
+        },
+      });
+    }
+  }
+
+  scheduleUnitAttackImpactPulse(coreUnitLike, delayMs = 0) {
+    if (!coreUnitLike) return;
+    const unitId = Number(coreUnitLike.id ?? NaN);
+    if (!Number.isFinite(unitId)) return;
+
+    this.time.delayedCall(Math.max(0, Number(delayMs ?? 0)), () => {
+      const latestCore = (this.battleState?.units ?? []).find((u) => Number(u?.id) === unitId);
+      if (!latestCore || latestCore.dead) return;
+      const vu = this.unitSys?.findUnit?.(unitId);
+      if (!vu) return;
+      this.playUnitAttackImpactPulse(vu);
+    });
+  }
+
   positionKings() {
     if (!this.kingLeft || !this.kingRight) return;
     this.syncKingVisualConfig?.();
@@ -2546,6 +2602,11 @@ export default class BattleScene extends Phaser.Scene {
         if (!(getPreparedAttackConfig(attacker.type) && !Boolean(ev?.isRanged))) {
           if (pendingAttackAnimIds) pendingAttackAnimIds.add(attacker.id);
         }
+        const preparedAttackCfg = getPreparedAttackConfig(attacker.type);
+        const pulseDelayMs = Boolean(ev?.isRanged)
+          ? 0
+          : Math.max(0, Number(preparedAttackCfg ? (ev.preparedAttackHitDelayMs ?? attacker._preparedAttackHitDelayMs ?? 0) : 0));
+        this.scheduleUnitAttackImpactPulse?.(attacker, pulseDelayMs);
       }
       if (attacker && getPreparedAttackConfig(attacker.type) && !Boolean(ev?.isRanged)) {
         const vu = this.unitSys?.findUnit?.(attacker.id);
@@ -2601,6 +2662,16 @@ export default class BattleScene extends Phaser.Scene {
           target.dead = true;
         }
       }
+      if (target && !target.dead) {
+        const vu = this.unitSys?.findUnit?.(target.id);
+        const damageFrame = this.getUnitDamageStaticFrame?.(target);
+        const nowMs = Number(this.time?.now ?? 0);
+        const skillFrameActive = Number(vu?._skillFrameUntilMs ?? 0) > nowMs;
+        const attackFrameActive = Number(vu?._preparedAttackFrameUntilMs ?? 0) > nowMs;
+        if (vu && damageFrame && !skillFrameActive && !attackFrameActive) {
+          vu._damageFrameUntilMs = nowMs + UNIT_RECEIVE_DAMAGE_FRAME_MS;
+        }
+      }
       const chainTargetId = Number(ev?.chainTargetId ?? NaN);
       const chainFromTargetId = Number(ev?.chainFromTargetId ?? ev?.targetId ?? NaN);
       if (Number.isFinite(chainTargetId) && Number.isFinite(chainFromTargetId)) {
@@ -2637,6 +2708,7 @@ export default class BattleScene extends Phaser.Scene {
           if (vu && preparedAttackFrames) {
             vu._counterRecoveryUntilMs = nowMs + Math.max(0, Number(ev.windowMs ?? SWORDSMAN_COUNTER_WINDOW_DEFAULT_MS));
           }
+          this.scheduleUnitAttackImpactPulse?.(caster, 0);
           this.showCombatCounterHint?.(caster);
           return;
         }
@@ -3521,6 +3593,16 @@ export default class BattleScene extends Phaser.Scene {
     return { atlasCfg, skillFrame };
   }
 
+  getUnitDamageStaticFrame(coreUnitLike) {
+    const atlasCfg = UNIT_ATLAS_DEF_BY_TYPE[String(coreUnitLike?.type ?? '')] ?? null;
+    if (!atlasCfg) return null;
+    const texture = this.textures?.get?.(atlasCfg.atlasKey);
+    const prefix = atlasFramePrefix(atlasCfg);
+    const damageFrame = prefix ? `${prefix}/dmg.png` : 'dmg.png';
+    if (!texture?.has?.(damageFrame)) return null;
+    return { atlasCfg, damageFrame };
+  }
+
   applyUnitStaticArtFrame(vu, atlasKey, frameName) {
     if (!vu?.art?.active || !atlasKey || !frameName) return;
     vu.art.anims?.stop?.();
@@ -3555,6 +3637,16 @@ export default class BattleScene extends Phaser.Scene {
       if (!vu?.art?.active) continue;
       if (vu._moveTween || vu._castAnimPlaying || vu._deathPrepActive) continue;
       if (Number(vu._skillFrameUntilMs ?? 0) > nowMs) continue;
+      const damageFrameInfo = this.getUnitDamageStaticFrame(core);
+      const attackActive = Number(vu._preparedAttackFrameUntilMs ?? 0) > nowMs;
+      const damageActive =
+        !!damageFrameInfo &&
+        Number(vu._damageFrameUntilMs ?? 0) > nowMs &&
+        !attackActive;
+      if (damageActive) {
+        this.applyUnitStaticArtFrame(vu, damageFrameInfo.atlasCfg.atlasKey, damageFrameInfo.damageFrame);
+        continue;
+      }
       if (Number(vu._counterRecoveryUntilMs ?? 0) > nowMs) {
         this.applyUnitStaticArtFrame(vu, preparedAttackFrames.atlasCfg.atlasKey, preparedAttackFrames.idleAttackFrame);
         continue;
@@ -3563,7 +3655,6 @@ export default class BattleScene extends Phaser.Scene {
       const idleAttack2Active =
         cycleActive &&
         Number(vu._preparedAttackIdleAttack2FromMs ?? Infinity) <= nowMs;
-      const attackActive = Number(vu._preparedAttackFrameUntilMs ?? 0) > nowMs;
       if (!cycleActive && !attackActive) continue;
 
       const targetFrame = attackActive
@@ -3579,8 +3670,8 @@ export default class BattleScene extends Phaser.Scene {
     const result = this.battleState?.result ?? null;
     if (phase !== 'battle' || result) return;
 
-    const nowMs = Number(this.time?.now ?? 0);
-    let needsRenderSync = false;
+      const nowMs = Number(this.time?.now ?? 0);
+      let needsRenderSync = false;
 
     for (const core of (this.battleState?.units ?? [])) {
       if (!core || core.dead || core.zone !== 'board') continue;
@@ -3588,6 +3679,13 @@ export default class BattleScene extends Phaser.Scene {
       if (!vu?.art?.active) continue;
 
       const skillActive = Number(vu._skillFrameUntilMs ?? 0) > nowMs;
+      const attackFrameActive = Number(vu._preparedAttackFrameUntilMs ?? 0) > nowMs;
+      const damageFrameInfo = this.getUnitDamageStaticFrame(core);
+      const damageActive =
+        !!damageFrameInfo &&
+        Number(vu._damageFrameUntilMs ?? 0) > nowMs &&
+        !skillActive &&
+        !attackFrameActive;
       const counterRecoveryActive =
         Number(vu._counterRecoveryUntilMs ?? 0) > nowMs &&
         !skillActive;
@@ -3598,6 +3696,10 @@ export default class BattleScene extends Phaser.Scene {
       }
       if (Boolean(vu._timedCounterRecoveryActive) !== counterRecoveryActive) {
         vu._timedCounterRecoveryActive = counterRecoveryActive;
+        needsRenderSync = true;
+      }
+      if (Boolean(vu._timedDamageFrameActive) !== damageActive) {
+        vu._timedDamageFrameActive = damageActive;
         needsRenderSync = true;
       }
     }
@@ -4638,6 +4740,7 @@ export default class BattleScene extends Phaser.Scene {
         }
 
         if (vu?.hpBar) vu.hpBar.setVisible(false);
+        if (vu?.footShadow) vu.footShadow.setVisible(!u.dead);
         if (vu?.rankIcon) vu.rankIcon.setVisible(!u.dead);
         this.applyBenchDepthForVisual?.(vu, slot);
         const benchPlacementChanged = prevZone !== 'bench' || prevBenchSlot !== Number(slot);
@@ -4764,6 +4867,7 @@ export default class BattleScene extends Phaser.Scene {
         if (result) {
           vu._skillFrameUntilMs = 0;
           vu._counterRecoveryUntilMs = 0;
+          vu._damageFrameUntilMs = 0;
           vu._preparedAttackCycleUntilMs = 0;
           vu._preparedAttackPoseUntilMs = 0;
           vu._preparedAttackIdleAttack2FromMs = 0;
@@ -4808,6 +4912,7 @@ export default class BattleScene extends Phaser.Scene {
         this.anims.exists(animDef.spell) &&
         !!vu._castAnimPlaying;
       const skillFrameInfo = this.getUnitSkillStaticFrame(u);
+      const damageFrameInfo = this.getUnitDamageStaticFrame(u);
       const preparedAttackFrames = this.getPreparedAttackStaticFrames(u);
       const preparedAttackCycleUntilMs = Number(vu._preparedAttackCycleUntilMs ?? 0);
       const preparedAttackPoseUntilMs = Number(vu._preparedAttackPoseUntilMs ?? 0);
@@ -4816,6 +4921,10 @@ export default class BattleScene extends Phaser.Scene {
       const preparedAttackFrameActive =
         !!preparedAttackFrames &&
         preparedAttackFrameUntilMs > Number(this.time?.now ?? 0);
+      const damageFrameActive =
+        !!damageFrameInfo &&
+        Number(vu._damageFrameUntilMs ?? 0) > Number(this.time?.now ?? 0) &&
+        !preparedAttackFrameActive;
       const preparedAttackIdleAttack2Active =
         !!preparedAttackFrames &&
         !preparedAttackFrameActive &&
@@ -4853,6 +4962,18 @@ export default class BattleScene extends Phaser.Scene {
       if (wantsSkillFrame) {
         vu._staticWalkFrameActive = false;
         this.applyUnitStaticArtFrame(vu, skillFrameInfo.atlasCfg.atlasKey, skillFrameInfo.skillFrame);
+        continue;
+      }
+      const wantsDamageFrame =
+        !!damageFrameInfo &&
+        damageFrameActive &&
+        (phase === 'battle') &&
+        !result &&
+        (u.zone === 'board') &&
+        !u.dead;
+      if (wantsDamageFrame) {
+        vu._staticWalkFrameActive = false;
+        this.applyUnitStaticArtFrame(vu, damageFrameInfo.atlasCfg.atlasKey, damageFrameInfo.damageFrame);
         continue;
       }
       const wantsCounterRecoveryIdle =

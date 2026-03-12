@@ -586,7 +586,7 @@
 ### Swordsman Counter Passive Invariant
 - `Swordsman` now has passive ability `swordsman_counter`.
 - Trigger rules:
-  - current chance is intentionally set to `100%` for testing;
+  - current chance is `30%` per eligible melee hit;
   - it triggers only after Swordsman actually receives melee `damageSource = attack`;
   - ranged / projectile damage does not trigger it;
   - each incoming melee hit is evaluated independently.

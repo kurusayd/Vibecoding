@@ -507,6 +507,50 @@ test('swordsman counter inherits accuracy and can miss', () => {
   assert.equal(counterDamages.length, 0);
 });
 
+test('swordsman counter does not trigger when the 30 percent roll fails', () => {
+  const simState = createSimState([
+    makeUnit({
+      id: 1,
+      type: 'Monk',
+      team: 'enemy',
+      hp: 100,
+      maxHp: 100,
+      atk: 10,
+      accuracy: 1,
+    }),
+    makeUnit({
+      id: 2,
+      q: 1,
+      r: 0,
+      hp: 100,
+      maxHp: 100,
+      accuracy: 1,
+      abilityType: 'passive',
+      abilityKey: 'swordsman_counter',
+    }),
+  ]);
+
+  const replay = withRandomSequence([0, 0.9], () => simulateBattleReplayFromState(simState, {
+    tickMs: 100,
+    maxBattleMs: 200,
+    collectSnapshots: false,
+  }));
+
+  const counterCasts = replay.events.filter((e) =>
+    e.type === 'ability_cast' &&
+    e.casterId === 2 &&
+    e.abilityKey === 'swordsman_counter'
+  );
+  const counterDamages = replay.events.filter((e) =>
+    e.type === 'damage' &&
+    e.attackerId === 2 &&
+    e.damageSource === 'swordsman_counter'
+  );
+
+  assert.equal(counterCasts.length, 0);
+  assert.equal(counterDamages.length, 0);
+});
+
 test('swordsman counter can be dodged by ghost evasion', () => {
   const simState = createSimState([
     makeUnit({
@@ -680,7 +724,7 @@ test('skeleton archer bounce schedules secondary projectile damage', () => {
 
 test('ghost evasion converts an otherwise successful hit into miss event', () => {
   const simState = createSimState([
-    makeUnit({ id: 1, atk: 15 }),
+    makeUnit({ id: 1, type: 'Monk', atk: 15 }),
     makeUnit({
       id: 2,
       q: 1,
@@ -819,7 +863,7 @@ test('naga siren copies inherit movement stats but lose the ability and keep onl
 
 test('naga siren illusion can dodge an incoming attack with 30 percent chance', () => {
   const simState = createSimState([
-    makeUnit({ id: 1, atk: 20, accuracy: 1 }),
+    makeUnit({ id: 1, type: 'Monk', atk: 20, accuracy: 1 }),
     makeUnit({
       id: 2,
       type: 'NagaSiren',
