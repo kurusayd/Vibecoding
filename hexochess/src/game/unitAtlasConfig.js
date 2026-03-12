@@ -20,10 +20,6 @@ export function atlasPrepareToDieFrame(def) {
   return atlasFrameName(def, 'prepeare_to_die.png');
 }
 
-export function atlasPrepareToAttackFrame(def) {
-  return atlasFrameName(def, 'prepeare_to_attack.png');
-}
-
 export function atlasIdleAttackFrame(def) {
   return atlasFrameName(def, 'idle_attack.png');
 }
@@ -53,13 +49,18 @@ export function atlasWalkFallbackFrame(def) {
 
 export function atlasAttackFrameRegex(def) {
   const prefix = atlasFramePrefix(def);
-  if (!prefix) return /^attack_?\d{4}\.png$/;
+  const attackBaseName = String(def?.attackFrameBaseName ?? 'attack');
+  if (!prefix) {
+    const escapedBase = attackBaseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`^${escapedBase}_?\\d{4}\\.png$`);
+  }
   const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`^${escapedPrefix}/attack_?\\d{4}\\.png$`);
+  const escapedBase = attackBaseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^${escapedPrefix}/${escapedBase}_?\\d{4}\\.png$`);
 }
 
 export function atlasAttackFallbackFrame(def) {
-  return atlasFrameName(def, 'attack.png');
+  return atlasFrameName(def, `${String(def?.attackFrameBaseName ?? 'attack')}.png`);
 }
 
 export function atlasSpellFrameRegex(def) {
@@ -78,6 +79,7 @@ export const UNIT_ATLAS_DEFS = [
     idleAnim: 'swordman_idle',
     walkAnim: 'swordman_walk',
     attackAnim: 'swordman_attack',
+    attackFrameBaseName: 'hit',
     deadAnim: 'swordman_dead',
     framePrefix: 'psd_anim',
   },

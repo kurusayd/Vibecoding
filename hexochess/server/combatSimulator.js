@@ -33,6 +33,7 @@ const KNIGHT_CHARGE_SPEED_MULT = 2;
 const WORM_SWALLOW_ABILITY_KEY = 'worm_swallow';
 const SWORDSMAN_COUNTER_ABILITY_KEY = 'swordsman_counter';
 const SWORDSMAN_COUNTER_TRIGGER_CHANCE = 1.0;
+const SWORDSMAN_COUNTER_WINDOW_MS = 500;
 const SWORDSMAN_COUNTER_SKILL_MS = 300;
 const WORM_SWALLOW_DIGEST_MS = 6000;
 const WORM_SWALLOW_CHANCE = 0.5;
@@ -524,6 +525,10 @@ function hasSwordsmanCounterPassive(unit) {
     && String(unit.abilityKey ?? '') === SWORDSMAN_COUNTER_ABILITY_KEY;
 }
 
+function getPreparedAttackIdleAttack2At(unit) {
+  return Math.max(0, Number(unit?.preparedAttackIdleAttack2At ?? 0));
+}
+
 function tryTriggerSwordsmanCounterIn(simState, defender, incomingEvent, timeMs, { collectTimeline = false, events = [], pendingCounterEvents = null } = {}) {
   if (!hasSwordsmanCounterPassive(defender)) return false;
   if (!defender || defender.dead || defender.zone !== 'board') return false;
@@ -536,9 +541,15 @@ function tryTriggerSwordsmanCounterIn(simState, defender, incomingEvent, timeMs,
   if (String(attacker.team ?? '') === String(defender.team ?? '')) return false;
   if (Math.random() >= SWORDSMAN_COUNTER_TRIGGER_CHANCE) return false;
   if (!Array.isArray(pendingCounterEvents)) return false;
+  const counterWindowMs = Math.max(0, Number(SWORDSMAN_COUNTER_WINDOW_MS ?? 0));
   const dueAt = Math.max(
     Number(timeMs ?? 0),
-    Number(defender.nextAttackAt ?? 0),
+    Number(defender.nextActionAt ?? 0),
+    getPreparedAttackIdleAttack2At(defender),
+  );
+  defender.nextActionAt = Math.max(
+    Number(defender.nextActionAt ?? 0),
+    dueAt + counterWindowMs,
   );
   pendingCounterEvents.push({
     t: dueAt,
@@ -546,7 +557,8 @@ function tryTriggerSwordsmanCounterIn(simState, defender, incomingEvent, timeMs,
     targetId: Number(attacker.id),
     casterTeam: defender.team,
     damage: Math.max(1, Math.round(Number(defender.atk ?? 1))),
-    displayMs: SWORDSMAN_COUNTER_SKILL_MS,
+    windowMs: counterWindowMs,
+    displayMs: Math.max(0, Number(SWORDSMAN_COUNTER_SKILL_MS ?? 0)),
   });
   return true;
 }
@@ -1149,6 +1161,11 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
         if (!caster || caster.dead || caster.zone !== 'board') continue;
         if (!target || target.dead || target.zone !== 'board') continue;
         if (String(caster.team ?? '') === String(target.team ?? '')) continue;
+        const counterWindowMs = Math.max(0, Number(next.windowMs ?? SWORDSMAN_COUNTER_WINDOW_MS));
+        caster.nextActionAt = Math.max(
+          Number(caster.nextActionAt ?? 0),
+          dueAt + counterWindowMs,
+        );
 
         caster.attackSeq = Number(caster.attackSeq ?? 0) + 1;
         const attackSeq = Number(caster.attackSeq ?? 0);
@@ -1161,8 +1178,42 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
             targetId: Number(target.id),
             abilityKey: SWORDSMAN_COUNTER_ABILITY_KEY,
             castTimeMs: 0,
-            displayMs: Number(next.displayMs ?? SWORDSMAN_COUNTER_SKILL_MS),
+            windowMs: counterWindowMs,
+            displayMs: Math.max(0, Number(next.displayMs ?? SWORDSMAN_COUNTER_SKILL_MS)),
           });
+        }
+
+        const counterAccuracy = Math.max(0, Math.min(1, Number(caster.accuracy ?? DEFAULT_UNIT_ACCURACY)));
+        const counterIsHit = Math.random() < counterAccuracy;
+        if (!counterIsHit) {
+          if (collectTimeline) {
+            events.push({
+              t: dueAt,
+              type: 'miss',
+              attackerId: Number(caster.id),
+              targetId: Number(target.id),
+              attackerTeam: caster.team,
+              attackSeq,
+              missSource: SWORDSMAN_COUNTER_ABILITY_KEY,
+              skipPreparedAttackVisual: true,
+            });
+          }
+          continue;
+        }
+        if (isAttackDodgedByTarget(target)) {
+          if (collectTimeline) {
+            events.push({
+              t: dueAt,
+              type: 'miss',
+              attackerId: Number(caster.id),
+              targetId: Number(target.id),
+              attackerTeam: caster.team,
+              attackSeq,
+              missSource: 'ghost_evasion',
+              skipPreparedAttackVisual: true,
+            });
+          }
+          continue;
         }
 
         const counterDmgRes = applyDamageToUnitIn(simState, target.id, next.damage);
@@ -1641,7 +1692,11 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
             me.attackSeq = Number(me.attackSeq ?? 0) + 1;
             const attackSeq = Number(me.attackSeq ?? 0);
             const preparedAttackHitDelayMs = Math.max(0, Number(res.preparedAttackHitDelayMs ?? 0));
+            const preparedAttackHoldMs = Math.max(0, Number(res.preparedAttackHoldMs ?? 0));
             const usesPreparedAttackTiming = !Boolean(res.isRanged) && preparedAttackHitDelayMs > 0;
+            me.preparedAttackIdleAttack2At = usesPreparedAttackTiming
+              ? tickTimeMs + preparedAttackHitDelayMs + preparedAttackHoldMs
+              : 0;
             if (collectTimeline) {
               events.push({
                 t: tickTimeMs,
@@ -1663,7 +1718,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
                 projectileTargetR: Number(res.projectileTargetR ?? liveTarget.r ?? 0),
                 preparedAttackIntervalMs: Number(res.preparedAttackIntervalMs ?? 0),
                 preparedAttackHitDelayMs: preparedAttackHitDelayMs,
-                preparedAttackHoldMs: Number(res.preparedAttackHoldMs ?? 0),
+                preparedAttackHoldMs: preparedAttackHoldMs,
               });
             }
 
@@ -1888,6 +1943,7 @@ export function sanitizeUnitForBattleStart(unit) {
   unit.nextAttackAt = 0;
   unit.nextMoveAt = 0;
   unit.nextActionAt = 0;
+  unit.preparedAttackIdleAttack2At = 0;
   unit.nextAbilityAt = hasWormSwallowPassive(unit) || hasSirenMirrorAbility(unit)
     ? 0
     : Math.max(0, Number(unit.abilityCooldown ?? 0) * 1000);

@@ -339,6 +339,267 @@ test('crossbowman piercing shot damages every enemy on the firing line', () => {
   assert.equal(damages[1].t, 200);
 });
 
+test('swordsman counter queues follow-up triggers during the 500ms counter window', () => {
+  const simState = createSimState([
+    makeUnit({
+      id: 1,
+      type: 'Monk',
+      team: 'enemy',
+      hp: 100,
+      maxHp: 100,
+      atk: 10,
+      attackSpeed: 5,
+    }),
+    makeUnit({
+      id: 2,
+      q: 1,
+      r: 0,
+      hp: 100,
+      maxHp: 100,
+      abilityType: 'passive',
+      abilityKey: 'swordsman_counter',
+    }),
+  ]);
+
+  const replay = withRandomSequence([0, 0, 0, 0, 0, 0], () => simulateBattleReplayFromState(simState, {
+    tickMs: 100,
+    maxBattleMs: 700,
+    collectSnapshots: false,
+  }));
+
+  const counterCasts = replay.events.filter((e) =>
+    e.type === 'ability_cast' &&
+    e.casterId === 2 &&
+    e.abilityKey === 'swordsman_counter'
+  );
+  const counterDamages = replay.events.filter((e) =>
+    e.type === 'damage' &&
+    e.attackerId === 2 &&
+    e.damageSource === 'swordsman_counter'
+  );
+  const swordsmanAttacks = replay.events.filter((e) =>
+    e.type === 'attack' &&
+    e.attackerId === 2
+  );
+
+  assert.deepEqual(counterCasts.map((e) => e.t), [0, 500]);
+  assert.deepEqual(counterDamages.map((e) => e.t), [0, 500]);
+  assert.equal(counterCasts[0].windowMs, 500);
+  assert.equal(counterCasts[1].windowMs, 500);
+  assert.equal(counterCasts[0].displayMs, 300);
+  assert.equal(counterCasts[1].displayMs, 300);
+  assert.equal(swordsmanAttacks.length, 0);
+});
+
+test('swordsman serializes multiple counter triggers into a strict 500ms queue', () => {
+  const simState = createSimState([
+    makeUnit({
+      id: 1,
+      type: 'Monk',
+      team: 'enemy',
+      hp: 40,
+      maxHp: 40,
+      atk: 10,
+    }),
+    makeUnit({
+      id: 2,
+      type: 'Monk',
+      q: 0,
+      r: 1,
+      team: 'enemy',
+      hp: 40,
+      maxHp: 40,
+      atk: 10,
+    }),
+    makeUnit({
+      id: 3,
+      q: 1,
+      r: 0,
+      hp: 100,
+      maxHp: 100,
+      abilityType: 'passive',
+      abilityKey: 'swordsman_counter',
+    }),
+  ]);
+
+  const replay = withRandomSequence([0, 0, 0, 0, 0, 0], () => simulateBattleReplayFromState(simState, {
+    tickMs: 100,
+    maxBattleMs: 700,
+    collectSnapshots: false,
+  }));
+
+  const counterCasts = replay.events.filter((e) =>
+    e.type === 'ability_cast' &&
+    e.casterId === 3 &&
+    e.abilityKey === 'swordsman_counter'
+  );
+  const counterDamages = replay.events.filter((e) =>
+    e.type === 'damage' &&
+    e.attackerId === 3 &&
+    e.damageSource === 'swordsman_counter'
+  );
+  const swordsmanAttacks = replay.events.filter((e) =>
+    e.type === 'attack' &&
+    e.attackerId === 3
+  );
+
+  assert.deepEqual(counterCasts.map((e) => ({ t: e.t, targetId: e.targetId })), [
+    { t: 0, targetId: 1 },
+    { t: 500, targetId: 2 },
+  ]);
+  assert.deepEqual(counterDamages.map((e) => ({ t: e.t, targetId: e.targetId })), [
+    { t: 0, targetId: 1 },
+    { t: 500, targetId: 2 },
+  ]);
+  assert.equal(counterCasts[0].windowMs, 500);
+  assert.equal(counterCasts[1].windowMs, 500);
+  assert.equal(swordsmanAttacks.length, 0);
+});
+
+test('swordsman counter inherits accuracy and can miss', () => {
+  const simState = createSimState([
+    makeUnit({
+      id: 1,
+      type: 'Monk',
+      team: 'enemy',
+      hp: 100,
+      maxHp: 100,
+      atk: 10,
+      accuracy: 1,
+    }),
+    makeUnit({
+      id: 2,
+      q: 1,
+      r: 0,
+      hp: 100,
+      maxHp: 100,
+      accuracy: 0.2,
+      abilityType: 'passive',
+      abilityKey: 'swordsman_counter',
+    }),
+  ]);
+
+  const replay = withRandomSequence([0, 0, 0.9], () => simulateBattleReplayFromState(simState, {
+    tickMs: 100,
+    maxBattleMs: 200,
+    collectSnapshots: false,
+  }));
+
+  const counterCasts = replay.events.filter((e) =>
+    e.type === 'ability_cast' &&
+    e.casterId === 2 &&
+    e.abilityKey === 'swordsman_counter'
+  );
+  const counterMisses = replay.events.filter((e) =>
+    e.type === 'miss' &&
+    e.attackerId === 2
+  );
+  const counterDamages = replay.events.filter((e) =>
+    e.type === 'damage' &&
+    e.attackerId === 2 &&
+    e.damageSource === 'swordsman_counter'
+  );
+
+  assert.equal(counterCasts.length, 1);
+  assert.equal(counterMisses.length, 1);
+  assert.equal(counterMisses[0].missSource, 'swordsman_counter');
+  assert.equal(counterMisses[0].skipPreparedAttackVisual, true);
+  assert.equal(counterDamages.length, 0);
+});
+
+test('swordsman counter can be dodged by ghost evasion', () => {
+  const simState = createSimState([
+    makeUnit({
+      id: 1,
+      type: 'Ghost',
+      team: 'enemy',
+      hp: 100,
+      maxHp: 100,
+      atk: 10,
+      accuracy: 1,
+      abilityType: 'passive',
+      abilityKey: 'ghost_evasion',
+    }),
+    makeUnit({
+      id: 2,
+      q: 1,
+      r: 0,
+      hp: 100,
+      maxHp: 100,
+      accuracy: 1,
+      abilityType: 'passive',
+      abilityKey: 'swordsman_counter',
+    }),
+  ]);
+
+  const replay = withRandomSequence([0, 0, 0, 0], () => simulateBattleReplayFromState(simState, {
+    tickMs: 100,
+    maxBattleMs: 200,
+    collectSnapshots: false,
+  }));
+
+  const counterCasts = replay.events.filter((e) =>
+    e.type === 'ability_cast' &&
+    e.casterId === 2 &&
+    e.abilityKey === 'swordsman_counter'
+  );
+  const counterMisses = replay.events.filter((e) =>
+    e.type === 'miss' &&
+    e.attackerId === 2
+  );
+  const counterDamages = replay.events.filter((e) =>
+    e.type === 'damage' &&
+    e.attackerId === 2 &&
+    e.damageSource === 'swordsman_counter'
+  );
+
+  assert.equal(counterCasts.length, 1);
+  assert.equal(counterMisses.length, 1);
+  assert.equal(counterMisses[0].missSource, 'ghost_evasion');
+  assert.equal(counterMisses[0].skipPreparedAttackVisual, true);
+  assert.equal(counterDamages.length, 0);
+});
+
+test('swordsman counter interrupts residual idle_attack2 instead of waiting full attack interval', () => {
+  const simState = createSimState([
+    makeUnit({
+      id: 1,
+      type: 'Skeleton',
+      team: 'enemy',
+      hp: 1060,
+      maxHp: 1060,
+      atk: 1,
+      attackSpeed: 1,
+    }),
+    makeUnit({
+      id: 2,
+      q: 1,
+      r: 0,
+      hp: 60,
+      maxHp: 60,
+      abilityType: 'passive',
+      abilityKey: 'swordsman_counter',
+    }),
+  ]);
+
+  const replay = withRandomSequence([0, 0, 0, 0, 0, 0, 0, 0], () => simulateBattleReplayFromState(simState, {
+    tickMs: 100,
+    maxBattleMs: 2500,
+    collectSnapshots: false,
+  }));
+
+  const counterCasts = replay.events.filter((e) =>
+    e.type === 'ability_cast' &&
+    e.casterId === 2 &&
+    e.abilityKey === 'swordsman_counter'
+  );
+
+  assert.ok(counterCasts.length >= 3);
+  assert.equal(counterCasts[0].t, 0);
+  assert.equal(counterCasts[1].t, 1650);
+  assert.equal(counterCasts[2].t, 2150);
+});
+
 test('crossbowman bolt keeps a fixed target cell and hits occupancy on the flight line', () => {
   const simState = createSimState([
     makeUnit({

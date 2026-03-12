@@ -86,6 +86,8 @@ export function updateHpBar(scene, unit) {
     ? boardDepth(HP_UI_DEPTH_BASE, coreUnit.q, coreUnit.r)
     : HP_UI_DEPTH_BASE;
   g.setDepth(uiDepth);
+  unit._hpBarCenterX = Math.round(x + w / 2);
+  unit._hpBarTopY = Math.round(y);
 
   // в­ђ rank icon (РІРЅРёР·Сѓ РіРµРєСЃР°, РїРѕРІРµСЂС… Р°СЂС‚Р°)
   if (unit.rankIcon) {

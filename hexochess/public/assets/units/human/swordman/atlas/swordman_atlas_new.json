@@ -1,6 +1,6 @@
 {
   "frames": {
-    "psd_anim/attack.png": {
+    "psd_anim/die.png": {
       "frame": {
         "x": 3,
         "y": 3,
@@ -24,7 +24,7 @@
         "y": 0.5
       }
     },
-    "psd_anim/die.png": {
+    "psd_anim/dmg.png": {
       "frame": {
         "x": 3,
         "y": 265,
@@ -48,7 +48,7 @@
         "y": 0.5
       }
     },
-    "psd_anim/idle.png": {
+    "psd_anim/hit.png": {
       "frame": {
         "x": 3,
         "y": 527,
@@ -72,7 +72,7 @@
         "y": 0.5
       }
     },
-    "psd_anim/idle_attack.png": {
+    "psd_anim/idle.png": {
       "frame": {
         "x": 3,
         "y": 789,
@@ -96,7 +96,7 @@
         "y": 0.5
       }
     },
-    "psd_anim/prepeare_to_attack.png": {
+    "psd_anim/idle_attack.png": {
       "frame": {
         "x": 3,
         "y": 1051,

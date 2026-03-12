@@ -475,3 +475,143 @@
 - Render-order invariant:
   - `new` style portraits must render above the decorative card border / separators;
   - the portrait art is intended to be visually dominant and must not be clipped by the frame styling.
+
+## 26) Session Addendum (2026-03-12)
+- Documentation refresh date: 2026-03-12.
+
+### Shop Odds Table Invariant
+- Shop now has a dedicated odds modal in the shop UI.
+- Trigger workflow:
+  - the old standalone dice odds button was replaced by `%` / `?` styling in the shop controls area;
+  - the refresh button reuses the `dice` icon art.
+- Modal title is now `Шанс выпадения фигур, %`.
+- Layout invariant:
+  - the modal is anchored to the left side of the shop control buttons with a small gap;
+  - the table width is clamped to the real visible columns and no longer includes unused empty space.
+- Table columns:
+  - visible levels are `1 .. 10` and `11+`;
+  - levels `12+` are intentionally collapsed into `11+` because the odds stop changing after that point.
+- Header readability rule:
+  - level headers use the same crown visual language as the king level HUD, not plain digits;
+  - the current player king level column is highlighted in the modal.
+
+### Shop Odds Authoritative Rule
+- Shop offer generation is now server-authoritative by king level and no longer behaves like a flat random unit pull.
+- Shared source of truth: `shared/shopOddsConfig.js`.
+- Server rule:
+  - shop first rolls a `powerType` bucket by king level odds;
+  - then it picks a random unit inside that bucket.
+- Current odds table:
+  - `Пешка`: `100, 85, 70, 55, 45, 35, 25, 20, 20, 15, 15`
+  - `Конь`: `0, 15, 25, 35, 35, 35, 30, 30, 25, 25, 20`
+  - `Слон`: `0, 0, 5, 10, 18, 25, 35, 32, 27, 25, 20`
+  - `Ладья`: `0, 0, 0, 0, 2, 5, 10, 17, 25, 29, 36`
+  - `Ферзь`: `0, 0, 0, 0, 0, 0, 0, 1, 3, 6, 9`
+- The modal displays the same numbers the server uses.
+
+### Expanded Shop Portrait Coverage
+- Custom per-unit shop portraits are no longer limited to a few hero units.
+- Dedicated shop portrait textures are now wired for multiple units added during this session batch, including:
+  - `Angel`
+  - `BonesGolem`
+  - `Ghost`
+  - `Zombie`
+  - `Devil`
+  - `Vampire`
+  - `Undertaker`
+  - `SkeletonArcher`
+  - `Skeleton`
+  - `Lich`
+  - `Headless`
+  - `Worm`
+  - `Crossbowman`
+  - `Priest`
+  - `Swordsman`
+- Portrait integration invariant:
+  - portrait preload stays in `BattleScene`;
+  - unit-type to portrait-key mapping stays in `shopUi`;
+  - this path is independent from atlas animation setup.
+
+### King HUD Refinement Invariant
+- King HUD was visually reworked beyond the original minimal bar.
+- Current player / enemy king HUD rules:
+  - HP bar has a softer rounded outline and matching rounded outer stroke;
+  - tapping the king HP bar shows raw current HP as a number, not a percent;
+  - HP digits use project font `CormorantSC-Bold` with larger sizing, softened stroke and a light shadow;
+  - the king name uses `CormorantSC-SemiBold`, is left-aligned relative to the HP bar block, and uses a soft subtle outline instead of the earlier harsh dark stroke.
+- Interaction invariant:
+  - HP number display behaves similarly to the XP bar tap expansion logic and hides on outside interaction.
+
+### Step Movement Invariant
+- Unit movement is now step-based, not continuously blended as the primary combat model.
+- Shared config source: `shared/stepMovementConfig.js`.
+- Current movement timing:
+  - travel between neighboring hexes is `400ms`;
+  - combat occupancy semantics are split into two halves:
+    - first `200ms`: old hex;
+    - second `200ms`: new hex.
+- Reservation rule:
+  - destination hex is still reserved immediately by intent, even while the visual step is still in flight.
+- Visual rule:
+  - while stepping, units use static `walk0001` or fallback `walk.png`;
+  - while waiting between steps, units return to idle visuals.
+
+### `*_new` Atlas Convention Invariant
+- Atlases with `new` in the atlas path now use a broader fallback contract than the older multi-frame exports.
+- Supported single-frame fallbacks:
+  - `walk.png` when looped `walk0001...` does not exist;
+  - `attack.png` when `attack0001...` does not exist;
+  - `idle_attack.png` for prepared attack idle pose;
+  - `skill.png` for passive / special frame display;
+  - `prepeare_to_die.png` and `die.png` for death flow.
+- Death flow rule for `*_new` atlases:
+  - unit becomes logically dead immediately;
+  - client shows `prepeare_to_die` once for `300ms`;
+  - then unit remains on `die` until revival or battle reset.
+
+### Swordsman Combat Presentation Invariant
+- `Swordsman` currently uses the `swordman_atlas_new` pipeline.
+- Normal attack-cycle presentation is no longer plain `idle -> attack`.
+- Current prepared attack cycle:
+  - full attack interval is `1500ms` (`attackSpeed ~= 0.6667`);
+  - baseline visual before hit is `idle_attack`;
+  - hit moment is centered at `750ms` from cycle start;
+  - `attack` frame is shown for `400ms` after hit;
+  - after hit-hold ends, the remaining residual wait-to-ready phase is tracked in code as `idle_attack2` and still renders `idle_attack`;
+  - `idle_attack2` may be interrupted by abilities / passive ability windows instead of forcing a wait until full attack-interval end.
+- Movement interaction rule:
+  - between move steps, Swordsman still returns to normal idle;
+  - prepared-attack visuals are attack-cycle visuals only and are not used as generic post-move stance.
+
+### Swordsman Counter Passive Invariant
+- `Swordsman` now has passive ability `swordsman_counter`.
+- Trigger rules:
+  - current chance is intentionally set to `100%` for testing;
+  - it triggers only after Swordsman actually receives melee `damageSource = attack`;
+  - ranged / projectile damage does not trigger it;
+  - each incoming melee hit is evaluated independently.
+- Queueing rule:
+  - every trigger is enqueued independently; counter-triggers are never collapsed together;
+  - the queue due-time uses `max(now, nextActionAt, preparedAttackIdleAttack2At)`;
+  - this means counter no longer waits for the whole normal attack interval once Swordsman has already entered the residual `idle_attack2` phase after his own hit+hold;
+  - each queued counter-hit reserves its own `500ms` action-lock window for readability.
+- Resolve rule:
+  - on resolve the server emits `ability_cast` with `abilityKey = swordsman_counter`;
+  - then it applies counter damage equal to Swordsman's normal attack value to the attacker;
+  - while the `500ms` counter window is active, no new action may interrupt it except death;
+  - counter damage does not reuse the prepared-attack animation pipeline.
+- Safety invariant:
+  - counter damage cannot recursively trigger the same passive back-and-forth forever because `damageSource = swordsman_counter` is excluded from trigger checks.
+
+### Swordsman Counter Visual Invariant
+- Client-side counter presentation uses both a static frame and floating text.
+- On `ability_cast(swordsman_counter)`:
+  - Swordsman faces the counter target;
+  - `skill.png` is shown as a forced static frame for the first `300ms`;
+  - for the remaining `200ms` of the counter window, the unit holds `idle_attack`;
+  - a floating `COUNTER` hint is displayed above the unit using the project `Cormorant` font family.
+- Priority rule:
+  - forced `skill` frame is above idle, `idle_attack` and other non-attack static states;
+  - it must not be interrupted by move / regular attack events; death is the only allowed interruption.
+- Readability goal:
+  - even if the sprite frame is hard to notice in heavy combat overlap, the floating `COUNTER` text must still make the passive activation obvious.

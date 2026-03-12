@@ -7,7 +7,6 @@ import {
   atlasIdleFrame,
   atlasDeadFrame,
   atlasIdleAttackFrame,
-  atlasPrepareToAttackFrame,
   atlasSkillFrame,
   atlasWalkFirstFrame,
   atlasWalkFallbackFrame,
@@ -119,6 +118,11 @@ const MISS_HINT_THROTTLE_MS = 200;
 const COUNTER_HINT_TEXT = 'COUNTER';
 const COUNTER_HINT_RISE_PX = 28;
 const COUNTER_HINT_DURATION_MS = 560;
+const COUNTER_HINT_POP_IN_MS = 120;
+const COUNTER_HINT_SETTLE_MS = 90;
+const COUNTER_HINT_START_SCALE = 0.72;
+const COUNTER_HINT_PEAK_SCALE = 1.14;
+const SWORDSMAN_COUNTER_WINDOW_DEFAULT_MS = 500;
 const CROSSBOWMAN_TRAIL_ALPHA = 0.18;
 const CROSSBOWMAN_TRAIL_WIDTH_PX = 6;
 const CROSSBOWMAN_TRAIL_MAX_LENGTH_PX = 144;
@@ -2547,15 +2551,12 @@ export default class BattleScene extends Phaser.Scene {
         const vu = this.unitSys?.findUnit?.(attacker.id);
         if (vu) {
           const nowMs = Number(this.time?.now ?? 0);
-          const preparedCfg = getPreparedAttackConfig(attacker.type);
           const hitDelayMs = Math.max(0, Number(ev.preparedAttackHitDelayMs ?? attacker._preparedAttackHitDelayMs ?? 0));
-          const prepareLeadMs = Math.min(
-            hitDelayMs,
-            Math.max(0, Number(preparedCfg?.prepareLeadMs ?? 200)),
-          );
+          const attackHoldMs = Math.max(0, Number(ev.preparedAttackHoldMs ?? attacker._preparedAttackHoldMs ?? 0));
           vu._preparedAttackCycleUntilMs = nowMs + Math.max(0, Number(ev.preparedAttackIntervalMs ?? attacker._preparedAttackIntervalMs ?? 0));
-          vu._preparedAttackPrepareFromMs = nowMs + Math.max(0, hitDelayMs - prepareLeadMs);
           vu._preparedAttackPoseUntilMs = nowMs + hitDelayMs;
+          vu._preparedAttackIdleAttack2FromMs = nowMs + hitDelayMs + attackHoldMs;
+          vu._preparedAttackIdleAttack2Active = false;
           vu._preparedAttackFrameUntilMs = 0;
         }
       }
@@ -2589,7 +2590,6 @@ export default class BattleScene extends Phaser.Scene {
         if (vu) {
           if (target) this.faceUnitVisualTowardCoreUnit(vu, target);
           vu._preparedAttackPoseUntilMs = 0;
-          vu._preparedAttackPrepareFromMs = 0;
           vu._preparedAttackFrameUntilMs = Number(this.time?.now ?? 0) + Math.max(0, Number(attacker._preparedAttackHoldMs ?? 400));
         }
       }
@@ -2627,10 +2627,15 @@ export default class BattleScene extends Phaser.Scene {
           const vu = this.unitSys?.findUnit?.(caster.id);
           const target = byId.get(ev.targetId);
           const skillFrame = this.getUnitSkillStaticFrame(caster);
+          const preparedAttackFrames = this.getPreparedAttackStaticFrames(caster);
+          const nowMs = Number(this.time?.now ?? 0);
           if (vu && skillFrame) {
             if (target) this.faceUnitVisualTowardCoreUnit(vu, target);
             vu._skillFrameMoveTweenRef = vu._moveTween ?? null;
-            vu._skillFrameUntilMs = Number(this.time?.now ?? 0) + Math.max(0, Number(ev.displayMs ?? SWORDSMAN_COUNTER_SKILL_DEFAULT_MS));
+            vu._skillFrameUntilMs = nowMs + Math.max(0, Number(ev.displayMs ?? SWORDSMAN_COUNTER_SKILL_DEFAULT_MS));
+          }
+          if (vu && preparedAttackFrames) {
+            vu._counterRecoveryUntilMs = nowMs + Math.max(0, Number(ev.windowMs ?? SWORDSMAN_COUNTER_WINDOW_DEFAULT_MS));
           }
           this.showCombatCounterHint?.(caster);
           return;
@@ -2764,7 +2769,6 @@ export default class BattleScene extends Phaser.Scene {
         if (vu) {
           if (target) this.faceUnitVisualTowardCoreUnit(vu, target);
           vu._preparedAttackPoseUntilMs = 0;
-          vu._preparedAttackPrepareFromMs = 0;
           vu._preparedAttackFrameUntilMs = Number(this.time?.now ?? 0) + Math.max(0, Number(attacker._preparedAttackHoldMs ?? 400));
         }
       }
@@ -3278,9 +3282,15 @@ export default class BattleScene extends Phaser.Scene {
       if ((nowMs - lastShownAt) < MISS_HINT_THROTTLE_MS) return;
       this.missHintLastShownAtByUnitId.set(unitId, nowMs);
     }
-    const pos = this.getUnitVisualCenter(coreUnitLike);
+    const vu = this.unitSys?.findUnit?.(coreUnitLike?.id);
+    const hasHpBarAnchor =
+      Number.isFinite(Number(vu?._hpBarCenterX)) &&
+      Number.isFinite(Number(vu?._hpBarTopY));
+    const pos = hasHpBarAnchor
+      ? { x: Number(vu._hpBarCenterX), y: Number(vu._hpBarTopY) }
+      : this.getUnitVisualCenter(coreUnitLike);
     if (!pos) return;
-    const t = this.add.text(pos.x, pos.y - 46, MISS_HINT_TEXT, {
+    const t = this.add.text(pos.x, hasHpBarAnchor ? (pos.y - 2) : (pos.y - 46), MISS_HINT_TEXT, {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
       fontSize: '16px',
       color: '#fff8ea',
@@ -3288,43 +3298,93 @@ export default class BattleScene extends Phaser.Scene {
     })
       .setOrigin(0.5, 1)
       .setDepth(2600)
-      .setAlpha(1)
+      .setAlpha(0)
+      .setScale(COUNTER_HINT_START_SCALE)
       .setShadow(0, 0, '#000000', 6, true, true);
 
     this.tweens.add({
       targets: t,
-      y: t.y - MISS_HINT_RISE_PX,
-      alpha: 0,
-      duration: MISS_HINT_DURATION_MS,
-      ease: 'Sine.In',
-      onComplete: () => t.destroy(),
+      alpha: 1,
+      scaleX: COUNTER_HINT_PEAK_SCALE,
+      scaleY: COUNTER_HINT_PEAK_SCALE,
+      duration: COUNTER_HINT_POP_IN_MS,
+      ease: 'Back.Out',
+      onComplete: () => {
+        if (!t?.scene?.sys) return;
+        this.tweens.add({
+          targets: t,
+          scaleX: 1,
+          scaleY: 1,
+          duration: COUNTER_HINT_SETTLE_MS,
+          ease: 'Sine.Out',
+          onComplete: () => {
+            if (!t?.scene?.sys) return;
+            this.tweens.add({
+              targets: t,
+              y: t.y - MISS_HINT_RISE_PX,
+              alpha: 0,
+              duration: MISS_HINT_DURATION_MS,
+              ease: 'Sine.In',
+              onComplete: () => t.destroy(),
+            });
+          },
+        });
+      },
     });
   }
 
   showCombatCounterHint(coreUnitLike) {
     if (!coreUnitLike) return;
-    const pos = this.getUnitVisualCenter(coreUnitLike);
+    const vu = this.unitSys?.findUnit?.(coreUnitLike?.id);
+    const hasHpBarAnchor =
+      Number.isFinite(Number(vu?._hpBarCenterX)) &&
+      Number.isFinite(Number(vu?._hpBarTopY));
+    const pos = hasHpBarAnchor
+      ? { x: Number(vu._hpBarCenterX), y: Number(vu._hpBarTopY) }
+      : this.getUnitVisualCenter(coreUnitLike);
     if (!pos) return;
-    const t = this.add.text(pos.x, pos.y - 52, COUNTER_HINT_TEXT, {
+    const t = this.add.text(pos.x, hasHpBarAnchor ? (pos.y - 2) : (pos.y - 52), COUNTER_HINT_TEXT, {
       fontFamily: 'CormorantSC-Bold, CormorantSC-SemiBold, CormorantSC-Regular, Georgia, serif',
-      fontSize: '20px',
+      fontSize: '14px',
       color: '#fff1c4',
       fontStyle: 'bold',
       stroke: '#6a5a3a',
-      strokeThickness: 2,
+      strokeThickness: 1,
     })
       .setOrigin(0.5, 1)
       .setDepth(2602)
-      .setAlpha(1)
-      .setShadow(0, 1, '#000000', 8, true, true);
+      .setAlpha(0)
+      .setScale(COUNTER_HINT_START_SCALE)
+      .setShadow(0, 1, '#000000', 6, true, true);
 
     this.tweens.add({
       targets: t,
-      y: t.y - COUNTER_HINT_RISE_PX,
-      alpha: 0,
-      duration: COUNTER_HINT_DURATION_MS,
-      ease: 'Sine.In',
-      onComplete: () => t.destroy(),
+      alpha: 1,
+      scaleX: COUNTER_HINT_PEAK_SCALE,
+      scaleY: COUNTER_HINT_PEAK_SCALE,
+      duration: COUNTER_HINT_POP_IN_MS,
+      ease: 'Back.Out',
+      onComplete: () => {
+        if (!t?.scene?.sys) return;
+        this.tweens.add({
+          targets: t,
+          scaleX: 1,
+          scaleY: 1,
+          duration: COUNTER_HINT_SETTLE_MS,
+          ease: 'Sine.Out',
+          onComplete: () => {
+            if (!t?.scene?.sys) return;
+            this.tweens.add({
+              targets: t,
+              y: t.y - COUNTER_HINT_RISE_PX,
+              alpha: 0,
+              duration: COUNTER_HINT_DURATION_MS,
+              ease: 'Sine.In',
+              onComplete: () => t.destroy(),
+            });
+          },
+        });
+      },
     });
   }
 
@@ -3442,15 +3502,11 @@ export default class BattleScene extends Phaser.Scene {
     const idleAttackFrame = texture?.has?.(atlasIdleAttackFrame(atlasCfg))
       ? atlasIdleAttackFrame(atlasCfg)
       : (texture?.has?.(atlasIdleFrame(atlasCfg)) ? atlasIdleFrame(atlasCfg) : null);
-    const prepareFrame = texture?.has?.(atlasPrepareToAttackFrame(atlasCfg))
-      ? atlasPrepareToAttackFrame(atlasCfg)
-      : null;
     const attackFrame = atlasAttackFallbackFrame(atlasCfg);
     if (!idleAttackFrame || !texture?.has?.(attackFrame)) return null;
     return {
       atlasCfg,
       idleAttackFrame,
-      prepareFrame,
       attackFrame,
       config: preparedCfg,
     };
@@ -3499,19 +3555,54 @@ export default class BattleScene extends Phaser.Scene {
       if (!vu?.art?.active) continue;
       if (vu._moveTween || vu._castAnimPlaying || vu._deathPrepActive) continue;
       if (Number(vu._skillFrameUntilMs ?? 0) > nowMs) continue;
+      if (Number(vu._counterRecoveryUntilMs ?? 0) > nowMs) {
+        this.applyUnitStaticArtFrame(vu, preparedAttackFrames.atlasCfg.atlasKey, preparedAttackFrames.idleAttackFrame);
+        continue;
+      }
       const cycleActive = Number(vu._preparedAttackCycleUntilMs ?? 0) > nowMs;
-      const prepareActive =
-        !!preparedAttackFrames.prepareFrame &&
-        Number(vu._preparedAttackPoseUntilMs ?? 0) > nowMs &&
-        Number(vu._preparedAttackPrepareFromMs ?? 0) <= nowMs;
+      const idleAttack2Active =
+        cycleActive &&
+        Number(vu._preparedAttackIdleAttack2FromMs ?? Infinity) <= nowMs;
       const attackActive = Number(vu._preparedAttackFrameUntilMs ?? 0) > nowMs;
       if (!cycleActive && !attackActive) continue;
 
       const targetFrame = attackActive
         ? preparedAttackFrames.attackFrame
-        : (prepareActive ? preparedAttackFrames.prepareFrame : preparedAttackFrames.idleAttackFrame);
+        : preparedAttackFrames.idleAttackFrame;
+      vu._preparedAttackIdleAttack2Active = idleAttack2Active;
       this.applyUnitStaticArtFrame(vu, preparedAttackFrames.atlasCfg.atlasKey, targetFrame);
     }
+  }
+
+  syncTimedBattleVisualTransitions() {
+    const phase = this.battleState?.phase ?? 'prep';
+    const result = this.battleState?.result ?? null;
+    if (phase !== 'battle' || result) return;
+
+    const nowMs = Number(this.time?.now ?? 0);
+    let needsRenderSync = false;
+
+    for (const core of (this.battleState?.units ?? [])) {
+      if (!core || core.dead || core.zone !== 'board') continue;
+      const vu = this.unitSys?.findUnit?.(core.id);
+      if (!vu?.art?.active) continue;
+
+      const skillActive = Number(vu._skillFrameUntilMs ?? 0) > nowMs;
+      const counterRecoveryActive =
+        Number(vu._counterRecoveryUntilMs ?? 0) > nowMs &&
+        !skillActive;
+
+      if (Boolean(vu._timedSkillFrameActive) !== skillActive) {
+        vu._timedSkillFrameActive = skillActive;
+        needsRenderSync = true;
+      }
+      if (Boolean(vu._timedCounterRecoveryActive) !== counterRecoveryActive) {
+        vu._timedCounterRecoveryActive = counterRecoveryActive;
+        needsRenderSync = true;
+      }
+    }
+
+    if (needsRenderSync) this.renderFromState();
   }
 
   getKnightMirroredAnchorShiftPx(unitLike, q, r, mirrored) {
@@ -4672,9 +4763,11 @@ export default class BattleScene extends Phaser.Scene {
         if (vu.artOverlay?.active) vu.artOverlay.setFlipX(baseMirrored);
         if (result) {
           vu._skillFrameUntilMs = 0;
+          vu._counterRecoveryUntilMs = 0;
           vu._preparedAttackCycleUntilMs = 0;
-          vu._preparedAttackPrepareFromMs = 0;
           vu._preparedAttackPoseUntilMs = 0;
+          vu._preparedAttackIdleAttack2FromMs = 0;
+          vu._preparedAttackIdleAttack2Active = false;
           vu._preparedAttackFrameUntilMs = 0;
         }
         if (u.zone === 'board' && Number.isFinite(vu.q) && Number.isFinite(vu.r)) {
@@ -4715,33 +4808,23 @@ export default class BattleScene extends Phaser.Scene {
         this.anims.exists(animDef.spell) &&
         !!vu._castAnimPlaying;
       const skillFrameInfo = this.getUnitSkillStaticFrame(u);
-      const skillFrameActive =
-        !!skillFrameInfo &&
-        Number(vu._skillFrameUntilMs ?? 0) > Number(this.time?.now ?? 0);
-      const skillMoveTweenRef = vu._skillFrameMoveTweenRef ?? null;
       const preparedAttackFrames = this.getPreparedAttackStaticFrames(u);
       const preparedAttackCycleUntilMs = Number(vu._preparedAttackCycleUntilMs ?? 0);
       const preparedAttackPoseUntilMs = Number(vu._preparedAttackPoseUntilMs ?? 0);
-      const preparedAttackPrepareFromMs = Number(vu._preparedAttackPrepareFromMs ?? 0);
+      const preparedAttackIdleAttack2FromMs = Number(vu._preparedAttackIdleAttack2FromMs ?? Infinity);
       const preparedAttackFrameUntilMs = Number(vu._preparedAttackFrameUntilMs ?? 0);
       const preparedAttackFrameActive =
         !!preparedAttackFrames &&
         preparedAttackFrameUntilMs > Number(this.time?.now ?? 0);
-      if (skillFrameActive && (
-        wantAttack ||
-        (wantWalk && vu._moveTween && vu._moveTween !== skillMoveTweenRef)
-      )) {
-        vu._skillFrameUntilMs = 0;
-      }
-      const preparedAttackPrepareActive =
-        !!preparedAttackFrames?.prepareFrame &&
-        preparedAttackPoseUntilMs > Number(this.time?.now ?? 0) &&
-        preparedAttackPrepareFromMs <= Number(this.time?.now ?? 0);
+      const preparedAttackIdleAttack2Active =
+        !!preparedAttackFrames &&
+        !preparedAttackFrameActive &&
+        preparedAttackCycleUntilMs > Number(this.time?.now ?? 0) &&
+        preparedAttackIdleAttack2FromMs <= Number(this.time?.now ?? 0);
       const isPreparedAttackFrameShown = !!(
         preparedAttackFrames &&
         (
           vu.art?.frame?.name === preparedAttackFrames.idleAttackFrame ||
-          vu.art?.frame?.name === preparedAttackFrames.prepareFrame ||
           vu.art?.frame?.name === preparedAttackFrames.attackFrame
         )
       );
@@ -4766,11 +4849,39 @@ export default class BattleScene extends Phaser.Scene {
         (phase === 'battle') &&
         !result &&
         (u.zone === 'board') &&
-        !u.dead &&
-        !wantAttack;
+        !u.dead;
       if (wantsSkillFrame) {
         vu._staticWalkFrameActive = false;
         this.applyUnitStaticArtFrame(vu, skillFrameInfo.atlasCfg.atlasKey, skillFrameInfo.skillFrame);
+        continue;
+      }
+      const wantsCounterRecoveryIdle =
+        !!preparedAttackFrames &&
+        Number(vu._counterRecoveryUntilMs ?? 0) > Number(this.time?.now ?? 0) &&
+        Number(vu._skillFrameUntilMs ?? 0) < Number(this.time?.now ?? 0) &&
+        (phase === 'battle') &&
+        !result &&
+        (u.zone === 'board') &&
+        !u.dead;
+      if (wantsCounterRecoveryIdle) {
+        vu._staticWalkFrameActive = false;
+        this.applyUnitStaticArtFrame(vu, preparedAttackFrames.atlasCfg.atlasKey, preparedAttackFrames.idleAttackFrame);
+        continue;
+      }
+      const wantsPreparedAttackReadyIdle =
+        !!preparedAttackFrames &&
+        (phase === 'battle') &&
+        !result &&
+        (u.zone === 'board') &&
+        !u.dead &&
+        !wantWalk &&
+        !wantKnightChargeMove &&
+        !wantCast &&
+        !wantAttack &&
+        (isPreparedAttackFrameShown || isSkillFrameShown);
+      if (wantsPreparedAttackReadyIdle) {
+        vu._staticWalkFrameActive = false;
+        this.applyUnitStaticArtFrame(vu, preparedAttackFrames.atlasCfg.atlasKey, preparedAttackFrames.idleAttackFrame);
         continue;
       }
       const wantsPreparedAttackPose =
@@ -4786,8 +4897,9 @@ export default class BattleScene extends Phaser.Scene {
       if (wantsPreparedAttackPose) {
         const targetFrame = preparedAttackFrameActive
           ? preparedAttackFrames.attackFrame
-          : (preparedAttackPrepareActive ? preparedAttackFrames.prepareFrame : preparedAttackFrames.idleAttackFrame);
+          : preparedAttackFrames.idleAttackFrame;
         vu._staticWalkFrameActive = false;
+        vu._preparedAttackIdleAttack2Active = preparedAttackIdleAttack2Active;
         this.applyUnitStaticArtFrame(vu, preparedAttackFrames.atlasCfg.atlasKey, targetFrame);
         continue;
       }
@@ -5437,6 +5549,7 @@ export default class BattleScene extends Phaser.Scene {
 
   update(time, delta) {
     this.unitSys.update(delta / 1000);
+    this.syncTimedBattleVisualTransitions?.();
     this.refreshPreparedAttackPoseFrames?.();
 
     const dt = delta / 1000;
