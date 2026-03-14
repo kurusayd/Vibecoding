@@ -260,6 +260,25 @@ const UNIT_FRAME_BOUND_VFX_DEFS_BY_TYPE = UNIT_FRAME_BOUND_VFX_DEFS.reduce((acc,
   return acc;
 }, {});
 
+const UNIT_MOVE_VFX_DEFS = [
+  {
+    key: 'crossbowman_move',
+    unitType: 'Crossbowman',
+    atlasKey: 'crossbowman_move_vfx_atlas',
+    atlasPath: '/assets/units/human/crossbowman/atlas/crossbowman_move_vfx_atlas',
+    animKey: 'crossbowman_move_vfx',
+    firstFrame: 'move/1.png',
+    frameRegex: /^move\/\d+\.png$/,
+    frameRate: 10,
+    repeat: 1,
+    depthOffset: 0.18,
+  },
+];
+
+const UNIT_MOVE_VFX_DEF_BY_TYPE = Object.fromEntries(
+  UNIT_MOVE_VFX_DEFS.map((def) => [String(def.unitType ?? ''), def])
+);
+
 function unitTypeToInfoPortraitName(type) {
   const raw = String(type ?? '').trim();
   if (!raw) return '';
@@ -489,6 +508,13 @@ export default class BattleScene extends Phaser.Scene {
       );
     }
     for (const def of UNIT_FRAME_BOUND_VFX_DEFS) {
+      this.load.atlas(
+        def.atlasKey,
+        `${def.atlasPath}.png`,
+        `${def.atlasPath}.json`,
+      );
+    }
+    for (const def of UNIT_MOVE_VFX_DEFS) {
       this.load.atlas(
         def.atlasKey,
         `${def.atlasPath}.png`,
@@ -1160,6 +1186,22 @@ export default class BattleScene extends Phaser.Scene {
         frameRate: Number(def.frameRate ?? 18),
         repeat: 0,
       });
+    }
+    for (const def of UNIT_MOVE_VFX_DEFS) {
+      if (this.anims.exists(def.animKey)) continue;
+      const texture = this.textures.get(def.atlasKey);
+      const frames = (texture?.getFrameNames?.() ?? [])
+        .filter((name) => def.frameRegex.test(name))
+        .sort()
+        .map((frame) => ({ key: def.atlasKey, frame }));
+      if (frames.length > 0) {
+        this.anims.create({
+          key: def.animKey,
+          frames,
+          frameRate: Number(def.frameRate ?? 10),
+          repeat: Number.isFinite(Number(def.repeat)) ? Number(def.repeat) : 0,
+        });
+      }
     }
 
     this.mergeAbsorbAnimatingIds = new Set(); // visual-only merge animation for disappearing units
@@ -4169,6 +4211,44 @@ export default class BattleScene extends Phaser.Scene {
     return overlay;
   }
 
+  ensureUnitMoveVfxOverlay(vu, def) {
+    if (!vu?.art?.active || !def) return null;
+    const existing = this.unitSys?.getManagedOverlay?.(vu.id ?? vu, def.key);
+    if (existing?.active) return existing;
+    const overlay = this.add.sprite(
+      Number(vu.art.x ?? 0),
+      Number(vu.art.y ?? 0),
+      def.atlasKey,
+      def.firstFrame,
+    )
+      .setOrigin(Number(vu.art.originX ?? 0.5), Number(vu.art.originY ?? 1))
+      .setScale(Number(vu.art.scaleX ?? 1), Number(vu.art.scaleY ?? 1))
+      .setFlipX(Boolean(vu.art.flipX))
+      .setDepth(Number(vu.art.depth ?? 0) + Number(def.depthOffset ?? 0))
+      .setVisible(false);
+    overlay.on?.('animationcomplete', () => {
+      if (!overlay?.active) return;
+      overlay.setVisible(false);
+    });
+    this.unitSys?.registerManagedOverlay?.(vu.id ?? vu, def.key, overlay, {
+      depthOffset: Number(def.depthOffset ?? 0),
+      hideWhenArtHidden: true,
+    });
+    return overlay;
+  }
+
+  startUnitMoveVfx(vu, def) {
+    if (!vu?.art?.active || !def || !this.anims.exists(def.animKey)) return null;
+    const overlay = this.ensureUnitMoveVfxOverlay(vu, def);
+    if (!overlay?.active) return null;
+    overlay.anims?.stop?.();
+    overlay
+      .setVisible(Boolean(vu.art.visible))
+      .setAlpha(1)
+      .play(def.animKey);
+    return overlay;
+  }
+
   playUnitDamageFlash(vu) {
     if (!vu?.art?.active) return null;
     const overlay = this.ensureUnitDamageFlashOverlay(vu);
@@ -5579,6 +5659,10 @@ export default class BattleScene extends Phaser.Scene {
           this.setUnitVisualFacingTowardX(vu, targetGround.x);
         }
         this.unitSys.setUnitPos(u.id, u.q, u.r, { tweenMs });
+        const moveVfxDef = UNIT_MOVE_VFX_DEF_BY_TYPE[String(u.type ?? '')] ?? null;
+        if (didBoardCellChange && tweenMs > 0 && phase === 'battle' && !result && !u.dead && moveVfxDef) {
+          this.startUnitMoveVfx?.(vu, moveVfxDef);
+        }
 
         const canShowEntryEnemyUnitUi =
           phase !== 'entry' ||
