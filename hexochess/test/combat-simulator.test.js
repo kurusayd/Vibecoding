@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { hexDistance } from '../shared/battleCore.js';
+import { addUnit, attack, computeMitigatedDamage, createBattleState, hexDistance } from '../shared/battleCore.js';
 import { BATTLE_ENTRY_SECONDS } from '../server/battlePhases.js';
 import {
   createSimState,
@@ -46,6 +46,8 @@ function makeUnit(overrides = {}) {
     projectileSpeed: 0,
     attackMode: 'melee',
     accuracy: 1,
+    armor: 0,
+    magicResist: 0,
     abilityCooldown: 0,
     attackRangeMax: 1,
     attackRangeFullDamage: 1,
@@ -86,6 +88,33 @@ test('performAttackIn reports ranged projectile travel time from hex distance', 
   assert.equal(res.isRanged, true);
   assert.equal(res.dist, 3);
   assert.equal(res.projectileTravelMs, 600);
+});
+
+test('battle core applies target armor as diminishing damage reduction', () => {
+  const state = createBattleState();
+  addUnit(state, makeUnit({ id: 1, atk: 20 }));
+  addUnit(state, makeUnit({ id: 2, q: 1, r: 0, team: 'enemy', armor: 25 }));
+
+  const res = attack(state, 1, 2);
+
+  assert.equal(res.success, true);
+  assert.equal(res.damage, 15);
+});
+
+test('battle core soft-caps armor scaling after 70 and clamps maximum reduction', () => {
+  const state = createBattleState();
+  addUnit(state, makeUnit({ id: 1, atk: 100 }));
+  addUnit(state, makeUnit({ id: 2, q: 1, r: 0, team: 'enemy', armor: 90 }));
+
+  const res = attack(state, 1, 2);
+
+  assert.equal(res.success, true);
+  assert.equal(res.damage, 20);
+});
+
+test('magic resist uses the same mitigation curve as armor on the magic damage channel', () => {
+  assert.equal(computeMitigatedDamage(100, 20, 'magic'), 80);
+  assert.equal(computeMitigatedDamage(100, 90, 'magic'), 20);
 });
 
 test('crossbowman cannot shoot target outside straight hex line', () => {

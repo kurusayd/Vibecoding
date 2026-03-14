@@ -1,4 +1,5 @@
 import {
+  computeMitigatedDamage,
   createBattleState,
   getUnitAt,
   moveUnit,
@@ -225,13 +226,16 @@ function findBestCrossbowmanTargetIn(simState, attacker, timeMs) {
   return bestShootNow ?? bestReposition ?? null;
 }
 
-function applyDamageToUnitIn(simState, targetId, damageRaw) {
+function applyDamageToUnitIn(simState, targetId, damageRaw, damageKind = 'physical') {
   const target = findUnitByIdIn(simState, targetId);
   if (!target) return { success: false, reason: 'NO_TARGET' };
   if (target.zone !== 'board') return { success: false, reason: 'TARGET_NOT_ON_BOARD' };
   if (target.dead) return { success: false, reason: 'TARGET_DEAD' };
 
-  const damage = Math.max(1, Number(damageRaw ?? 0));
+  const resistance = String(damageKind ?? 'physical') === 'magic'
+    ? Number(target.magicResist ?? 0)
+    : Number(target.armor ?? 0);
+  const damage = computeMitigatedDamage(damageRaw, resistance, damageKind);
   target.hp = Math.max(0, Number(target.hp ?? 0) - damage);
   const killed = Number(target.hp ?? 0) <= 0;
   if (killed) target.dead = true;
@@ -449,6 +453,7 @@ export function performAttackIn(simState, attackerId, targetId, timeMs) {
   return {
     success: true,
     damage,
+    damageType: String(attacker.damageType ?? 'physical'),
     dist: actualDist,
     attackRangeMax,
     attackRangeFullDamage,
@@ -557,6 +562,7 @@ function tryTriggerSwordsmanCounterIn(simState, defender, incomingEvent, timeMs,
     targetId: Number(attacker.id),
     casterTeam: defender.team,
     damage: Math.max(1, Math.round(Number(defender.atk ?? 1))),
+    damageKind: String(defender.abilityDamageType ?? defender.damageType ?? 'physical'),
     windowMs: counterWindowMs,
     displayMs: Math.max(0, Number(SWORDSMAN_COUNTER_SKILL_MS ?? 0)),
   });
@@ -1083,7 +1089,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
           continue;
         }
 
-        const dmgRes = applyDamageToUnitIn(simState, liveTarget.id, next.damage);
+        const dmgRes = applyDamageToUnitIn(simState, liveTarget.id, next.damage, next.damageKind ?? 'physical');
         if (!dmgRes.success) continue;
 
         let chainMeta = null;
@@ -1109,6 +1115,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
                 attackSeq: Number(next.attackSeq ?? 0),
                 damage: bounceDamage,
                 damageSource: 'projectile_bounce',
+                damageKind: 'physical',
                 projectileSpeed,
                 enableSkeletonArcherBounce: false,
               });
@@ -1134,6 +1141,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
             targetMaxHp: Number(dmgRes.targetMaxHp ?? 0),
             killed: Boolean(dmgRes.killed),
             damageSource: next.damageSource ?? 'attack',
+            damageKind: String(next.damageKind ?? 'physical'),
             ...(chainMeta ?? {}),
           });
         }
@@ -1216,7 +1224,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
           continue;
         }
 
-        const counterDmgRes = applyDamageToUnitIn(simState, target.id, next.damage);
+        const counterDmgRes = applyDamageToUnitIn(simState, target.id, next.damage, next.damageKind ?? 'physical');
         if (!counterDmgRes.success) continue;
 
         if (collectTimeline) {
@@ -1232,6 +1240,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
             targetMaxHp: Number(counterDmgRes.targetMaxHp ?? 0),
             killed: Boolean(counterDmgRes.killed),
             damageSource: SWORDSMAN_COUNTER_ABILITY_KEY,
+            damageKind: String(next.damageKind ?? 'physical'),
             skipPreparedAttackVisual: true,
           });
         }
@@ -1329,6 +1338,10 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
               attackRangeFullDamage: caster.attackRangeFullDamage ?? (caster.attackRangeMax ?? 1),
               attackMode: String(caster.attackMode ?? DEFAULT_UNIT_ATTACK_MODE),
               accuracy: caster.accuracy ?? DEFAULT_UNIT_ACCURACY,
+              damageType: String(caster.damageType ?? 'physical'),
+              abilityDamageType: caster.abilityDamageType ?? null,
+              armor: Math.max(0, Number(caster.armor ?? 0)),
+              magicResist: Math.max(0, Number(caster.magicResist ?? 0)),
               cellSpanX: getUnitCellSpanX(caster),
               dead: false,
               nextAttackAt: 0,
@@ -1370,6 +1383,10 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
                 attackRangeFullDamage: summoned.attackRangeFullDamage,
                 attackMode: String(summoned.attackMode ?? DEFAULT_UNIT_ATTACK_MODE),
                 accuracy: summoned.accuracy,
+                damageType: summoned.damageType,
+                abilityDamageType: summoned.abilityDamageType,
+                armor: summoned.armor,
+                magicResist: summoned.magicResist,
                 abilityType: summoned.abilityType,
                 abilityKey: summoned.abilityKey,
                 abilityCooldown: summoned.abilityCooldown,
@@ -1610,6 +1627,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
                     targetCellR: Number(cell.r),
                     damage: Math.max(1, Math.round(Number(me.atk ?? 0))),
                     damageSource: 'knight_charge',
+                    damageKind: String(me.abilityDamageType ?? me.damageType ?? 'physical'),
                     projectileSpeed: 0,
                     missed: false,
                     enableSkeletonArcherBounce: false,
@@ -1712,6 +1730,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
                 projectileSpeed: Number(res.projectileSpeed ?? 0),
                 projectileTravelMs: Number(res.projectileTravelMs ?? 0),
                 projectileTravelMsTotal: Number(res.projectileTravelMsTotal ?? res.projectileTravelMs ?? 0),
+                damageType: String(res.damageType ?? 'physical'),
                 projectilePierce: Boolean(res.projectilePierce),
                 projectileForceStraight: Boolean(res.projectileForceStraight),
                 projectileTargetQ: Number(res.projectileTargetQ ?? liveTarget.q ?? 0),
@@ -1752,6 +1771,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
                     targetCellR: Number(cell.r),
                     damage: Math.max(1, Math.round(Number(me.atk ?? 0) * hitDamageMultiplier)),
                     damageSource: 'projectile_pierce',
+                    damageKind: String(res.damageType ?? 'physical'),
                     projectileSpeed: Number(res.projectileSpeed ?? 0),
                     missed: res.isHit !== true,
                     enableSkeletonArcherBounce: false,
@@ -1766,6 +1786,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
                   attackSeq,
                   damage: Number(res.damage ?? 1),
                   damageSource: 'projectile',
+                  damageKind: String(res.damageType ?? 'physical'),
                   projectileSpeed: Number(res.projectileSpeed ?? 0),
                   missed: res.isHit !== true,
                   enableSkeletonArcherBounce: hasSkeletonArcherBounce,
@@ -1780,6 +1801,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
                 attackSeq,
                 damage: Number(res.damage ?? 1),
                 damageSource: 'attack',
+                damageKind: String(res.damageType ?? 'physical'),
                 projectileSpeed: 0,
                 missed: res.isHit !== true,
                 enableSkeletonArcherBounce: false,
@@ -1810,7 +1832,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
                 });
               }
               } else {
-              const dmgRes = applyDamageToUnitIn(simState, liveTarget.id, res.damage);
+              const dmgRes = applyDamageToUnitIn(simState, liveTarget.id, res.damage, res.damageType ?? 'physical');
               if (dmgRes.success && collectTimeline) {
                 events.push({
                   t: tickTimeMs,
@@ -1824,6 +1846,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
                   targetMaxHp: Number(dmgRes.targetMaxHp ?? 0),
                   killed: Boolean(dmgRes.killed),
                   damageSource: 'attack',
+                  damageKind: String(res.damageType ?? 'physical'),
                 });
               }
               if (dmgRes.success && !Boolean(dmgRes.killed)) {

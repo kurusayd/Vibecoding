@@ -40,6 +40,8 @@ const areShopOffersEqual = (a, b) => {
       x.hp !== y.hp ||
       (x.maxHp ?? x.hp) !== (y.maxHp ?? y.hp) ||
       x.atk !== y.atk ||
+      String(x.damageType ?? 'physical') !== String(y.damageType ?? 'physical') ||
+      String(x.abilityDamageType ?? '') !== String(y.abilityDamageType ?? '') ||
       Number(x.attackSpeed ?? 1) !== Number(y.attackSpeed ?? 1) ||
       Number(x.moveSpeed ?? 1) !== Number(y.moveSpeed ?? 1) ||
       Number(x.projectileSpeed ?? 0) !== Number(y.projectileSpeed ?? 0) ||
@@ -68,6 +70,8 @@ const areUnitsEqual = (a, b) => {
       x.team !== y.team ||
       x.type !== y.type ||
       x.rank !== y.rank ||
+      String(x.damageType ?? 'physical') !== String(y.damageType ?? 'physical') ||
+      String(x.abilityDamageType ?? '') !== String(y.abilityDamageType ?? '') ||
       Number(x.attackSpeed ?? 1) !== Number(y.attackSpeed ?? 1) ||
       Number(x.moveSpeed ?? 1) !== Number(y.moveSpeed ?? 1) ||
       Number(x.projectileSpeed ?? 0) !== Number(y.projectileSpeed ?? 0) ||

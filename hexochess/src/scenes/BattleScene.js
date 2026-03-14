@@ -26,7 +26,7 @@ import { WSClient } from '../net/wsClient.js';
 import { createFullscreenButton, positionFullscreenButton } from '../game/ui.js';
 import { updateHpBar } from '../game/hpbar.js';
 
-import { createBattleState, KING_XP_COST, KING_MAX_LEVEL, hexDistance } from '../../shared/battleCore.js';
+import { createBattleState, computeUnitPower, KING_XP_COST, KING_MAX_LEVEL, hexDistance } from '../../shared/battleCore.js';
 import { installBattleSceneDrag } from './battleScene/dragController.js';
 import { installBattleSceneShopUi } from './battleScene/shopUi.js';
 import { installBattleSceneTestScene } from './battleScene/testScene.js';
@@ -41,6 +41,7 @@ import {
   UI_TEXT,
   ABILITY_KIND_LABEL,
   ABILITY_DESC_BY_KEY,
+  DAMAGE_TYPE_LABEL,
 } from './battleScene/battleText.js';
 import { getUnitCellSpanX, getBoardCellsForUnit } from './battleScene/unitFootprint.js';
 
@@ -3139,6 +3140,8 @@ export default class BattleScene extends Phaser.Scene {
             accuracy: Number(spawned.accuracy ?? 0.8),
             abilityType: String(spawned.abilityType ?? 'none'),
             abilityKey: spawned.abilityKey ?? null,
+            damageType: String(spawned.damageType ?? 'physical'),
+            abilityDamageType: spawned.abilityDamageType ?? null,
             abilityCooldown: Number(spawned.abilityCooldown ?? 0),
             cellSpanX: Math.max(1, Math.floor(Number(spawned.cellSpanX ?? 1))),
             isIllusion: Boolean(spawned.isIllusion ?? false),
@@ -4779,7 +4782,10 @@ export default class BattleScene extends Phaser.Scene {
     const abilityKey = String(core?.abilityKey ?? '');
     const kind = ABILITY_KIND_LABEL[abilityType] ?? ABILITY_KIND_LABEL.none;
     const desc = ABILITY_DESC_BY_KEY[abilityKey] ?? (abilityType === 'none' ? 'У этого юнита пока нет способности.' : 'Описание способности пока не добавлено.');
-    return { kind, desc };
+    const damageType = core?.abilityDamageType == null
+      ? null
+      : (DAMAGE_TYPE_LABEL[String(core.abilityDamageType ?? '')] ?? String(core.abilityDamageType ?? '').toUpperCase());
+    return { kind, desc, damageType };
   }
 
   getUnitFunLines(type) {
@@ -4837,6 +4843,8 @@ export default class BattleScene extends Phaser.Scene {
     const isMelee = rangeMax <= 1;
     const isLongRanged = rangeMax > 2;
     const abilityCooldown = Math.max(0, Number(core.abilityCooldown ?? 0));
+    const attackDamageType = DAMAGE_TYPE_LABEL[String(core.damageType ?? 'physical')] ?? String(core.damageType ?? 'physical').toUpperCase();
+    const power = computeUnitPower(core);
 
     this.unitInfoTitle?.setText(String(core.type ?? 'UNKNOWN').toUpperCase());
     const powerTypeKey = String(core.powerType ?? '').trim();
@@ -4860,11 +4868,12 @@ export default class BattleScene extends Phaser.Scene {
     }
     const statsLines = [
       `HP: ${hp}/${maxHp}`,
+      `POWER: ${power}`,
       `ATK: ${atk}`,
       `ATK SPD: ${atkSpd.toFixed(2)}/s`,
       `MOVE WAIT: ${moveWaitMs} ms`,
       `ACCURACY: ${Math.round(accuracy * 100)}%`,
-      isMelee ? 'RANGE: MELEE' : (isLongRanged ? `RANGE: ${rangeFull}` : `RANGE: ${rangeMax}`),
+      isMelee ? `RANGE: MELEE | ${attackDamageType}` : ((isLongRanged ? `RANGE: ${rangeFull}` : `RANGE: ${rangeMax}`) + ` | ${attackDamageType}`),
     ];
     if (!isMelee) {
       if (!isLongRanged) {
@@ -4875,6 +4884,7 @@ export default class BattleScene extends Phaser.Scene {
     if (String(core.abilityType ?? 'none') === 'active' && abilityCooldown > 0) {
       statsLines.push(`ABILITY CD: ${abilityCooldown.toFixed(1)}s`);
     }
+    statsLines.push(`ABILITY TYPE: ${ability.damageType ?? '—'}`);
     this.unitInfoStats?.setText(statsLines.join('\n'));
     this.unitInfoRaceUnderPortrait?.setText(String(core.race ?? '-').toUpperCase());
     this.unitInfoAbilityKind?.setText(`[${ability.kind}]`);
@@ -6154,6 +6164,3 @@ installBattleSceneKingDamageFx(BattleScene);
 installBattleSceneKingHudUi(BattleScene);
 installBattleSceneStateSync(BattleScene);
 installBattleSceneLifecycle(BattleScene);
-
-
-

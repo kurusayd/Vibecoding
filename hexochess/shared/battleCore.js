@@ -11,6 +11,12 @@ const DEFAULT_ABILITY_TYPE = 'none';
 const DEFAULT_ABILITY_COOLDOWN = 0;
 const DEFAULT_ATTACK_MODE = 'melee';
 const DEFAULT_CELL_SPAN_X = 1;
+const DEFAULT_ARMOR = 0;
+const DEFAULT_MAGIC_RESIST = 0;
+const DEFAULT_DAMAGE_TYPE = 'physical';
+const ARMOR_LINEAR_CAP = 70;
+const ARMOR_SOFT_CAP_MULT = 0.5;
+const ARMOR_MAX_REDUCTION_PCT = 85;
 
 function normalizeCellSpanX(value, type) {
   if (Number.isFinite(Number(value))) {
@@ -33,6 +39,57 @@ export function getOccupiedCellsFromAnchor(q, r, cellSpanX = DEFAULT_CELL_SPAN_X
     out.push({ q: Number(q) - i, r: Number(r) });
   }
   return out;
+}
+
+export function getUnitArmor(unitLike) {
+  return Math.max(0, Number(unitLike?.armor ?? DEFAULT_ARMOR));
+}
+
+export function getUnitMagicResist(unitLike) {
+  return Math.max(0, Number(unitLike?.magicResist ?? DEFAULT_MAGIC_RESIST));
+}
+
+function getDamageMultiplierFromResistance(statLike) {
+  const stat = Math.max(0, Number(statLike ?? 0));
+  const cappedReduction = stat <= ARMOR_LINEAR_CAP
+    ? stat
+    : ARMOR_LINEAR_CAP + ((stat - ARMOR_LINEAR_CAP) * ARMOR_SOFT_CAP_MULT);
+  const reductionPct = Math.max(0, Math.min(ARMOR_MAX_REDUCTION_PCT, cappedReduction));
+  return 1 - (reductionPct / 100);
+}
+
+export function getDamageMultiplierFromArmor(armorLike) {
+  return getDamageMultiplierFromResistance(armorLike ?? DEFAULT_ARMOR);
+}
+
+export function getDamageMultiplierFromMagicResist(magicResistLike) {
+  return getDamageMultiplierFromResistance(magicResistLike ?? DEFAULT_MAGIC_RESIST);
+}
+
+export function computeMitigatedDamage(rawDamage, resistanceLike, damageKind = 'physical') {
+  const baseDamage = Math.max(0, Number(rawDamage ?? 0));
+  if (String(damageKind ?? 'physical') === 'pure') {
+    return Math.max(1, Math.round(baseDamage));
+  }
+  const multiplier = String(damageKind ?? 'physical') === 'magic'
+    ? getDamageMultiplierFromMagicResist(resistanceLike)
+    : getDamageMultiplierFromArmor(resistanceLike);
+  return Math.max(1, Math.round(baseDamage * multiplier));
+}
+
+export function computeUnitPower(unitLike) {
+  const hpBase = Math.max(1, Number(unitLike?.maxHp ?? unitLike?.hp ?? 1));
+  const armor = getUnitArmor(unitLike);
+  const magicResist = getUnitMagicResist(unitLike);
+  const physEhp = hpBase / Math.max(0.01, getDamageMultiplierFromArmor(armor));
+  const magicEhp = hpBase / Math.max(0.01, getDamageMultiplierFromMagicResist(magicResist));
+  const weightedEhp = (physEhp * 0.75) + (magicEhp * 0.25);
+  const attackSpeed = Math.max(0.1, Number(unitLike?.attackSpeed ?? DEFAULT_ATTACK_SPEED));
+  const attackDamageType = String(unitLike?.damageType ?? DEFAULT_DAMAGE_TYPE);
+  const mirrorResistance = attackDamageType === 'magic' ? magicResist : armor;
+  const mirrorHitDamage = computeMitigatedDamage(Number(unitLike?.atk ?? 0), mirrorResistance, attackDamageType);
+  const mirrorDps = mirrorHitDamage * attackSpeed;
+  return Math.max(1, Math.round(Math.sqrt(weightedEhp * mirrorDps) * 10));
 }
 
 export function getUnitOccupiedCells(unitLike) {
@@ -81,6 +138,10 @@ export function addUnit(state, unit) {
   const abilityCooldown = Math.max(0, Number(unit.abilityCooldown ?? DEFAULT_ABILITY_COOLDOWN));
   const attackMode = String(unit.attackMode ?? DEFAULT_ATTACK_MODE);
   const cellSpanX = normalizeCellSpanX(unit.cellSpanX, unit.type);
+  const armor = getUnitArmor(unit);
+  const magicResist = getUnitMagicResist(unit);
+  const damageType = String(unit.damageType ?? DEFAULT_DAMAGE_TYPE);
+  const abilityDamageType = unit.abilityDamageType == null ? null : String(unit.abilityDamageType);
 
   state.units.push({
     id: unit.id,
@@ -105,9 +166,13 @@ export function addUnit(state, unit) {
     attackRangeFullDamage,
     abilityType: String(unit.abilityType ?? DEFAULT_ABILITY_TYPE),
     abilityKey: unit.abilityKey ?? null,
+    damageType,
+    abilityDamageType,
     attackSeq: unit.attackSeq ?? 0,
     dead: Boolean(unit.dead ?? false),
     cellSpanX,
+    armor,
+    magicResist,
   });
 }
 
@@ -163,7 +228,10 @@ export function attack(state, attackerId, targetId) {
 
   const baseDamage = Math.max(0, Number(attacker.atk ?? 0));
   const damageMultiplier = dist > attackRangeFullDamage ? 0.5 : 1;
-  const damage = Math.max(1, Math.round(baseDamage * damageMultiplier));
+  const rawDamage = Math.max(1, Math.round(baseDamage * damageMultiplier));
+  const damageType = String(attacker.damageType ?? DEFAULT_DAMAGE_TYPE);
+  const resistance = damageType === 'magic' ? target.magicResist : target.armor;
+  const damage = computeMitigatedDamage(rawDamage, resistance, damageType);
   target.hp -= damage;
 
   if (target.hp <= 0) {

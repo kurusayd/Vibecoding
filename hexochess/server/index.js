@@ -924,6 +924,10 @@ function makeRandomOffer() {
     abilityCooldown: base.abilityCooldown ?? DEFAULT_UNIT_ABILITY_COOLDOWN,
     abilityType: base.abilityType ?? 'none',
     abilityKey: base.abilityKey ?? null,
+    damageType: String(base.damageType ?? 'physical'),
+    abilityDamageType: base.abilityDamageType ?? null,
+    armor: Math.max(0, Number(base.armor ?? 0)),
+    magicResist: Math.max(0, Number(base.magicResist ?? 0)),
     cellSpanX: getUnitCellSpanX(base),
   };
 }
@@ -963,6 +967,10 @@ function makeOfferFromCatalogUnit(base) {
     abilityCooldown: src.abilityCooldown ?? DEFAULT_UNIT_ABILITY_COOLDOWN,
     abilityType: src.abilityType ?? 'none',
     abilityKey: src.abilityKey ?? null,
+    damageType: String(src.damageType ?? 'physical'),
+    abilityDamageType: src.abilityDamageType ?? null,
+    armor: Math.max(0, Number(src.armor ?? 0)),
+    magicResist: Math.max(0, Number(src.magicResist ?? 0)),
     cellSpanX: getUnitCellSpanX(src),
   };
 }
@@ -1097,6 +1105,10 @@ function spawnBotArmy() {
       powerType: base.powerType,
       abilityType: base.abilityType ?? 'none',
       abilityKey: base.abilityKey ?? null,
+      damageType: String(base.damageType ?? 'physical'),
+      abilityDamageType: base.abilityDamageType ?? null,
+      armor: Math.max(0, Number(base.armor ?? 0)),
+      magicResist: Math.max(0, Number(base.magicResist ?? 0)),
       rank,
       zone: 'board',
       benchSlot: null,
@@ -1147,6 +1159,10 @@ function buildBotBoardUnitsForSim(botId, team, nextIdRef) {
       powerType: base.powerType,
       abilityType: base.abilityType ?? 'none',
       abilityKey: base.abilityKey ?? null,
+      damageType: String(base.damageType ?? 'physical'),
+      abilityDamageType: base.abilityDamageType ?? null,
+      armor: Math.max(0, Number(base.armor ?? 0)),
+      magicResist: Math.max(0, Number(base.magicResist ?? 0)),
       rank,
       zone: 'board',
       benchSlot: null,
@@ -1248,6 +1264,10 @@ function buildDebugTestBattleStateFromPayload(payloadUnits, enemyKingVisualKey =
       powerType: base.powerType,
       abilityType: base.abilityType ?? 'none',
       abilityKey: base.abilityKey ?? null,
+      damageType: String(base.damageType ?? 'physical'),
+      abilityDamageType: base.abilityDamageType ?? null,
+      armor: Math.max(0, Number(base.armor ?? 0)),
+      magicResist: Math.max(0, Number(base.magicResist ?? 0)),
       rank,
       zone: 'board',
       benchSlot: null,
@@ -2203,6 +2223,10 @@ function handleIntent(clientId, msg, ws) {
       powerType: offer.powerType,
       abilityType: offer.abilityType ?? 'none',
       abilityKey: offer.abilityKey ?? null,
+      damageType: String(offer.damageType ?? 'physical'),
+      abilityDamageType: offer.abilityDamageType ?? null,
+      armor: Math.max(0, Number(offer.armor ?? 0)),
+      magicResist: Math.max(0, Number(offer.magicResist ?? 0)),
       rank: 1,
       zone: freeBoardCell ? 'board' : 'bench',
       benchSlot: freeBoardCell ? null : freeSlot,
@@ -2323,6 +2347,3 @@ const PORT = Number(process.env.PORT || 3001);
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server listening on port ${PORT}`);
 });
-
-
-

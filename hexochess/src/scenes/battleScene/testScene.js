@@ -101,6 +101,8 @@ export function installBattleSceneTestScene(BattleScene) {
         powerType: base.powerType,
         abilityType: base.abilityType ?? 'none',
         abilityKey: base.abilityKey ?? null,
+        damageType: String(base.damageType ?? 'physical'),
+        abilityDamageType: base.abilityDamageType ?? null,
         rank: safeRank,
         zone: 'board',
         benchSlot: null,
@@ -153,6 +155,8 @@ export function installBattleSceneTestScene(BattleScene) {
           powerType: u.powerType ?? null,
           abilityType: u.abilityType ?? 'none',
           abilityKey: u.abilityKey ?? null,
+          damageType: String(u.damageType ?? 'physical'),
+          abilityDamageType: u.abilityDamageType ?? null,
           rank: u.rank ?? 1,
         }));
     },
@@ -181,6 +185,8 @@ export function installBattleSceneTestScene(BattleScene) {
           powerType: u.powerType,
           abilityType: u.abilityType ?? 'none',
           abilityKey: u.abilityKey ?? null,
+          damageType: String(u.damageType ?? 'physical'),
+          abilityDamageType: u.abilityDamageType ?? null,
           rank: u.rank ?? 1,
           zone: 'board',
           benchSlot: null,
@@ -438,5 +444,4 @@ export function installBattleSceneTestScene(BattleScene) {
     },
   });
 }
-
 
