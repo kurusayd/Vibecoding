@@ -2900,21 +2900,23 @@ export default class BattleScene extends Phaser.Scene {
       const attacker = byId.get(ev.attackerId);
       const target = byId.get(ev.targetId);
       const attackerRuntime = attacker ? this.getUnitRuntime(attacker.id) : null;
+      const preparedAttackCfg = attacker ? getPreparedAttackConfig(attacker.type) : null;
+      const usesPreparedAttackVisual = !!preparedAttackCfg;
+      const preparedAttackProjectileLaunchDelayMs = Math.max(0, Number(ev.preparedAttackProjectileLaunchDelayMs ?? 0));
       if (attacker) {
         attacker.attackSeq = Number(ev.attackSeq ?? (Number(attacker.attackSeq ?? 0) + 1));
         attackerRuntime._preparedAttackIntervalMs = Math.max(0, Number(ev.preparedAttackIntervalMs ?? 0));
         attackerRuntime._preparedAttackHitDelayMs = Math.max(0, Number(ev.preparedAttackHitDelayMs ?? 0));
         attackerRuntime._preparedAttackHoldMs = Math.max(0, Number(ev.preparedAttackHoldMs ?? 0));
-        if (!(getPreparedAttackConfig(attacker.type) && !Boolean(ev?.isRanged))) {
+        if (!usesPreparedAttackVisual) {
           if (pendingAttackAnimIds) pendingAttackAnimIds.add(attacker.id);
         }
-        const preparedAttackCfg = getPreparedAttackConfig(attacker.type);
-        const pulseDelayMs = Boolean(ev?.isRanged)
-          ? 0
-          : Math.max(0, Number(preparedAttackCfg ? (ev.preparedAttackHitDelayMs ?? attackerRuntime._preparedAttackHitDelayMs ?? 0) : 0));
+        const pulseDelayMs = usesPreparedAttackVisual
+          ? Math.max(0, Number(ev.preparedAttackHitDelayMs ?? attackerRuntime._preparedAttackHitDelayMs ?? 0))
+          : 0;
         this.scheduleUnitAttackImpactPulse?.(attacker, pulseDelayMs);
       }
-      if (attacker && getPreparedAttackConfig(attacker.type) && !Boolean(ev?.isRanged)) {
+      if (attacker && usesPreparedAttackVisual) {
         const vu = this.unitSys?.findUnit?.(attacker.id);
         const runtime = this.attachUnitRuntime(vu, attacker.id);
         if (vu) {
@@ -2929,7 +2931,7 @@ export default class BattleScene extends Phaser.Scene {
         }
       }
         if (attacker && target) {
-          if (Boolean(ev?.isRanged) === true) {
+          if (Boolean(ev?.isRanged) === true && preparedAttackProjectileLaunchDelayMs <= 0) {
             const isCrossbowmanShot = this.isCrossbowmanLineShotUnit?.(attacker) === true;
             this.pendingRangedBeamFx = this.pendingRangedBeamFx ?? [];
             this.pendingRangedBeamFx.push({
@@ -2947,6 +2949,39 @@ export default class BattleScene extends Phaser.Scene {
             });
           }
         }
+      return;
+    }
+
+    if (ev.type === 'projectile_launch') {
+      const attacker = byId.get(ev.attackerId);
+      const target = byId.get(ev.targetId);
+      if (attacker && getPreparedAttackConfig(attacker.type)) {
+        const vu = this.unitSys?.findUnit?.(attacker.id);
+        const attackerRuntime = this.attachUnitRuntime(vu, attacker.id);
+        if (vu) {
+          if (target) this.faceUnitVisualTowardCoreUnit(vu, target);
+          attackerRuntime._preparedAttackPoseUntilMs = 0;
+          attackerRuntime._preparedAttackFrameUntilMs = Number(this.time?.now ?? 0)
+            + Math.max(0, Number(ev.preparedAttackHoldMs ?? attackerRuntime._preparedAttackHoldMs ?? 400));
+        }
+      }
+      if (attacker && target) {
+        const isCrossbowmanShot = this.isCrossbowmanLineShotUnit?.(attacker) === true;
+        this.pendingRangedBeamFx = this.pendingRangedBeamFx ?? [];
+        this.pendingRangedBeamFx.push({
+          attackerId: attacker.id,
+          targetId: target.id,
+          targetQ: isCrossbowmanShot ? Number(ev.projectileTargetQ ?? target.q ?? 0) : null,
+          targetR: isCrossbowmanShot ? Number(ev.projectileTargetR ?? target.r ?? 0) : null,
+          projectileTravelMs: Number(ev.projectileTravelMs ?? 0),
+          projectileTravelMsTotal: Number(ev.projectileTravelMsTotal ?? ev.projectileTravelMs ?? 0),
+          projectilePierce: Boolean(ev.projectilePierce),
+          forceStraight: Boolean(ev.projectileForceStraight) || isCrossbowmanShot,
+          textureKey: isCrossbowmanShot ? 'projectile_bolt' : undefined,
+          dist: Number(ev.dist ?? NaN),
+          attackRangeFullDamage: Number(ev.attackRangeFullDamage ?? NaN),
+        });
+      }
       return;
     }
 

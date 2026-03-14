@@ -4,6 +4,12 @@ const PREPARED_ATTACK_CONFIG_BY_TYPE = Object.freeze({
     hitDelayMs: 750,
     attackHoldMs: 400,
   }),
+  Crossbowman: Object.freeze({
+    attackIntervalMs: Math.round(1000 / 0.7),
+    hitDelayMs: 400,
+    attackHoldMs: 400,
+    projectileLaunchDelayMs: 400,
+  }),
 });
 
 export function getPreparedAttackConfig(type) {

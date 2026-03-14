@@ -12,12 +12,16 @@ export function atlasIdleFrame(def) {
 }
 
 export function atlasDeadFrame(def) {
-  if (atlasUsesNewFrameConventions(def)) return atlasFrameName(def, 'die.png');
-  return atlasFrameName(def, 'dead.png');
+  const deadFrameBaseName = String(
+    def?.deadFrameBaseName
+      ?? (atlasUsesNewFrameConventions(def) ? 'die' : 'dead')
+  );
+  return atlasFrameName(def, `${deadFrameBaseName}.png`);
 }
 
 export function atlasPrepareToDieFrame(def) {
-  return atlasFrameName(def, 'prepeare_to_die.png');
+  const prepareToDieFrameBaseName = String(def?.prepareToDieFrameBaseName ?? 'prepeare_to_die');
+  return atlasFrameName(def, `${prepareToDieFrameBaseName}.png`);
 }
 
 export function atlasIdleAttackFrame(def) {
@@ -88,11 +92,14 @@ export const UNIT_ATLAS_DEFS = [
   {
     type: 'Crossbowman',
     atlasKey: 'crossbowman_atlas',
-    atlasPath: '/assets/units/human/crossbowman/atlas/crossbowman_atlas',
+    atlasPath: '/assets/units/human/crossbowman/atlas/crossbowman_atlas_new',
     idleAnim: 'crossbowman_idle',
     walkAnim: 'crossbowman_walk',
     attackAnim: 'crossbowman_attack',
+    attackFrameBaseName: 'hit',
     deadAnim: 'crossbowman_dead',
+    prepareToDieFrameBaseName: 'die0',
+    deadFrameBaseName: 'die1',
     framePrefix: 'psd_anim',
   },
   {

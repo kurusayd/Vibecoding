@@ -435,7 +435,10 @@ export function performAttackIn(simState, attackerId, targetId, timeMs) {
   const isHit = Math.random() < accuracy;
   const projectileSpeed = Math.max(0, Number(attacker.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED));
   const isRanged = isRangedAttackUnit(attacker);
-  const preparedAttackCfg = !isRanged ? getPreparedAttackConfig(attacker.type) : null;
+  const preparedAttackCfg = getPreparedAttackConfig(attacker.type);
+  const preparedAttackProjectileLaunchDelayMs = isRanged
+    ? Math.max(0, Number(preparedAttackCfg?.projectileLaunchDelayMs ?? 0))
+    : 0;
   const isCrossbowmanShot = hasCrossbowmanLineShotPassive(attacker);
   const actualDist = lineShotMeta?.canShoot ? Number(lineShotMeta.dist) : dist;
   const projectileTravelMs = isCrossbowmanShot
@@ -472,6 +475,7 @@ export function performAttackIn(simState, attackerId, targetId, timeMs) {
     preparedAttackIntervalMs: Number(preparedAttackCfg?.attackIntervalMs ?? 0),
     preparedAttackHitDelayMs: Number(preparedAttackCfg?.hitDelayMs ?? 0),
     preparedAttackHoldMs: Number(preparedAttackCfg?.attackHoldMs ?? 0),
+    preparedAttackProjectileLaunchDelayMs,
   };
 }
 
@@ -1053,6 +1057,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
               attackerTeam: next.attackerTeam,
               attackSeq: Number(next.attackSeq ?? 0),
               missSource: next.damageSource ?? 'attack',
+              skipPreparedAttackVisual: Boolean(next.skipPreparedAttackVisual),
             });
           }
           continue;
@@ -1084,6 +1089,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
               attackerTeam: next.attackerTeam,
               attackSeq: Number(next.attackSeq ?? 0),
               missSource: 'ghost_evasion',
+              skipPreparedAttackVisual: Boolean(next.skipPreparedAttackVisual),
             });
           }
           continue;
@@ -1142,6 +1148,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
             killed: Boolean(dmgRes.killed),
             damageSource: next.damageSource ?? 'attack',
             damageKind: String(next.damageKind ?? 'physical'),
+            skipPreparedAttackVisual: Boolean(next.skipPreparedAttackVisual),
             ...(chainMeta ?? {}),
           });
         }
@@ -1711,7 +1718,8 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
             const attackSeq = Number(me.attackSeq ?? 0);
             const preparedAttackHitDelayMs = Math.max(0, Number(res.preparedAttackHitDelayMs ?? 0));
             const preparedAttackHoldMs = Math.max(0, Number(res.preparedAttackHoldMs ?? 0));
-            const usesPreparedAttackTiming = !Boolean(res.isRanged) && preparedAttackHitDelayMs > 0;
+            const preparedAttackProjectileLaunchDelayMs = Math.max(0, Number(res.preparedAttackProjectileLaunchDelayMs ?? 0));
+            const usesPreparedAttackTiming = preparedAttackHitDelayMs > 0;
             me.preparedAttackIdleAttack2At = usesPreparedAttackTiming
               ? tickTimeMs + preparedAttackHitDelayMs + preparedAttackHoldMs
               : 0;
@@ -1738,6 +1746,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
                 preparedAttackIntervalMs: Number(res.preparedAttackIntervalMs ?? 0),
                 preparedAttackHitDelayMs: preparedAttackHitDelayMs,
                 preparedAttackHoldMs: preparedAttackHoldMs,
+                preparedAttackProjectileLaunchDelayMs,
               });
             }
 
@@ -1746,6 +1755,26 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
               String(me.abilityKey ?? '') === 'skeleton_archer_bounce';
 
             if (Boolean(res.isRanged) && Number(res.projectileTravelMs ?? 0) > 0) {
+              if (collectTimeline && preparedAttackProjectileLaunchDelayMs > 0) {
+                events.push({
+                  t: tickTimeMs + preparedAttackProjectileLaunchDelayMs,
+                  type: 'projectile_launch',
+                  attackerId: me.id,
+                  targetId: liveTarget.id,
+                  attackerTeam: me.team,
+                  attackSeq,
+                  projectileSpeed: Number(res.projectileSpeed ?? 0),
+                  projectileTravelMs: Number(res.projectileTravelMs ?? 0),
+                  projectileTravelMsTotal: Number(res.projectileTravelMsTotal ?? res.projectileTravelMs ?? 0),
+                  projectilePierce: Boolean(res.projectilePierce),
+                  projectileForceStraight: Boolean(res.projectileForceStraight),
+                  projectileTargetQ: Number(res.projectileTargetQ ?? liveTarget.q ?? 0),
+                  projectileTargetR: Number(res.projectileTargetR ?? liveTarget.r ?? 0),
+                  dist: Number(res.dist ?? dist),
+                  attackRangeFullDamage: Number(res.attackRangeFullDamage ?? attackRangeMax),
+                  preparedAttackHoldMs: preparedAttackHoldMs,
+                });
+              }
               const pierceTargets = Array.isArray(res.pierceTargets) ? res.pierceTargets : [];
               const projectileRayCells = Array.isArray(res.projectileRayCells) ? res.projectileRayCells : [];
               if (Boolean(res.projectilePierce) && projectileRayCells.length > 0) {
@@ -1761,7 +1790,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
                     );
                   const hitDamageMultiplier = hitDist > Number(res.attackRangeFullDamage ?? attackRangeMax) ? 0.5 : 1;
                   pendingDamageEvents.push({
-                    t: tickTimeMs + hitTravelMs,
+                    t: tickTimeMs + preparedAttackProjectileLaunchDelayMs + hitTravelMs,
                     attackerId: me.id,
                     targetId: liveTarget.id,
                     attackerTeam: me.team,
@@ -1775,11 +1804,12 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
                     projectileSpeed: Number(res.projectileSpeed ?? 0),
                     missed: res.isHit !== true,
                     enableSkeletonArcherBounce: false,
+                    skipPreparedAttackVisual: preparedAttackProjectileLaunchDelayMs > 0,
                   });
                 }
               } else {
                 pendingDamageEvents.push({
-                  t: tickTimeMs + Number(res.projectileTravelMs ?? 0),
+                  t: tickTimeMs + preparedAttackProjectileLaunchDelayMs + Number(res.projectileTravelMs ?? 0),
                   attackerId: me.id,
                   targetId: liveTarget.id,
                   attackerTeam: me.team,
@@ -1790,6 +1820,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
                   projectileSpeed: Number(res.projectileSpeed ?? 0),
                   missed: res.isHit !== true,
                   enableSkeletonArcherBounce: hasSkeletonArcherBounce,
+                  skipPreparedAttackVisual: preparedAttackProjectileLaunchDelayMs > 0,
                 });
               }
             } else if (usesPreparedAttackTiming) {
