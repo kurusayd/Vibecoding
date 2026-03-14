@@ -160,6 +160,99 @@ function syncArtOverlay(unit) {
     .setDepth(Number(art.depth ?? UNIT_ART_DEPTH_LIVE) + 0.1);
 }
 
+function getManagedOverlayRegistry(unit) {
+  if (!unit) return null;
+  if (!(unit._managedOverlays instanceof Map)) unit._managedOverlays = new Map();
+  return unit._managedOverlays;
+}
+
+function registerManagedOverlay(unit, key, overlay, opts = {}) {
+  if (!unit || !key || !overlay) return null;
+  const registry = getManagedOverlayRegistry(unit);
+  const entryKey = String(key);
+  const previous = registry.get(entryKey);
+  if (previous?.overlay && previous.overlay !== overlay) {
+    previous.overlay.destroy?.();
+  }
+  const entry = {
+    key: entryKey,
+    overlay,
+    copyArtFrame: opts.copyArtFrame === true,
+    depthOffset: Number.isFinite(Number(opts.depthOffset)) ? Number(opts.depthOffset) : 0,
+    offsetXPx: Number.isFinite(Number(opts.offsetXPx)) ? Number(opts.offsetXPx) : 0,
+    offsetYPx: Number.isFinite(Number(opts.offsetYPx)) ? Number(opts.offsetYPx) : 0,
+    mirrorOffsetX: opts.mirrorOffsetX !== false,
+    matchArtVisibility: opts.matchArtVisibility === true,
+    hideWhenArtHidden: opts.hideWhenArtHidden !== false,
+  };
+  registry.set(entryKey, entry);
+  return entry;
+}
+
+function getManagedOverlay(unit, key) {
+  const registry = unit?._managedOverlays;
+  if (!(registry instanceof Map)) return null;
+  return registry.get(String(key))?.overlay ?? null;
+}
+
+function syncManagedOverlays(unit) {
+  const art = unit?.art;
+  const registry = unit?._managedOverlays;
+  if (!(registry instanceof Map) || registry.size <= 0) return;
+
+  for (const entry of registry.values()) {
+    const overlay = entry?.overlay;
+    if (!overlay) continue;
+    if (!art?.active || !overlay?.active) {
+      overlay.setVisible(false);
+      continue;
+    }
+
+    if (entry.copyArtFrame) {
+      const textureKey = art.texture?.key ?? null;
+      const frameName = art.frame?.name ?? null;
+      if (textureKey && overlay.texture?.key !== textureKey) {
+        overlay.setTexture(textureKey, frameName ?? undefined);
+      } else if (frameName != null && overlay.frame?.name !== frameName) {
+        overlay.setFrame(frameName);
+      }
+    }
+
+    const flipX = Boolean(art.flipX);
+    const offsetX = Number(entry.offsetXPx ?? 0);
+    const offsetY = Number(entry.offsetYPx ?? 0);
+    const mirroredOffsetX = entry.mirrorOffsetX && flipX ? -offsetX : offsetX;
+
+    overlay
+      .setPosition(
+        Number(art.x ?? 0) + mirroredOffsetX,
+        Number(art.y ?? 0) + offsetY,
+      )
+      .setScale(Number(art.scaleX ?? 1), Number(art.scaleY ?? 1))
+      .setFlipX(flipX)
+      .setAngle(Number(art.angle ?? 0))
+      .setOrigin(Number(art.originX ?? 0.5), Number(art.originY ?? 1))
+      .setDepth(Number(art.depth ?? UNIT_ART_DEPTH_LIVE) + Number(entry.depthOffset ?? 0));
+
+    if (entry.matchArtVisibility) {
+      overlay.setVisible(Boolean(art.visible));
+      continue;
+    }
+    if (entry.hideWhenArtHidden && !art.visible) {
+      overlay.setVisible(false);
+    }
+  }
+}
+
+function destroyManagedOverlays(unit) {
+  const registry = unit?._managedOverlays;
+  if (!(registry instanceof Map)) return;
+  for (const entry of registry.values()) {
+    entry?.overlay?.destroy?.();
+  }
+  registry.clear();
+}
+
 function createFootShadow(scene, x, y, type) {
   const shadowCfg = getUnitFootShadowConfig(type);
   return scene.add.ellipse(
@@ -224,6 +317,11 @@ export function createUnitSystem(scene) {
 
   function findUnit(id) {
     return state.unitsById.get(id) ?? null;
+  }
+
+  function resolveUnitRef(unitOrId) {
+    if (unitOrId && typeof unitOrId === 'object') return unitOrId;
+    return findUnit(unitOrId);
   }
 
   function getUnitAt(q, r) {
@@ -341,6 +439,7 @@ export function createUnitSystem(scene) {
       label,
       hpBar,
       _artFacingMirrored: opts.team === 'enemy',
+      _managedOverlays: new Map(),
     };
 
     if (art) label.setVisible(false);
@@ -497,6 +596,7 @@ export function createUnitSystem(scene) {
     u.hpBar.destroy();
     u.art?.destroy();
     u.artOverlay?.destroy();
+    destroyManagedOverlays(u);
     u.footShadow?.destroy();
     u.dragHandle?.destroy();
     u.rankIcon?.destroy();
@@ -574,6 +674,7 @@ export function createUnitSystem(scene) {
       u.dragHandle?.setPosition(p.x, p.y);
       if (u.art) u.art.setPosition(artX, g.y);
       syncArtOverlay(u);
+      syncManagedOverlays(u);
       if (u.footShadow) u.footShadow.setPosition(shadowX, shadowY);
       u.label.setPosition(p.x, p.y);
       updateArtDepth(u);
@@ -621,8 +722,17 @@ export function createUnitSystem(scene) {
         y: g.y,
         duration: tweenMs,
         ease: 'Linear',
-        onUpdate: () => updateArtDepth(u),
-        onComplete: () => { u._artMoveTween = null; updateArtDepth(u); },
+        onUpdate: () => {
+          updateArtDepth(u);
+          syncArtOverlay(u);
+          syncManagedOverlays(u);
+        },
+        onComplete: () => {
+          u._artMoveTween = null;
+          updateArtDepth(u);
+          syncArtOverlay(u);
+          syncManagedOverlays(u);
+        },
       });
     }
     if (u.footShadow) {
@@ -760,6 +870,7 @@ export function createUnitSystem(scene) {
     unit.dragHandle?.setPosition(p.x, p.y);
     if (unit.art) unit.art.setPosition(artX, g.y);
     syncArtOverlay(unit);
+    syncManagedOverlays(unit);
     if (unit.footShadow) unit.footShadow.setPosition(shadowX, shadowY);
     unit.label.setPosition(p.x, p.y);
 
@@ -788,6 +899,7 @@ export function createUnitSystem(scene) {
       u.dragHandle?.setPosition(p.x, p.y);
       if (u.art) u.art.setPosition(artX, g.y);
       syncArtOverlay(u);
+      syncManagedOverlays(u);
       if (u.footShadow) u.footShadow.setPosition(shadowX, shadowY);
       u.label.setPosition(p.x, p.y);
       updateArtDepth(u);
@@ -804,6 +916,7 @@ export function createUnitSystem(scene) {
 
     for (const u of state.units) {
       syncArtOverlay(u);
+      syncManagedOverlays(u);
       const abilityCdFill = Number(scene.getAbilityCooldownFillForUnit?.(u));
       const needsAbilityCdUi = Number.isFinite(abilityCdFill);
       if (u.hpLag > u.hpInstant) {
@@ -848,6 +961,16 @@ export function createUnitSystem(scene) {
     removeUnit,
     relayoutUnits,
     update,
+    registerManagedOverlay(unitOrId, key, overlay, opts = {}) {
+      const unit = resolveUnitRef(unitOrId);
+      if (!unit) return null;
+      return registerManagedOverlay(unit, key, overlay, opts);
+    },
+    getManagedOverlay(unitOrId, key) {
+      const unit = resolveUnitRef(unitOrId);
+      if (!unit) return null;
+      return getManagedOverlay(unit, key);
+    },
   };
 }
 

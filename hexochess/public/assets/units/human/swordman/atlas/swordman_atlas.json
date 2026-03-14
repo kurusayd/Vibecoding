@@ -196,7 +196,7 @@
   "meta": {
     "app": "http://free-tex-packer.com",
     "version": "0.6.7",
-    "image": "swordman_atlas_new.png",
+    "image": "swordman_atlas.png",
     "format": "RGBA8888",
     "size": {
       "w": 524,

@@ -29,6 +29,7 @@ export function atlasSkillFrame(def) {
 }
 
 export function atlasUsesNewFrameConventions(def) {
+  if (typeof def?.usesNewFrameConventions === 'boolean') return def.usesNewFrameConventions;
   return /(^|[_/\\-])new(\.|$|[_/\\-])/i.test(String(def?.atlasPath ?? ''));
 }
 
@@ -75,13 +76,14 @@ export const UNIT_ATLAS_DEFS = [
   {
     type: 'Swordsman',
     atlasKey: 'swordman_atlas',
-    atlasPath: '/assets/units/human/swordman/atlas/swordman_atlas_new',
+    atlasPath: '/assets/units/human/swordman/atlas/swordman_atlas',
     idleAnim: 'swordman_idle',
     walkAnim: 'swordman_walk',
     attackAnim: 'swordman_attack',
     attackFrameBaseName: 'hit',
     deadAnim: 'swordman_dead',
     framePrefix: 'psd_anim',
+    usesNewFrameConventions: true,
   },
   {
     type: 'Crossbowman',

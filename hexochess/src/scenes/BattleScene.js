@@ -149,6 +149,10 @@ const WORM_SWALLOW_ABILITY_KEY = 'worm_swallow';
 const SWORDSMAN_COUNTER_ABILITY_KEY = 'swordsman_counter';
 const SWORDSMAN_COUNTER_SKILL_DEFAULT_MS = 300;
 const UNIT_RECEIVE_DAMAGE_FRAME_MS = 300;
+const UNIT_DAMAGE_FLASH_COLOR = 0xff5c5c;
+const UNIT_DAMAGE_FLASH_ALPHA = 0.22;
+const UNIT_DAMAGE_FLASH_IN_MS = 36;
+const UNIT_DAMAGE_FLASH_OUT_MS = 84;
 const UNIT_ATTACK_IMPACT_PULSE_SCALE_MUL = 1.1;
 const UNIT_ATTACK_IMPACT_PULSE_GROW_MS = 70;
 const UNIT_ATTACK_IMPACT_PULSE_SHRINK_MS = 90;
@@ -213,6 +217,51 @@ const UNIT_FUN_LINES_BY_TYPE = {
   NagaSiren: ['Смотрит спокойно, но в ближнем бою спорить не любит.', 'Шипит редко, попадает стабильно.'],
   default: ['В бою серьезный, вне боя делает вид, что так и задумано.', 'Если победил, значит это был "план".'],
 };
+
+// When adding a new unit VFX, always verify both facing cases:
+// 1) the unit turning via art.flipX
+// 2) the same unit rendered on the mirrored enemy side, including X offsets
+const UNIT_FRAME_BOUND_VFX_DEFS = [
+  {
+    key: 'swordman_hit',
+    unitType: 'Swordsman',
+    atlasKey: 'hit_vfx_swordman_atlas',
+    atlasPath: '/assets/units/human/swordman/vfx/hit_vfx_swordman_atlas',
+    animKey: 'swordman_hit_vfx',
+    firstFrame: 'hit/hit0001.png',
+    frameRegex: /^hit\/hit\d{4}\.png$/,
+    frameRate: 18,
+    depthOffset: 0.15,
+    getTriggerFrameName() {
+      const atlasDef = UNIT_ATLAS_DEF_BY_TYPE?.Swordsman ?? null;
+      return atlasDef ? atlasAttackFallbackFrame(atlasDef) : 'psd_anim/hit.png';
+    },
+  },
+  {
+    key: 'swordman_skill',
+    unitType: 'Swordsman',
+    atlasKey: 'skill_vfx_swordman_atlas',
+    atlasPath: '/assets/units/human/swordman/vfx/skill_vfx_swordman_atlas',
+    animKey: 'swordman_skill_vfx',
+    firstFrame: 'skill/skill0001.png',
+    frameRegex: /^skill\/skill\d{4}\.png$/,
+    frameRate: 18,
+    depthOffset: 0.16,
+    offsetXPx: 61,
+    getTriggerFrameName() {
+      const atlasDef = UNIT_ATLAS_DEF_BY_TYPE?.Swordsman ?? null;
+      return atlasDef ? atlasSkillFrame(atlasDef) : 'psd_anim/skill.png';
+    },
+  },
+];
+
+const UNIT_FRAME_BOUND_VFX_DEFS_BY_TYPE = UNIT_FRAME_BOUND_VFX_DEFS.reduce((acc, def) => {
+  const key = String(def.unitType ?? '');
+  if (!key) return acc;
+  if (!acc[key]) acc[key] = [];
+  acc[key].push(def);
+  return acc;
+}, {});
 
 function unitTypeToInfoPortraitName(type) {
   const raw = String(type ?? '').trim();
@@ -344,6 +393,13 @@ export default class BattleScene extends Phaser.Scene {
         def.atlasKey,
         `${def.atlasPath}.png`,
         `${def.atlasPath}.json`
+      );
+    }
+    for (const def of UNIT_FRAME_BOUND_VFX_DEFS) {
+      this.load.atlas(
+        def.atlasKey,
+        `${def.atlasPath}.png`,
+        `${def.atlasPath}.json`,
       );
     }
 
@@ -993,6 +1049,22 @@ export default class BattleScene extends Phaser.Scene {
           repeat: -1,
         });
       }
+    }
+
+    for (const def of UNIT_FRAME_BOUND_VFX_DEFS) {
+      if (this.anims.exists(def.animKey)) continue;
+      const texture = this.textures.get(def.atlasKey);
+      const frames = (texture?.getFrameNames?.() ?? [])
+        .filter((name) => def.frameRegex.test(name))
+        .sort()
+        .map((frame) => ({ key: def.atlasKey, frame }));
+      if (frames.length <= 0) continue;
+      this.anims.create({
+        key: def.animKey,
+        frames,
+        frameRate: Number(def.frameRate ?? 18),
+        repeat: 0,
+      });
     }
 
     this.mergeAbsorbAnimatingIds = new Set(); // visual-only merge animation for disappearing units
@@ -2806,6 +2878,7 @@ export default class BattleScene extends Phaser.Scene {
         const nowMs = Number(this.time?.now ?? 0);
         const skillFrameActive = Number(vu?._skillFrameUntilMs ?? 0) > nowMs;
         const attackFrameActive = Number(vu?._preparedAttackFrameUntilMs ?? 0) > nowMs;
+        if (vu) this.playUnitDamageFlash?.(vu);
         if (vu && damageFrame && !skillFrameActive && !attackFrameActive) {
           vu._damageFrameUntilMs = nowMs + UNIT_RECEIVE_DAMAGE_FRAME_MS;
         }
@@ -3885,6 +3958,146 @@ export default class BattleScene extends Phaser.Scene {
       .setAlpha(ILLUSION_MASK_ALPHA);
     vu.artOverlay = overlay;
     return overlay;
+  }
+
+  ensureUnitDamageFlashOverlay(vu) {
+    if (!vu?.art?.active) return null;
+    const existing = this.unitSys?.getManagedOverlay?.(vu.id ?? vu, 'damage_flash');
+    if (existing?.active) return existing;
+    const overlay = this.add.sprite(
+      Number(vu.art.x ?? 0),
+      Number(vu.art.y ?? 0),
+      vu.art.texture?.key ?? '__MISSING',
+      vu.art.frame?.name ?? undefined,
+    )
+      .setOrigin(Number(vu.art.originX ?? 0.5), Number(vu.art.originY ?? 1))
+      .setScale(Number(vu.art.scaleX ?? 1), Number(vu.art.scaleY ?? 1))
+      .setFlipX(Boolean(vu.art.flipX))
+      .setDepth(Number(vu.art.depth ?? 0) + 0.2)
+      .setTintFill(UNIT_DAMAGE_FLASH_COLOR)
+      .setAlpha(0)
+      .setVisible(false);
+    vu.damageFlashOverlay = overlay;
+    this.unitSys?.registerManagedOverlay?.(vu.id ?? vu, 'damage_flash', overlay, {
+      copyArtFrame: true,
+      depthOffset: 0.2,
+      hideWhenArtHidden: true,
+    });
+    return overlay;
+  }
+
+  ensureUnitFrameBoundVfxOverlay(vu, def) {
+    if (!vu?.art?.active) return null;
+    if (!def) return null;
+    const overlayKey = `frame_bound_vfx:${def.key}`;
+    const existing = this.unitSys?.getManagedOverlay?.(vu.id ?? vu, overlayKey);
+    if (existing?.active) return existing;
+    const overlay = this.add.sprite(
+      Number(vu.art.x ?? 0),
+      Number(vu.art.y ?? 0),
+      def.atlasKey,
+      def.firstFrame,
+    )
+      .setOrigin(Number(vu.art.originX ?? 0.5), Number(vu.art.originY ?? 1))
+      .setScale(Number(vu.art.scaleX ?? 1), Number(vu.art.scaleY ?? 1))
+      .setFlipX(Boolean(vu.art.flipX))
+      .setDepth(Number(vu.art.depth ?? 0) + Number(def.depthOffset ?? 0))
+      .setVisible(false);
+    overlay.on?.('animationcomplete', () => {
+      if (!overlay?.active) return;
+      overlay.setVisible(false);
+    });
+    if (!(vu._frameBoundVfxOverlays instanceof Map)) vu._frameBoundVfxOverlays = new Map();
+    vu._frameBoundVfxOverlays.set(def.key, overlay);
+    this.unitSys?.registerManagedOverlay?.(vu.id ?? vu, overlayKey, overlay, {
+      depthOffset: Number(def.depthOffset ?? 0),
+      offsetXPx: Number(def.offsetXPx ?? 0),
+      offsetYPx: Number(def.offsetYPx ?? 0),
+      mirrorOffsetX: def.mirrorOffsetX !== false,
+      hideWhenArtHidden: true,
+    });
+    return overlay;
+  }
+
+  playUnitDamageFlash(vu) {
+    if (!vu?.art?.active) return null;
+    const overlay = this.ensureUnitDamageFlashOverlay(vu);
+    if (!overlay?.active) return null;
+
+    this.tweens.killTweensOf(overlay);
+    overlay
+      .setVisible(Boolean(vu.art.visible))
+      .setTintFill(UNIT_DAMAGE_FLASH_COLOR)
+      .setAlpha(0);
+
+    this.tweens.add({
+      targets: overlay,
+      alpha: UNIT_DAMAGE_FLASH_ALPHA,
+      duration: UNIT_DAMAGE_FLASH_IN_MS,
+      ease: 'Quad.Out',
+      onComplete: () => {
+        if (!overlay?.active) return;
+        this.tweens.add({
+          targets: overlay,
+          alpha: 0,
+          duration: UNIT_DAMAGE_FLASH_OUT_MS,
+          ease: 'Quad.In',
+          onComplete: () => {
+            if (!overlay?.active) return;
+            overlay.setAlpha(0).setVisible(false);
+          },
+        });
+      },
+    });
+
+    return overlay;
+  }
+
+  getUnitFrameBoundVfxOverlay(vu, def) {
+    if (!vu || !def) return null;
+    return vu._frameBoundVfxOverlays?.get?.(def.key) ?? null;
+  }
+
+  startUnitFrameBoundVfx(vu, def) {
+    if (!vu?.art?.active || !def || !this.anims.exists(def.animKey)) return null;
+    const overlay = this.ensureUnitFrameBoundVfxOverlay(vu, def);
+    if (!overlay?.active) return null;
+    if (!(vu._activeFrameBoundVfxKeys instanceof Set)) vu._activeFrameBoundVfxKeys = new Set();
+    if (vu._activeFrameBoundVfxKeys.has(def.key)) return overlay;
+
+    vu._activeFrameBoundVfxKeys.add(def.key);
+    overlay
+      .setVisible(Boolean(vu.art.visible))
+      .setAlpha(1)
+      .play(def.animKey, true);
+    return overlay;
+  }
+
+  stopUnitFrameBoundVfx(vu, def) {
+    if (!vu || !def) return;
+    vu._activeFrameBoundVfxKeys?.delete?.(def.key);
+    const overlay = this.getUnitFrameBoundVfxOverlay(vu, def);
+    if (!overlay?.active) return;
+    overlay.anims?.stop?.();
+    overlay.setVisible(false);
+  }
+
+  syncUnitFrameBoundVfxState() {
+    for (const core of (this.battleState?.units ?? [])) {
+      const defs = UNIT_FRAME_BOUND_VFX_DEFS_BY_TYPE[String(core?.type ?? '')] ?? null;
+      if (!defs?.length) continue;
+      const vu = this.unitSys?.findUnit?.(core?.id);
+      if (!vu) continue;
+      const currentFrameName = String(vu.art?.frame?.name ?? '');
+      for (const def of defs) {
+        const triggerFrameName = String(def.getTriggerFrameName?.(this, core, vu) ?? '');
+        if (currentFrameName && currentFrameName === triggerFrameName) {
+          this.startUnitFrameBoundVfx?.(vu, def);
+        } else {
+          this.stopUnitFrameBoundVfx?.(vu, def);
+        }
+      }
+    }
   }
 
   applyIllusionVisualState(coreUnit, vu) {
@@ -5810,6 +6023,7 @@ export default class BattleScene extends Phaser.Scene {
     this.unitSys.update(delta / 1000);
     this.syncTimedBattleVisualTransitions?.();
     this.refreshPreparedAttackPoseFrames?.();
+    this.syncUnitFrameBoundVfxState?.();
 
     const dt = delta / 1000;
     const lagSpeed = KING_UI.hpLagSpeed;
