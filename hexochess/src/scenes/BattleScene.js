@@ -1,7 +1,8 @@
 ﻿import Phaser from 'phaser';
 import { hexToPixel, pixelToHex, hexCorners, hexToGroundPixel } from '../game/hex.js';
 import { createUnitSystem } from '../game/units.js';
-import { getKingHpBarOffsetYPx, getKingOffsetXPx, getKingShadowConfig, getKingSizePx } from '../game/kingVisualConfig.js';
+import { boardDepth } from '../game/depthOrder.js';
+import { getKingHpBarOffsetXPx, getKingHpBarOffsetYPx, getKingOffsetXPx, getKingOffsetYPx, getKingShadowConfig, getKingSizePx } from '../game/kingVisualConfig.js';
 import { getUnitArtOffsetXPx, getUnitFootShadowConfig, getUnitGroundLiftPx } from '../game/unitVisualConfig.js';
 import {
   atlasFramePrefix,
@@ -44,10 +45,10 @@ import {
 import { getUnitCellSpanX, getBoardCellsForUnit } from './battleScene/unitFootprint.js';
 
 const EXTRA_PORTRAIT_ASSETS = [
-  { key: 'black_knight', path: '/assets/bots/black_knight.png' },
-  { key: 'black_pawn', path: '/assets/bots/black_pawn.png' },
-  { key: 'white_knight', path: '/assets/bots/white_knight.png' },
-  { key: 'white_pawn', path: '/assets/bots/white_pawn.png' },
+  { key: 'black_knight', path: '/assets/kings/black_knight.png' },
+  { key: 'black_pawn', path: '/assets/kings/black_pawn.png' },
+  { key: 'white_knight', path: '/assets/kings/white_knight.png' },
+  { key: 'white_pawn', path: '/assets/kings/white_pawn.png' },
   { key: 'king_frog', path: '/assets/kings/king_frog.png' },
   { key: 'king_king', path: '/assets/kings/king_king.png' },
   { key: 'king_princess', path: '/assets/kings/king_princess.png' },
@@ -151,6 +152,9 @@ const UNIT_RECEIVE_DAMAGE_FRAME_MS = 300;
 const UNIT_ATTACK_IMPACT_PULSE_SCALE_MUL = 1.1;
 const UNIT_ATTACK_IMPACT_PULSE_GROW_MS = 70;
 const UNIT_ATTACK_IMPACT_PULSE_SHRINK_MS = 90;
+const UNIT_ATTACK_FRONTMOST_HIT_MS = 220;
+const UNIT_ART_DEPTH_LIVE = 1040;
+const UNIT_ART_DEPTH_DEAD = 990;
 const WORM_FAT_ANIMS = {
   idle: 'worm_fat_idle',
   walk: 'worm_fat_walk',
@@ -411,8 +415,12 @@ export default class BattleScene extends Phaser.Scene {
     this.kingWidth = this.kingSize;
     this.kingHeight = this.kingSize;
 
-    const leftKingShadowCfg = getKingShadowConfig(this.localPlayerKingTextureKey ?? 'king_princess');
-    const rightKingShadowCfg = getKingShadowConfig('king_princess');
+    const leftKingShadowCfg = getKingShadowConfig(this.localPlayerKingTextureKey ?? 'king_princess', {
+      mirrorX: this.shouldMirrorKingVisualX?.('player', this.localPlayerKingTextureKey ?? 'king_princess'),
+    });
+    const rightKingShadowCfg = getKingShadowConfig('king_princess', {
+      mirrorX: this.shouldMirrorKingVisualX?.('enemy', 'king_princess'),
+    });
 
     // HP bars
     this.kingLeftHpBg = this.add.graphics().setDepth(KING_RENDER_DEPTH_BASE + 2);
@@ -1608,7 +1616,10 @@ export default class BattleScene extends Phaser.Scene {
     const baseScaleY = Number(this.kingLeft.scaleY ?? 1);
     const targetX = Number(this.kingLeft.x ?? 0);
     const targetY = Number(this.kingLeft.y ?? 0);
-    const playerShadowCfg = getKingShadowConfig(this.getPlayerKingVisualKey?.());
+    const playerVisualKey = this.getPlayerKingVisualKey?.();
+    const playerShadowCfg = getKingShadowConfig(playerVisualKey, {
+      mirrorX: this.shouldMirrorKingVisualX?.('player', playerVisualKey),
+    });
     const startY = targetY - 140;
     const bounceY = targetY - 18;
     this.kingLeft
@@ -1618,7 +1629,7 @@ export default class BattleScene extends Phaser.Scene {
       .setScale(baseScaleX * 0.9, baseScaleY * 0.9);
     this.kingLeftShadow
       ?.setVisible(true)
-      ?.setPosition(targetX, targetY + playerShadowCfg.offsetYPx)
+      ?.setPosition(targetX + playerShadowCfg.offsetXPx, targetY + playerShadowCfg.offsetYPx)
       ?.setAlpha(0)
       ?.setScale(0.92, 0.92);
     this.tweens.add({
@@ -1791,7 +1802,10 @@ export default class BattleScene extends Phaser.Scene {
     const baseScaleY = Number(this.kingRight.scaleY ?? 1);
     const targetX = Number(this.kingRight.x ?? 0);
     const targetY = Number(this.kingRight.y ?? 0);
-    const enemyShadowCfg = getKingShadowConfig(this.getEnemyKingVisualKey?.());
+    const enemyVisualKey = this.getEnemyKingVisualKey?.();
+    const enemyShadowCfg = getKingShadowConfig(enemyVisualKey, {
+      mirrorX: this.shouldMirrorKingVisualX?.('enemy', enemyVisualKey),
+    });
     const startY = targetY - 140;
     const bounceY = targetY - 18;
     this.kingRight
@@ -1801,7 +1815,7 @@ export default class BattleScene extends Phaser.Scene {
       .setScale(baseScaleX * 0.9, baseScaleY * 0.9);
     this.kingRightShadow
       ?.setVisible(true)
-      ?.setPosition(targetX, targetY + enemyShadowCfg.offsetYPx)
+      ?.setPosition(targetX + enemyShadowCfg.offsetXPx, targetY + enemyShadowCfg.offsetYPx)
       ?.setAlpha(0)
       ?.setScale(0.92, 0.92);
     this.tweens.add({
@@ -2036,6 +2050,37 @@ export default class BattleScene extends Phaser.Scene {
       : this.getPlayerKingVisualKey();
   }
 
+  shouldMirrorKingVisualX(side, visualKey) {
+    return side === 'enemy';
+  }
+
+  getKingAnchor(side) {
+    const isEnemy = side === 'enemy';
+    const sprite = isEnemy ? this.kingRight : this.kingLeft;
+    const anchor = this.kingAnchors?.[side];
+    return {
+      x: Number(anchor?.x ?? sprite?.x ?? 0),
+      y: Number(anchor?.y ?? sprite?.y ?? 0),
+    };
+  }
+
+  getEnemyKingArtDepth() {
+    const rowAbove = Math.max(0, Number(this.gridRows ?? 8) - 4); // r=4 for 8-row board
+    const rowBelow = Math.max(rowAbove, Number(this.gridRows ?? 8) - 3); // r=5 for 8-row board
+    const aboveDepth = boardDepth(UNIT_ART_DEPTH_LIVE, 0, rowAbove);
+    const belowDepth = boardDepth(UNIT_ART_DEPTH_LIVE, 0, rowBelow);
+    return (aboveDepth + belowDepth) / 2;
+  }
+
+  syncKingDepths() {
+    if (this.kingLeft) this.kingLeft.setDepth(KING_RENDER_DEPTH_BASE);
+    if (this.kingLeftShadow) this.kingLeftShadow.setDepth(KING_SHADOW_DEPTH);
+
+    const enemyKingDepth = this.getEnemyKingArtDepth();
+    if (this.kingRight) this.kingRight.setDepth(enemyKingDepth);
+    if (this.kingRightShadow) this.kingRightShadow.setDepth(enemyKingDepth - 8);
+  }
+
   applyKingVisualConfigFor(side) {
     const isEnemy = side === 'enemy';
     const sprite = isEnemy ? this.kingRight : this.kingLeft;
@@ -2044,7 +2089,9 @@ export default class BattleScene extends Phaser.Scene {
 
     const visualKey = isEnemy ? this.getEnemyKingVisualKey() : this.getPlayerKingVisualKey();
     const sizePx = getKingSizePx(visualKey);
-    const shadowCfg = getKingShadowConfig(visualKey);
+    const shadowCfg = getKingShadowConfig(visualKey, {
+      mirrorX: this.shouldMirrorKingVisualX?.(side, visualKey),
+    });
 
     sprite.setDisplaySize(sizePx, sizePx);
     if (shadow) {
@@ -2057,6 +2104,7 @@ export default class BattleScene extends Phaser.Scene {
   syncKingVisualConfig() {
     this.applyKingVisualConfigFor('player');
     this.applyKingVisualConfigFor('enemy');
+    this.syncKingDepths?.();
   }
 
   applyLocalPlayerKingTexture(textureKey) {
@@ -2069,6 +2117,7 @@ export default class BattleScene extends Phaser.Scene {
     }
     this.syncKingVisualConfig?.();
     this.positionKings?.();
+    this.drawKingHpBars?.();
   }
 
 
@@ -2161,6 +2210,68 @@ export default class BattleScene extends Phaser.Scene {
     });
   }
 
+  getBoardUnitArtDepth(coreUnitLike) {
+    if (!coreUnitLike || coreUnitLike.zone !== 'board') return NaN;
+    const base = coreUnitLike.dead ? UNIT_ART_DEPTH_DEAD : UNIT_ART_DEPTH_LIVE;
+    return boardDepth(base, Number(coreUnitLike.q ?? 0), Number(coreUnitLike.r ?? 0));
+  }
+
+  canBringAttackerFrontOnHit(attackerCore, targetCore) {
+    if (!attackerCore || !targetCore) return false;
+    if (attackerCore.dead || targetCore.dead) return false;
+    if (attackerCore.zone !== 'board' || targetCore.zone !== 'board') return false;
+
+    const attackerCells = getBoardCellsForUnit(attackerCore);
+    const targetCells = getBoardCellsForUnit(targetCore);
+    if (!attackerCells.length || !targetCells.length) return false;
+
+    const attackerRows = new Set(attackerCells.map((c) => Number(c.r)));
+    const targetRows = new Set(targetCells.map((c) => Number(c.r)));
+    if (attackerRows.size !== 1 || targetRows.size !== 1) return false;
+
+    const attackerRow = Number(attackerCells[0]?.r ?? NaN);
+    const targetRow = Number(targetCells[0]?.r ?? NaN);
+    if (attackerRow !== targetRow) return false;
+
+    const attackerRightQ = Math.max(...attackerCells.map((c) => Number(c.q)));
+    const targetLeftQ = Math.min(...targetCells.map((c) => Number(c.q)));
+    return targetLeftQ - attackerRightQ === 1;
+  }
+
+  bringUnitFrontOnHit(attackerCore, targetCore, durationMs = UNIT_ATTACK_FRONTMOST_HIT_MS) {
+    if (!this.canBringAttackerFrontOnHit?.(attackerCore, targetCore)) return;
+
+    const attackerId = Number(attackerCore?.id ?? NaN);
+    if (!Number.isFinite(attackerId)) return;
+
+    const vu = this.unitSys?.findUnit?.(attackerId);
+    const targetVu = this.unitSys?.findUnit?.(targetCore?.id);
+    if (!vu?.art?.active || !targetVu?.art?.active) return;
+
+    const frontDepth = Math.max(
+      Number(targetVu.art.depth ?? this.getBoardUnitArtDepth(targetCore)),
+      Number(vu.art.depth ?? this.getBoardUnitArtDepth(attackerCore)),
+    ) + 1;
+
+    vu._frontHitDepthToken = Number(vu._frontHitDepthToken ?? 0) + 1;
+    const token = Number(vu._frontHitDepthToken);
+
+    vu.art.setDepth(frontDepth);
+    if (vu.artOverlay?.active) vu.artOverlay.setDepth(frontDepth + 0.1);
+
+    this.time.delayedCall(Math.max(0, Number(durationMs ?? 0)), () => {
+      const latestVu = this.unitSys?.findUnit?.(attackerId);
+      const latestCore = (this.battleState?.units ?? []).find((u) => Number(u?.id) === attackerId);
+      if (!latestVu?.art?.active || !latestCore || latestCore.dead || latestCore.zone !== 'board') return;
+      if (Number(latestVu._frontHitDepthToken ?? 0) !== token) return;
+
+      const baseDepth = this.getBoardUnitArtDepth(latestCore);
+      if (!Number.isFinite(baseDepth)) return;
+      latestVu.art.setDepth(baseDepth);
+      if (latestVu.artOverlay?.active) latestVu.artOverlay.setDepth(baseDepth + 0.1);
+    });
+  }
+
   positionKings() {
     if (!this.kingLeft || !this.kingRight) return;
     this.syncKingVisualConfig?.();
@@ -2193,37 +2304,57 @@ export default class BattleScene extends Phaser.Scene {
 
     if (!Number.isFinite(minX) || !Number.isFinite(maxX)) return;
 
-    const kingUiLiftPx = 35; // поднимает ВЕСЬ блок короля (арт + HP + имя), т.к. HP/имя привязаны к kingSprite.y
+    const kingUiLiftPx = 35; // поднимает базовый anchor блока короля (арт + HP + имя)
     const midY = (minY + maxY) / 2 - 40 - kingUiLiftPx; // подняли выше
+    const enemyKingRowOffsetY = Number(this.hexSize ?? 44) * 1.5; // опускаем врага на один ряд гекса ниже игрока
 
     const leftVisualKey = this.getPlayerKingVisualKey?.();
     const rightVisualKey = this.getEnemyKingVisualKey?.();
-    const leftShadowCfg = getKingShadowConfig(leftVisualKey);
-    const rightShadowCfg = getKingShadowConfig(rightVisualKey);
+    const leftShadowCfg = getKingShadowConfig(leftVisualKey, {
+      mirrorX: this.shouldMirrorKingVisualX?.('player', leftVisualKey),
+    });
+    const rightShadowCfg = getKingShadowConfig(rightVisualKey, {
+      mirrorX: this.shouldMirrorKingVisualX?.('enemy', rightVisualKey),
+    });
     const pad = 30;
-    const leftHalfW = Number(this.kingLeft.displayWidth ?? this.kingWidth) / 2;
-    const rightHalfW = Number(this.kingRight.displayWidth ?? this.kingWidth) / 2;
+    const anchorHalfW = Number(this.kingSize ?? this.kingWidth ?? 190) / 2;
 
-    const rawLeftX = minX - leftHalfW - pad - 100 + getKingOffsetXPx(leftVisualKey);
-    const rawRightX = maxX + rightHalfW + pad - 40 + getKingOffsetXPx(rightVisualKey);
+    const rawLeftAnchorX = minX - anchorHalfW - pad - 100;
+    const rawRightAnchorX = maxX + anchorHalfW + pad - 40;
 
-    // Защита от обрезания при увеличении kingSize: держим королей внутри экрана.
+    // Держим anchor блока внутри экрана, но сам арт можно уводить offset-ом за край.
     const view = this.scale.getViewPort();
     const screenPad = 12;
-    const leftKingOverflowPx = 30; // можно увести левого короля за левый край (пустота в арте)
-    const rightKingOverflowPx = leftKingOverflowPx; // зеркально для правого короля
-    const minLeftKingCenterX = view.x + leftHalfW + screenPad - leftKingOverflowPx;
-    const maxLeftKingCenterX = view.x + view.width - leftHalfW - screenPad + rightKingOverflowPx;
-    const minRightKingCenterX = view.x + rightHalfW + screenPad - leftKingOverflowPx;
-    const maxRightKingCenterX = view.x + view.width - rightHalfW - screenPad + rightKingOverflowPx;
+    const leftKingOverflowPx = 30;
+    const rightKingOverflowPx = leftKingOverflowPx;
+    const minLeftKingAnchorX = view.x + anchorHalfW + screenPad - leftKingOverflowPx;
+    const maxLeftKingAnchorX = view.x + view.width - anchorHalfW - screenPad + rightKingOverflowPx;
+    const minRightKingAnchorX = view.x + anchorHalfW + screenPad - leftKingOverflowPx;
+    const maxRightKingAnchorX = view.x + view.width - anchorHalfW - screenPad + rightKingOverflowPx;
 
-    const leftX = Phaser.Math.Clamp(rawLeftX, minLeftKingCenterX, maxLeftKingCenterX);
-    const rightX = Phaser.Math.Clamp(rawRightX, minRightKingCenterX, maxRightKingCenterX);
+    const leftAnchorX = Phaser.Math.Clamp(rawLeftAnchorX, minLeftKingAnchorX, maxLeftKingAnchorX);
+    const rightAnchorX = Phaser.Math.Clamp(rawRightAnchorX, minRightKingAnchorX, maxRightKingAnchorX);
+    const leftX = leftAnchorX + getKingOffsetXPx(leftVisualKey, {
+      mirrorX: this.shouldMirrorKingVisualX('player', leftVisualKey),
+    });
+    const rightX = rightAnchorX + getKingOffsetXPx(rightVisualKey, {
+      mirrorX: this.shouldMirrorKingVisualX('enemy', rightVisualKey),
+    });
+    const leftAnchorY = midY;
+    const rightAnchorY = midY + enemyKingRowOffsetY;
+    const leftY = leftAnchorY + getKingOffsetYPx(leftVisualKey);
+    const rightY = rightAnchorY + getKingOffsetYPx(rightVisualKey);
 
-    this.kingLeft.setPosition(leftX, midY);
-    this.kingRight.setPosition(rightX, midY);
-    this.kingLeftShadow?.setPosition(leftX, midY + leftShadowCfg.offsetYPx);
-    this.kingRightShadow?.setPosition(rightX, midY + rightShadowCfg.offsetYPx);
+    this.kingAnchors = {
+      player: { x: leftAnchorX, y: leftAnchorY },
+      enemy: { x: rightAnchorX, y: rightAnchorY },
+    };
+
+    this.kingLeft.setPosition(leftX, leftY);
+    this.kingRight.setPosition(rightX, rightY);
+    this.kingLeftShadow?.setPosition(leftX + leftShadowCfg.offsetXPx, leftY + leftShadowCfg.offsetYPx);
+    this.kingRightShadow?.setPosition(rightX + rightShadowCfg.offsetXPx, rightY + rightShadowCfg.offsetYPx);
+    this.drawKingHpBars?.();
   }
 
   syncRoundUI() {
@@ -2343,10 +2474,14 @@ export default class BattleScene extends Phaser.Scene {
       }
 
       const kingVisualKey = this.getKingVisualKeyForSprite?.(kingSprite);
-      const kingDisplayHeight = Number(kingSprite.displayHeight ?? this.kingHeight);
+      const kingAnchor = this.getKingAnchor(side);
+      const kingAnchorHalfHeight = Number(this.kingHeight ?? this.kingSize ?? kingSprite.displayHeight ?? 190) / 2;
+      const kingHpBarOffsetXPx = getKingHpBarOffsetXPx(kingVisualKey, {
+        mirrorX: this.shouldMirrorKingVisualX(side, kingVisualKey),
+      });
       const kingHpBarOffsetPx = getKingHpBarOffsetYPx(kingVisualKey);
-      const x = kingSprite.x - barWidth / 2;
-      const y = kingSprite.y - kingDisplayHeight / 2 - 26 + kingHpBarDownPx + kingHpBarOffsetPx;
+      const x = kingAnchor.x - barWidth / 2 + kingHpBarOffsetXPx;
+      const y = kingAnchor.y - kingAnchorHalfHeight - 26 + kingHpBarDownPx + kingHpBarOffsetPx;
 
       hpBg.clear();
       hpLagFill.clear();
@@ -2653,6 +2788,9 @@ export default class BattleScene extends Phaser.Scene {
           vu._preparedAttackPoseUntilMs = 0;
           vu._preparedAttackFrameUntilMs = Number(this.time?.now ?? 0) + Math.max(0, Number(attacker._preparedAttackHoldMs ?? 400));
         }
+      }
+      if (attacker && target) {
+        this.bringUnitFrontOnHit?.(attacker, target);
       }
       if (target) {
         if (Number.isFinite(Number(ev.targetMaxHp))) target.maxHp = Number(ev.targetMaxHp);

@@ -11,13 +11,26 @@ const DEBUG_UI_TEXT = {
   LEVEL_UP: '+ \u0423\u0440\u043e\u0432\u0435\u043d\u044c',
   FROG: '\u041b\u042f\u0413\u0423\u0428\u041a\u0410',
   PRINCESS: '\u041f\u0420\u0418\u041d\u0426\u0415\u0421\u0421\u0410',
+  BLACK_KNIGHT: 'BLACK KNIGHT',
+  BLACK_PAWN: 'BLACK PAWN',
+  WHITE_KNIGHT: 'WHITE KNIGHT',
+  WHITE_PAWN: 'WHITE PAWN',
 };
 
 const KING_DEBUG_SKINS = [
   { label: DEBUG_UI_TEXT.FROG, key: 'king_frog' },
   { label: DEBUG_UI_TEXT.PRINCESS, key: 'king_princess' },
   { label: DEBUG_UI_TEXT.KING, key: 'king_king' },
+  { label: DEBUG_UI_TEXT.BLACK_KNIGHT, key: 'black_knight' },
+  { label: DEBUG_UI_TEXT.BLACK_PAWN, key: 'black_pawn' },
+  { label: DEBUG_UI_TEXT.WHITE_KNIGHT, key: 'white_knight' },
+  { label: DEBUG_UI_TEXT.WHITE_PAWN, key: 'white_pawn' },
 ];
+const DEBUG_KING_MODAL_W = 220;
+const DEBUG_KING_MODAL_HEADER_H = 42;
+const DEBUG_KING_MODAL_ROW_H = 38;
+const DEBUG_KING_MODAL_BOTTOM_PAD = 16;
+const DEBUG_KING_MODAL_H = DEBUG_KING_MODAL_HEADER_H + KING_DEBUG_SKINS.length * DEBUG_KING_MODAL_ROW_H + DEBUG_KING_MODAL_BOTTOM_PAD;
 
 const BUTTON_SHADOW_COLOR = 0x000000;
 const BUTTON_SHADOW_ALPHA = 0.35;
@@ -480,16 +493,16 @@ export function installBattleSceneDebugUi(BattleScene) {
         .setDepth(10030)
         .setScrollFactor(0)
         .setVisible(false);
-      this.debugKingModalBg = this.add.rectangle(0, 0, 220, 168, 0x111111, 0.94)
+      this.debugKingModalBg = this.add.rectangle(0, 0, DEBUG_KING_MODAL_W, DEBUG_KING_MODAL_H, 0x111111, 0.94)
         .setOrigin(0, 0)
         .setStrokeStyle(2, 0x666666, 0.95);
-      this.debugKingModalTitle = this.add.text(110, 12, 'KING (LOCAL)', {
+      this.debugKingModalTitle = this.add.text(DEBUG_KING_MODAL_W / 2, 12, 'KING (LOCAL)', {
         fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
         fontSize: '16px',
         color: '#ffffff',
         fontStyle: 'bold',
       }).setOrigin(0.5, 0);
-      this.debugKingModalHit = this.add.zone(0, 0, 220, 168)
+      this.debugKingModalHit = this.add.zone(0, 0, DEBUG_KING_MODAL_W, DEBUG_KING_MODAL_H)
         .setOrigin(0, 0)
         .setInteractive();
       this.debugKingModalHit.on('pointerdown', (pointer) => {
@@ -502,7 +515,7 @@ export function installBattleSceneDebugUi(BattleScene) {
       ]);
 
       KING_DEBUG_SKINS.forEach((skin, idx) => {
-        const btn = this.add.text(110, 42 + idx * 38, skin.label, {
+        const btn = this.add.text(DEBUG_KING_MODAL_W / 2, DEBUG_KING_MODAL_HEADER_H + idx * DEBUG_KING_MODAL_ROW_H, skin.label, {
           fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
           fontSize: '17px',
           color: '#ffffff',

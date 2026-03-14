@@ -161,20 +161,15 @@ export function installBattleSceneKingHudUi(BattleScene) {
 
       const e = kings?.enemy ?? { hp: 100, maxHp: 100, coins: 0, visible: false };
       const enemyVisualKey = String(e.visualKey ?? 'king');
+      if (this.kingRight) {
+        this.kingRight.setFlipX(true);
+      }
       if (this.kingRight && this.textures?.exists?.(enemyVisualKey) && this.kingRight.texture?.key !== enemyVisualKey) {
         this.kingRight.setTexture(enemyVisualKey);
         this.syncKingVisualConfig?.();
         this.positionKings?.();
       }
       this.syncKingVisualConfig?.();
-      if (this.kingRight) {
-        const isBotArt = enemyVisualKey === 'black_knight'
-          || enemyVisualKey === 'black_pawn'
-          || enemyVisualKey === 'white_knight'
-          || enemyVisualKey === 'white_pawn';
-        // Bot arts are already authored for right-side enemy king.
-        this.kingRight.setFlipX(!isBotArt);
-      }
       const enemyDisplayName = String(e.name ?? this.enemyKingDisplayName ?? 'Enemy King');
       this.kingRightNameText?.setText(enemyDisplayName);
 
