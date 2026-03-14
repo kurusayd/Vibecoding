@@ -365,8 +365,50 @@ test('crossbowman piercing shot damages every enemy on the firing line', () => {
   assert.deepEqual(targets, [2, 3]);
   assert.equal(damages[0].damageSource, 'projectile_pierce');
   assert.equal(damages[1].damageSource, 'projectile_pierce');
-  assert.equal(damages[0].t, 200);
-  assert.equal(damages[1].t, 200);
+  assert.equal(damages[0].damage, 25);
+  assert.equal(damages[1].damage, 10);
+  assert.equal(damages[0].t, 600);
+  assert.equal(damages[1].t, 600);
+});
+
+test('crossbowman piercing falloff damage scales with rank after the first target', () => {
+  for (const { rank, expectedSecondaryDamage } of [
+    { rank: 1, expectedSecondaryDamage: 10 },
+    { rank: 2, expectedSecondaryDamage: 13 },
+    { rank: 3, expectedSecondaryDamage: 15 },
+  ]) {
+    const simState = createSimState([
+      makeUnit({
+        id: 1,
+        type: 'Crossbowman',
+        atk: 25,
+        rank,
+        attackMode: 'ranged',
+        projectileSpeed: 10,
+        attackRangeMax: 20,
+        attackRangeFullDamage: 20,
+        attackSpeed: 1,
+        abilityType: 'passive',
+        abilityKey: 'crossbowman_line_shot',
+      }),
+      makeUnit({ id: 2, q: 2, r: 0, team: 'enemy', hp: 60, maxHp: 60 }),
+      makeUnit({ id: 3, q: 4, r: 0, team: 'enemy', hp: 60, maxHp: 60 }),
+      makeUnit({ id: 4, q: 6, r: 0, team: 'enemy', hp: 60, maxHp: 60 }),
+    ]);
+
+    const replay = withRandomSequence([0, 0, 0, 0], () => simulateBattleReplayFromState(simState, {
+      tickMs: 100,
+      maxBattleMs: 800,
+      collectSnapshots: false,
+    }));
+
+    const damages = replay.events.filter((e) => e.type === 'damage' && e.attackerId === 1);
+    assert.equal(damages.length, 3);
+    assert.deepEqual(damages.map((e) => e.targetId), [2, 3, 4]);
+    assert.equal(damages[0].damage, 25);
+    assert.equal(damages[1].damage, expectedSecondaryDamage);
+    assert.equal(damages[2].damage, expectedSecondaryDamage);
+  }
 });
 
 test('swordsman counter queues follow-up triggers during the 500ms counter window', () => {
@@ -716,7 +758,7 @@ test('crossbowman bolt keeps a fixed target cell and hits occupancy on the fligh
   assert.ok(earlyMove);
   assert.ok(openingDamage);
   assert.equal(openingDamage.targetId, 2);
-  assert.equal(openingDamage.t, 200);
+  assert.equal(openingDamage.t, 600);
 });
 
 test('skeleton archer bounce schedules secondary projectile damage', () => {

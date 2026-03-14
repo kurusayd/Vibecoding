@@ -258,6 +258,13 @@ function hasCrossbowmanLineShotPassive(unit) {
     && String(unit.abilityKey ?? '') === 'crossbowman_line_shot';
 }
 
+function getCrossbowmanPierceSecondaryDamageMultiplier(unitLike) {
+  const rank = Math.max(1, Math.min(3, Number(unitLike?.rank ?? 1)));
+  if (rank >= 3) return 0.6;
+  if (rank === 2) return 0.5;
+  return 0.4;
+}
+
 function hasKnightChargeAbility(unit) {
   return !!unit
     && String(unit.abilityType ?? 'none') === 'active'
@@ -1779,6 +1786,8 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
               const projectileRayCells = Array.isArray(res.projectileRayCells) ? res.projectileRayCells : [];
               if (Boolean(res.projectilePierce) && projectileRayCells.length > 0) {
                 const projectileId = `${me.id}:${attackSeq}:${tickTimeMs}`;
+                const primaryPierceDist = Math.max(0, Number(pierceTargets[0]?.dist ?? Infinity));
+                const secondaryPierceDamageMultiplier = getCrossbowmanPierceSecondaryDamageMultiplier(me);
                 for (const cell of projectileRayCells) {
                   const hitDist = Math.max(0, Number(cell?.dist ?? res.dist ?? 0));
                   const hitTravelMs = hasCrossbowmanLineShotPassive(me)
@@ -1789,6 +1798,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
                         : Number(res.projectileTravelMs ?? 0)
                     );
                   const hitDamageMultiplier = hitDist > Number(res.attackRangeFullDamage ?? attackRangeMax) ? 0.5 : 1;
+                  const pierceDamageMultiplier = hitDist > primaryPierceDist ? secondaryPierceDamageMultiplier : 1;
                   pendingDamageEvents.push({
                     t: tickTimeMs + preparedAttackProjectileLaunchDelayMs + hitTravelMs,
                     attackerId: me.id,
@@ -1798,7 +1808,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
                     projectileId,
                     targetCellQ: Number(cell.q),
                     targetCellR: Number(cell.r),
-                    damage: Math.max(1, Math.round(Number(me.atk ?? 0) * hitDamageMultiplier)),
+                    damage: Math.max(1, Math.round(Number(me.atk ?? 0) * hitDamageMultiplier * pierceDamageMultiplier)),
                     damageSource: 'projectile_pierce',
                     damageKind: String(res.damageType ?? 'physical'),
                     projectileSpeed: Number(res.projectileSpeed ?? 0),
