@@ -125,6 +125,7 @@ const SWORDSMAN_COUNTER_WINDOW_DEFAULT_MS = 500;
 const CROSSBOWMAN_TRAIL_ALPHA = 0.18;
 const CROSSBOWMAN_TRAIL_WIDTH_PX = 6;
 const CROSSBOWMAN_TRAIL_MAX_LENGTH_PX = 144;
+const CROSSBOWMAN_PROJECTILE_VISUAL_OFFSET_Y = -60;
 const ILLUSION_ART_ALPHA = 0.8;
 const ILLUSION_MASK_ALPHA = 0.26;
 const ILLUSION_MASK_COLOR = 0x5fa8ff;
@@ -248,6 +249,21 @@ const UNIT_FRAME_BOUND_VFX_DEFS = [
     getTriggerFrameName() {
       const atlasDef = UNIT_ATLAS_DEF_BY_TYPE?.Swordsman ?? null;
       return atlasDef ? atlasSkillFrame(atlasDef) : 'psd_anim/skill.png';
+    },
+  },
+  {
+    key: 'crossbowman_hit',
+    unitType: 'Crossbowman',
+    atlasKey: 'crossbowman_hit_vfx_atlas',
+    atlasPath: '/assets/units/human/crossbowman/atlas/crossbowman_hit_vfx_atlas',
+    animKey: 'crossbowman_hit_vfx',
+    firstFrame: 'hit/1.png',
+    frameRegex: /^hit\/\d+\.png$/,
+    frameRate: 10,
+    depthOffset: 0.15,
+    getTriggerFrameName() {
+      const atlasDef = UNIT_ATLAS_DEF_BY_TYPE?.Crossbowman ?? null;
+      return atlasDef ? atlasAttackFallbackFrame(atlasDef) : 'psd_anim/hit.png';
     },
   },
 ];
@@ -3337,19 +3353,16 @@ export default class BattleScene extends Phaser.Scene {
     const isCrossbowmanShot = this.isCrossbowmanLineShotUnit?.(attackerCore) === true;
     const attackerBoardCenter = this.getUnitBoardCellVisualCenter(attackerCore);
     const attackerVisualCenter = this.getUnitVisualCenter(attackerCore);
-    const crossbowmanLiftY = isCrossbowmanShot && attackerBoardCenter && attackerVisualCenter
-      ? Number(attackerVisualCenter.y) - Number(attackerBoardCenter.y)
-      : 0;
     const applyCrossbowmanLift = (point) => {
       if (!point) return null;
       if (!isCrossbowmanShot) return point;
       return {
         x: Number(point.x ?? 0),
-        y: Number(point.y ?? 0) + crossbowmanLiftY,
+        y: Number(point.y ?? 0) + CROSSBOWMAN_PROJECTILE_VISUAL_OFFSET_Y,
       };
     };
     const start = isCrossbowmanShot
-      ? (attackerVisualCenter ?? attackerBoardCenter)
+      ? applyCrossbowmanLift(attackerBoardCenter ?? attackerVisualCenter)
       : attackerVisualCenter;
     if (!start) return false;
     const shouldFlyStraight = Boolean(fx?.forceStraight) || isCrossbowmanShot;
