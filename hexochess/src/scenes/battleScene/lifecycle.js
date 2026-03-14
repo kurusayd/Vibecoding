@@ -7,13 +7,27 @@ export function installBattleSceneLifecycle(BattleScene) {
         this.input?.off?.('pointerdown', this._hudOutsideTapHandler);
         this._hudOutsideTapHandler = null;
       }
+      if (this._unitInfoOutsideTapHandler) {
+        this.input?.off?.('pointerdown', this._unitInfoOutsideTapHandler);
+        this._unitInfoOutsideTapHandler = null;
+      }
       if (this._onResizeHandler) {
         this.scale?.off?.('resize', this._onResizeHandler);
         this._onResizeHandler = null;
       }
+      if (this._loadErrorHandler) {
+        this.load?.off?.('loaderror', this._loadErrorHandler);
+        this._loadErrorHandler = null;
+      }
       this.stopSceneLoadIntro?.();
       this.stopServerBattleReplayPlayback?.();
       this.stopBattleEntryReveal?.();
+      if (this.ws) {
+        this.ws.onInit = null;
+        this.ws.onState = null;
+        this.ws.onTestBattleReplay = null;
+        this.ws.onError = null;
+      }
       this.ws?.close?.();
     },
 

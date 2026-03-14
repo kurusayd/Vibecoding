@@ -317,6 +317,102 @@ export default class BattleScene extends Phaser.Scene {
     this.openTestSceneRequested = Boolean(data?.openTestScene);
   }
 
+  getUnitRuntimeKey(unitLikeOrId) {
+    const rawId = (unitLikeOrId && typeof unitLikeOrId === 'object')
+      ? unitLikeOrId.id
+      : unitLikeOrId;
+    if (rawId == null) return null;
+    return String(rawId);
+  }
+
+  createUnitRuntimeState() {
+    return {
+      _attackAnimPlaying: false,
+      _attackAnimForceReplay: false,
+      _castAnimPlaying: false,
+      _castAnimForceReplay: false,
+      _skillFrameUntilMs: 0,
+      _counterRecoveryUntilMs: 0,
+      _damageFrameUntilMs: 0,
+      _preparedAttackCycleUntilMs: 0,
+      _preparedAttackPoseUntilMs: 0,
+      _preparedAttackIdleAttack2FromMs: 0,
+      _preparedAttackIdleAttack2Active: false,
+      _preparedAttackFrameUntilMs: 0,
+      _timedSkillFrameActive: false,
+      _timedCounterRecoveryActive: false,
+      _timedDamageFrameActive: false,
+      _staticWalkFrameActive: false,
+      _abilityCdStartAtMs: null,
+      _abilityCdReadyAtMs: null,
+      _abilityCdDurationMs: null,
+      _abilityCdReplayAnchorMs: null,
+      _abilityCdUiEnabled: false,
+      _abilityCdReadyFxArmed: false,
+      _abilityCdReadyFxPlayed: false,
+      _abilityCdReadyFlashUntilMs: 0,
+      _abilityCdLastRenderedFill: null,
+      _abilityCastStartAtMs: null,
+      _abilityCastEndAtMs: null,
+      _abilityCastStartFill: null,
+      _replayMoveTweenMs: null,
+      _replayMoveAbilityKey: null,
+      _replayMoveFromQ: null,
+      _replayMoveFromR: null,
+      _replayMoveStartAtMs: null,
+      _replayMoveEndAtMs: null,
+      _preparedAttackIntervalMs: 0,
+      _preparedAttackHitDelayMs: 0,
+      _preparedAttackHoldMs: 0,
+    };
+  }
+
+  getUnitRuntime(unitLikeOrId, { create = true } = {}) {
+    const key = this.getUnitRuntimeKey(unitLikeOrId);
+    if (key == null) return null;
+    if (!(this.unitRuntimeById instanceof Map)) this.unitRuntimeById = new Map();
+    let runtime = this.unitRuntimeById.get(key) ?? null;
+    if (!runtime && create) {
+      runtime = this.createUnitRuntimeState();
+      this.unitRuntimeById.set(key, runtime);
+    }
+    return runtime;
+  }
+
+  attachUnitRuntime(vu, unitLikeOrId = null) {
+    if (!vu) return null;
+    const runtime = this.getUnitRuntime(unitLikeOrId ?? vu?.id);
+    if (runtime) vu.runtime = runtime;
+    return runtime;
+  }
+
+  clearUnitRuntime(unitLikeOrId) {
+    const key = this.getUnitRuntimeKey(unitLikeOrId);
+    if (key == null) return;
+    this.unitRuntimeById?.delete?.(key);
+  }
+
+  pruneUnitRuntime(aliveUnitIds = []) {
+    if (!(this.unitRuntimeById instanceof Map)) return;
+    const aliveKeys = new Set((aliveUnitIds ?? []).map((id) => String(id)));
+    for (const key of this.unitRuntimeById.keys()) {
+      if (!aliveKeys.has(key)) this.unitRuntimeById.delete(key);
+    }
+  }
+
+  rebuildCoreUnitIndex() {
+    this.coreUnitsById = new Map(
+      (this.battleState?.units ?? []).map((u) => [String(u?.id), u])
+    );
+    return this.coreUnitsById;
+  }
+
+  getCoreUnitById(unitLikeOrId) {
+    const key = this.getUnitRuntimeKey(unitLikeOrId);
+    if (key == null) return null;
+    return this.coreUnitsById?.get?.(key) ?? null;
+  }
+
   preload() { //Подгружаем пулл картинок
     this.load.image('battleBg', '/assets/bg/grass.png');
     this.load.image('king', '/assets/kings/king_princess.png');
@@ -404,9 +500,10 @@ export default class BattleScene extends Phaser.Scene {
     }
 
     // дебаг загрузки: покажет ключ и URL, который не смог загрузиться
-    this.load.on('loaderror', (file) => {
+    this._loadErrorHandler = (file) => {
       console.error('[LOAD ERROR]', file?.key, file?.src);
-    });
+    };
+    this.load.on('loaderror', this._loadErrorHandler);
   }
 
   create() {
@@ -431,6 +528,7 @@ export default class BattleScene extends Phaser.Scene {
     this.entryRevealTimers = [];
     this.trashRemoveAnimatingIds = new Set();
     this.coreUnitsById = new Map();
+    this.unitRuntimeById = new Map();
     this.kingXpCost = KING_XP_COST;
     this.kingMaxLevel = KING_MAX_LEVEL;
     this.kingUi = KING_UI;
@@ -1998,15 +2096,15 @@ export default class BattleScene extends Phaser.Scene {
 
     const enemyVisuals = (this.unitSys?.state?.units ?? [])
       .filter((vu) => {
-        const core = this.coreUnitsById?.get?.(vu.id);
+        const core = this.getCoreUnitById?.(vu.id);
         return core?.team === 'enemy' && core?.zone === 'board' && !core?.dead;
       })
       .sort((a, b) => {
-        const ar = Number(this.coreUnitsById?.get?.(a.id)?.r ?? a.r ?? 0);
-        const br = Number(this.coreUnitsById?.get?.(b.id)?.r ?? b.r ?? 0);
+        const ar = Number(this.getCoreUnitById?.(a.id)?.r ?? a.r ?? 0);
+        const br = Number(this.getCoreUnitById?.(b.id)?.r ?? b.r ?? 0);
         if (ar !== br) return br - ar;
-        const aq = Number(this.coreUnitsById?.get?.(a.id)?.q ?? a.q ?? 0);
-        const bq = Number(this.coreUnitsById?.get?.(b.id)?.q ?? b.q ?? 0);
+        const aq = Number(this.getCoreUnitById?.(a.id)?.q ?? a.q ?? 0);
+        const bq = Number(this.getCoreUnitById?.(b.id)?.q ?? b.q ?? 0);
         return aq - bq;
       });
 
@@ -2030,15 +2128,15 @@ export default class BattleScene extends Phaser.Scene {
   animateEntryEnemyArmyReveal() {
     const enemyVisuals = (this.unitSys?.state?.units ?? [])
       .filter((vu) => {
-        const core = this.coreUnitsById?.get?.(vu.id);
+        const core = this.getCoreUnitById?.(vu.id);
         return core?.team === 'enemy' && core?.zone === 'board' && !core?.dead;
       })
       .sort((a, b) => {
-        const ar = Number(this.coreUnitsById?.get?.(a.id)?.r ?? a.r ?? 0);
-        const br = Number(this.coreUnitsById?.get?.(b.id)?.r ?? b.r ?? 0);
+        const ar = Number(this.getCoreUnitById?.(a.id)?.r ?? a.r ?? 0);
+        const br = Number(this.getCoreUnitById?.(b.id)?.r ?? b.r ?? 0);
         if (ar !== br) return br - ar; // bottom -> top
-        const aq = Number(this.coreUnitsById?.get?.(a.id)?.q ?? a.q ?? 0);
-        const bq = Number(this.coreUnitsById?.get?.(b.id)?.q ?? b.q ?? 0);
+        const aq = Number(this.getCoreUnitById?.(a.id)?.q ?? a.q ?? 0);
+        const bq = Number(this.getCoreUnitById?.(b.id)?.q ?? b.q ?? 0);
         return aq - bq;
       });
 
@@ -2274,7 +2372,7 @@ export default class BattleScene extends Phaser.Scene {
     if (!Number.isFinite(unitId)) return;
 
     this.time.delayedCall(Math.max(0, Number(delayMs ?? 0)), () => {
-      const latestCore = (this.battleState?.units ?? []).find((u) => Number(u?.id) === unitId);
+      const latestCore = this.getCoreUnitById?.(unitId);
       if (!latestCore || latestCore.dead) return;
       const vu = this.unitSys?.findUnit?.(unitId);
       if (!vu) return;
@@ -2333,7 +2431,7 @@ export default class BattleScene extends Phaser.Scene {
 
     this.time.delayedCall(Math.max(0, Number(durationMs ?? 0)), () => {
       const latestVu = this.unitSys?.findUnit?.(attackerId);
-      const latestCore = (this.battleState?.units ?? []).find((u) => Number(u?.id) === attackerId);
+      const latestCore = this.getCoreUnitById?.(attackerId);
       if (!latestVu?.art?.active || !latestCore || latestCore.dead || latestCore.zone !== 'board') return;
       if (Number(latestVu._frontHitDepthToken ?? 0) !== token) return;
 
@@ -2674,17 +2772,19 @@ export default class BattleScene extends Phaser.Scene {
     this.pendingAbilityCastAnimIds = new Set();
     this.pendingRangedBeamFx = [];
     for (const vu of (this.unitSys?.state?.units ?? [])) {
-      vu._abilityCdStartAtMs = null;
-      vu._abilityCdReadyAtMs = null;
-      vu._abilityCdDurationMs = null;
-      vu._abilityCdReplayAnchorMs = null;
-      vu._abilityCdUiEnabled = false;
-      vu._abilityCdReadyFxArmed = false;
-      vu._abilityCdReadyFxPlayed = false;
-      vu._abilityCdReadyFlashUntilMs = 0;
-      vu._abilityCastStartAtMs = null;
-      vu._abilityCastEndAtMs = null;
-      vu._abilityCastStartFill = null;
+      const runtime = this.attachUnitRuntime(vu, vu.id);
+      if (!runtime) continue;
+      runtime._abilityCdStartAtMs = null;
+      runtime._abilityCdReadyAtMs = null;
+      runtime._abilityCdDurationMs = null;
+      runtime._abilityCdReplayAnchorMs = null;
+      runtime._abilityCdUiEnabled = false;
+      runtime._abilityCdReadyFxArmed = false;
+      runtime._abilityCdReadyFxPlayed = false;
+      runtime._abilityCdReadyFlashUntilMs = 0;
+      runtime._abilityCastStartAtMs = null;
+      runtime._abilityCastEndAtMs = null;
+      runtime._abilityCastStartFill = null;
     }
     this.renderFromState();
     this.drawGrid();
@@ -2776,18 +2876,19 @@ export default class BattleScene extends Phaser.Scene {
     if (ev.type === 'move') {
       const u = byId.get(ev.unitId);
       if (!u || u.dead) return;
+      const runtime = this.getUnitRuntime(u.id);
       const fromQ = Number.isFinite(Number(ev.fromQ)) ? Number(ev.fromQ) : Number(u.q);
       const fromR = Number.isFinite(Number(ev.fromR)) ? Number(ev.fromR) : Number(u.r);
       const moveStartRelMs = Math.max(0, Number(ev?.tStart ?? ev?.t ?? 0));
       const tweenMs = Number(ev.durationMs ?? NaN);
       if (Number.isFinite(tweenMs) && tweenMs > 0) {
-        u._replayMoveTweenMs = tweenMs;
-        u._replayMoveAbilityKey = ev.abilityKey ?? null;
+        runtime._replayMoveTweenMs = tweenMs;
+        runtime._replayMoveAbilityKey = ev.abilityKey ?? null;
         const replayStartMs = Number(this.serverReplayPlayback?.startTimeMs ?? this.time?.now ?? 0);
-        u._replayMoveFromQ = fromQ;
-        u._replayMoveFromR = fromR;
-        u._replayMoveStartAtMs = replayStartMs + moveStartRelMs;
-        u._replayMoveEndAtMs = replayStartMs + moveStartRelMs + tweenMs;
+        runtime._replayMoveFromQ = fromQ;
+        runtime._replayMoveFromR = fromR;
+        runtime._replayMoveStartAtMs = replayStartMs + moveStartRelMs;
+        runtime._replayMoveEndAtMs = replayStartMs + moveStartRelMs + tweenMs;
       }
       u.q = Number(ev.q ?? u.q);
       u.r = Number(ev.r ?? u.r);
@@ -2801,31 +2902,33 @@ export default class BattleScene extends Phaser.Scene {
     if (ev.type === 'attack') {
       const attacker = byId.get(ev.attackerId);
       const target = byId.get(ev.targetId);
+      const attackerRuntime = attacker ? this.getUnitRuntime(attacker.id) : null;
       if (attacker) {
         attacker.attackSeq = Number(ev.attackSeq ?? (Number(attacker.attackSeq ?? 0) + 1));
-        attacker._preparedAttackIntervalMs = Math.max(0, Number(ev.preparedAttackIntervalMs ?? 0));
-        attacker._preparedAttackHitDelayMs = Math.max(0, Number(ev.preparedAttackHitDelayMs ?? 0));
-        attacker._preparedAttackHoldMs = Math.max(0, Number(ev.preparedAttackHoldMs ?? 0));
+        attackerRuntime._preparedAttackIntervalMs = Math.max(0, Number(ev.preparedAttackIntervalMs ?? 0));
+        attackerRuntime._preparedAttackHitDelayMs = Math.max(0, Number(ev.preparedAttackHitDelayMs ?? 0));
+        attackerRuntime._preparedAttackHoldMs = Math.max(0, Number(ev.preparedAttackHoldMs ?? 0));
         if (!(getPreparedAttackConfig(attacker.type) && !Boolean(ev?.isRanged))) {
           if (pendingAttackAnimIds) pendingAttackAnimIds.add(attacker.id);
         }
         const preparedAttackCfg = getPreparedAttackConfig(attacker.type);
         const pulseDelayMs = Boolean(ev?.isRanged)
           ? 0
-          : Math.max(0, Number(preparedAttackCfg ? (ev.preparedAttackHitDelayMs ?? attacker._preparedAttackHitDelayMs ?? 0) : 0));
+          : Math.max(0, Number(preparedAttackCfg ? (ev.preparedAttackHitDelayMs ?? attackerRuntime._preparedAttackHitDelayMs ?? 0) : 0));
         this.scheduleUnitAttackImpactPulse?.(attacker, pulseDelayMs);
       }
       if (attacker && getPreparedAttackConfig(attacker.type) && !Boolean(ev?.isRanged)) {
         const vu = this.unitSys?.findUnit?.(attacker.id);
+        const runtime = this.attachUnitRuntime(vu, attacker.id);
         if (vu) {
           const nowMs = Number(this.time?.now ?? 0);
-          const hitDelayMs = Math.max(0, Number(ev.preparedAttackHitDelayMs ?? attacker._preparedAttackHitDelayMs ?? 0));
-          const attackHoldMs = Math.max(0, Number(ev.preparedAttackHoldMs ?? attacker._preparedAttackHoldMs ?? 0));
-          vu._preparedAttackCycleUntilMs = nowMs + Math.max(0, Number(ev.preparedAttackIntervalMs ?? attacker._preparedAttackIntervalMs ?? 0));
-          vu._preparedAttackPoseUntilMs = nowMs + hitDelayMs;
-          vu._preparedAttackIdleAttack2FromMs = nowMs + hitDelayMs + attackHoldMs;
-          vu._preparedAttackIdleAttack2Active = false;
-          vu._preparedAttackFrameUntilMs = 0;
+          const hitDelayMs = Math.max(0, Number(ev.preparedAttackHitDelayMs ?? attackerRuntime._preparedAttackHitDelayMs ?? 0));
+          const attackHoldMs = Math.max(0, Number(ev.preparedAttackHoldMs ?? attackerRuntime._preparedAttackHoldMs ?? 0));
+          runtime._preparedAttackCycleUntilMs = nowMs + Math.max(0, Number(ev.preparedAttackIntervalMs ?? attackerRuntime._preparedAttackIntervalMs ?? 0));
+          runtime._preparedAttackPoseUntilMs = nowMs + hitDelayMs;
+          runtime._preparedAttackIdleAttack2FromMs = nowMs + hitDelayMs + attackHoldMs;
+          runtime._preparedAttackIdleAttack2Active = false;
+          runtime._preparedAttackFrameUntilMs = 0;
         }
       }
         if (attacker && target) {
@@ -2855,10 +2958,11 @@ export default class BattleScene extends Phaser.Scene {
       const target = byId.get(ev.targetId);
       if (attacker && getPreparedAttackConfig(attacker.type) && !Boolean(ev.skipPreparedAttackVisual)) {
         const vu = this.unitSys?.findUnit?.(attacker.id);
+        const attackerRuntime = this.attachUnitRuntime(vu, attacker.id);
         if (vu) {
           if (target) this.faceUnitVisualTowardCoreUnit(vu, target);
-          vu._preparedAttackPoseUntilMs = 0;
-          vu._preparedAttackFrameUntilMs = Number(this.time?.now ?? 0) + Math.max(0, Number(attacker._preparedAttackHoldMs ?? 400));
+          attackerRuntime._preparedAttackPoseUntilMs = 0;
+          attackerRuntime._preparedAttackFrameUntilMs = Number(this.time?.now ?? 0) + Math.max(0, Number(attackerRuntime._preparedAttackHoldMs ?? 400));
         }
       }
       if (attacker && target) {
@@ -2874,13 +2978,14 @@ export default class BattleScene extends Phaser.Scene {
       }
       if (target && !target.dead) {
         const vu = this.unitSys?.findUnit?.(target.id);
+        const targetRuntime = this.attachUnitRuntime(vu, target.id);
         const damageFrame = this.getUnitDamageStaticFrame?.(target);
         const nowMs = Number(this.time?.now ?? 0);
-        const skillFrameActive = Number(vu?._skillFrameUntilMs ?? 0) > nowMs;
-        const attackFrameActive = Number(vu?._preparedAttackFrameUntilMs ?? 0) > nowMs;
+        const skillFrameActive = Number(targetRuntime?._skillFrameUntilMs ?? 0) > nowMs;
+        const attackFrameActive = Number(targetRuntime?._preparedAttackFrameUntilMs ?? 0) > nowMs;
         if (vu) this.playUnitDamageFlash?.(vu);
         if (vu && damageFrame && !skillFrameActive && !attackFrameActive) {
-          vu._damageFrameUntilMs = nowMs + UNIT_RECEIVE_DAMAGE_FRAME_MS;
+          targetRuntime._damageFrameUntilMs = nowMs + UNIT_RECEIVE_DAMAGE_FRAME_MS;
         }
       }
       const chainTargetId = Number(ev?.chainTargetId ?? NaN);
@@ -2907,17 +3012,17 @@ export default class BattleScene extends Phaser.Scene {
         const abilityKey = String(ev?.abilityKey ?? '');
         if (abilityKey === SWORDSMAN_COUNTER_ABILITY_KEY) {
           const vu = this.unitSys?.findUnit?.(caster.id);
+          const runtime = this.attachUnitRuntime(vu, caster.id);
           const target = byId.get(ev.targetId);
           const skillFrame = this.getUnitSkillStaticFrame(caster);
           const preparedAttackFrames = this.getPreparedAttackStaticFrames(caster);
           const nowMs = Number(this.time?.now ?? 0);
           if (vu && skillFrame) {
             if (target) this.faceUnitVisualTowardCoreUnit(vu, target);
-            vu._skillFrameMoveTweenRef = vu._moveTween ?? null;
-            vu._skillFrameUntilMs = nowMs + Math.max(0, Number(ev.displayMs ?? SWORDSMAN_COUNTER_SKILL_DEFAULT_MS));
+            runtime._skillFrameUntilMs = nowMs + Math.max(0, Number(ev.displayMs ?? SWORDSMAN_COUNTER_SKILL_DEFAULT_MS));
           }
           if (vu && preparedAttackFrames) {
-            vu._counterRecoveryUntilMs = nowMs + Math.max(0, Number(ev.windowMs ?? SWORDSMAN_COUNTER_WINDOW_DEFAULT_MS));
+            runtime._counterRecoveryUntilMs = nowMs + Math.max(0, Number(ev.windowMs ?? SWORDSMAN_COUNTER_WINDOW_DEFAULT_MS));
           }
           this.scheduleUnitAttackImpactPulse?.(caster, 0);
           this.showCombatCounterHint?.(caster);
@@ -2936,7 +3041,7 @@ export default class BattleScene extends Phaser.Scene {
             const t = this.time.delayedCall(castTimeMs, () => {
               if (!this.serverReplayPlayback?.active) return;
               if (Number(this.serverReplayPlayback?.token ?? -1) !== replayToken) return;
-              const latestCaster = (this.battleState?.units ?? []).find((u) => Number(u?.id) === Number(caster.id));
+              const latestCaster = this.getCoreUnitById?.(caster.id);
               if (!latestCaster || latestCaster.dead) return;
               this.restartUnitAbilityCooldownUi?.(latestCaster);
             });
@@ -2998,12 +3103,13 @@ export default class BattleScene extends Phaser.Scene {
       if (String(ev?.sourceAbilityKey ?? '') === 'siren_mirror_image') {
         const sourceUnit = byId.get(ev.sourceId);
         const sourceVu = sourceUnit ? this.unitSys?.findUnit?.(sourceUnit.id) : null;
-        if (sourceVu) {
-          sourceVu._abilityCastStartAtMs = null;
-          sourceVu._abilityCastEndAtMs = null;
-          sourceVu._abilityCastStartFill = null;
-          sourceVu._castAnimPlaying = false;
-          sourceVu._castAnimForceReplay = false;
+        const sourceRuntime = sourceVu ? this.attachUnitRuntime(sourceVu, sourceUnit?.id) : null;
+        if (sourceRuntime) {
+          sourceRuntime._abilityCastStartAtMs = null;
+          sourceRuntime._abilityCastEndAtMs = null;
+          sourceRuntime._abilityCastStartFill = null;
+          sourceRuntime._castAnimPlaying = false;
+          sourceRuntime._castAnimForceReplay = false;
         }
       }
       const existing = byId.get(spawned.id);
@@ -3049,10 +3155,11 @@ export default class BattleScene extends Phaser.Scene {
       const target = byId.get(ev.targetId);
       if (attacker && getPreparedAttackConfig(attacker.type) && !Boolean(ev.skipPreparedAttackVisual)) {
         const vu = this.unitSys?.findUnit?.(attacker.id);
-        if (vu) {
+        const attackerRuntime = this.attachUnitRuntime(vu, attacker.id);
+        if (attackerRuntime) {
           if (target) this.faceUnitVisualTowardCoreUnit(vu, target);
-          vu._preparedAttackPoseUntilMs = 0;
-          vu._preparedAttackFrameUntilMs = Number(this.time?.now ?? 0) + Math.max(0, Number(attacker._preparedAttackHoldMs ?? 400));
+          attackerRuntime._preparedAttackPoseUntilMs = 0;
+          attackerRuntime._preparedAttackFrameUntilMs = Number(this.time?.now ?? 0) + Math.max(0, Number(attackerRuntime._preparedAttackHoldMs ?? 400));
         }
       }
       if (target) {
@@ -3352,8 +3459,8 @@ export default class BattleScene extends Phaser.Scene {
     if (!Array.isArray(queue) || queue.length === 0) return;
 
     for (const fx of queue) {
-      const attackerCore = (this.battleState?.units ?? []).find((u) => u.id === fx?.attackerId);
-      const targetCore = (this.battleState?.units ?? []).find((u) => u.id === fx?.targetId);
+      const attackerCore = this.getCoreUnitById?.(fx?.attackerId);
+      const targetCore = this.getCoreUnitById?.(fx?.targetId);
       if (!attackerCore || !targetCore) continue;
       const projectileRendered = this.playRangedProjectileFx(attackerCore, targetCore, fx);
       if (!projectileRendered) this.playRangedBeamFx(attackerCore, targetCore, fx);
@@ -3365,6 +3472,8 @@ export default class BattleScene extends Phaser.Scene {
     const core = coreUnitLike ?? null;
     const vu = visualUnit ?? this.unitSys?.findUnit?.(core?.id);
     if (!core || !vu) return;
+    const runtime = this.attachUnitRuntime(vu, core);
+    if (!runtime) return;
 
     const hasCooldownAbility =
       String(core.abilityType ?? 'none') === 'active' ||
@@ -3372,17 +3481,17 @@ export default class BattleScene extends Phaser.Scene {
     const cooldownSec = Math.max(0, Number(core.abilityCooldown ?? 0));
     const cooldownMs = cooldownSec * 1000;
     if (!hasCooldownAbility || cooldownMs <= 0) {
-      vu._abilityCdStartAtMs = null;
-      vu._abilityCdReadyAtMs = null;
-      vu._abilityCdDurationMs = null;
-      vu._abilityCdReplayAnchorMs = null;
-      vu._abilityCdUiEnabled = false;
-      vu._abilityCdReadyFxArmed = false;
-      vu._abilityCdReadyFxPlayed = false;
-      vu._abilityCdReadyFlashUntilMs = 0;
-      vu._abilityCastStartAtMs = null;
-      vu._abilityCastEndAtMs = null;
-      vu._abilityCastStartFill = null;
+      runtime._abilityCdStartAtMs = null;
+      runtime._abilityCdReadyAtMs = null;
+      runtime._abilityCdDurationMs = null;
+      runtime._abilityCdReplayAnchorMs = null;
+      runtime._abilityCdUiEnabled = false;
+      runtime._abilityCdReadyFxArmed = false;
+      runtime._abilityCdReadyFxPlayed = false;
+      runtime._abilityCdReadyFlashUntilMs = 0;
+      runtime._abilityCastStartAtMs = null;
+      runtime._abilityCastEndAtMs = null;
+      runtime._abilityCastStartFill = null;
       return;
     }
 
@@ -3396,21 +3505,21 @@ export default class BattleScene extends Phaser.Scene {
       !result &&
       core.team === 'enemy' &&
       !!this.entryEnemyUnitsUiVisible;
-    vu._abilityCdUiEnabled =
+    runtime._abilityCdUiEnabled =
       ((phase === 'battle' && !result) || canShowEntryEnemyAbilityUi) &&
       core.zone === 'board' &&
       !core.dead &&
       (!this.isWormSwallowAbilityCore?.(core) || wormDigestingNow);
-    vu._abilityCdDurationMs = cooldownMs;
+    runtime._abilityCdDurationMs = cooldownMs;
 
     const nowMs = Number(this.time?.now ?? 0);
     const replayStartMs = Number(this.serverReplayPlayback?.startTimeMs ?? nowMs);
     const nextAbilityAtRelMs = Number(core.nextAbilityAt ?? NaN);
     const replayActive = Boolean(this.serverReplayPlayback?.active) && phase === 'battle' && !result;
-    const startAtMs = Number(vu._abilityCdStartAtMs ?? NaN);
-    const readyAtMs = Number(vu._abilityCdReadyAtMs ?? NaN);
+    const startAtMs = Number(runtime._abilityCdStartAtMs ?? NaN);
+    const readyAtMs = Number(runtime._abilityCdReadyAtMs ?? NaN);
     const hasValidWindow = Number.isFinite(startAtMs) && Number.isFinite(readyAtMs) && readyAtMs > startAtMs;
-    const sameReplayAnchor = Number(vu._abilityCdReplayAnchorMs ?? NaN) === replayStartMs;
+    const sameReplayAnchor = Number(runtime._abilityCdReplayAnchorMs ?? NaN) === replayStartMs;
 
     if (replayActive) {
       // In replay mode do not continuously override cooldown from core.nextAbilityAt:
@@ -3425,27 +3534,27 @@ export default class BattleScene extends Phaser.Scene {
             : (Number.isFinite(nextAbilityAtRelMs) && nextAbilityAtRelMs > 0)
             ? (replayStartMs + nextAbilityAtRelMs)
             : (replayStartMs + cooldownMs);
-        vu._abilityCdReadyAtMs = initialReadyAtMs;
-        vu._abilityCdStartAtMs = initialReadyAtMs - cooldownMs;
-        vu._abilityCdReplayAnchorMs = replayStartMs;
+        runtime._abilityCdReadyAtMs = initialReadyAtMs;
+        runtime._abilityCdStartAtMs = initialReadyAtMs - cooldownMs;
+        runtime._abilityCdReplayAnchorMs = replayStartMs;
       }
       return;
     }
 
     // Non-replay authoritative updates: allow server-provided nextAbilityAt to drive UI.
     if (Number.isFinite(nextAbilityAtRelMs) && nextAbilityAtRelMs > 0) {
-      vu._abilityCdReadyAtMs = nowMs + nextAbilityAtRelMs;
-      vu._abilityCdStartAtMs = vu._abilityCdReadyAtMs - cooldownMs;
-      vu._abilityCdReplayAnchorMs = null;
+      runtime._abilityCdReadyAtMs = nowMs + nextAbilityAtRelMs;
+      runtime._abilityCdStartAtMs = runtime._abilityCdReadyAtMs - cooldownMs;
+      runtime._abilityCdReplayAnchorMs = null;
     } else if (!hasValidWindow) {
       if (this.isWormSwallowAbilityCore?.(core)) {
-        vu._abilityCdReadyAtMs = nowMs;
-        vu._abilityCdStartAtMs = nowMs - cooldownMs;
+        runtime._abilityCdReadyAtMs = nowMs;
+        runtime._abilityCdStartAtMs = nowMs - cooldownMs;
       } else {
-        vu._abilityCdReadyAtMs = nowMs + cooldownMs;
-        vu._abilityCdStartAtMs = nowMs;
+        runtime._abilityCdReadyAtMs = nowMs + cooldownMs;
+        runtime._abilityCdStartAtMs = nowMs;
       }
-      vu._abilityCdReplayAnchorMs = null;
+      runtime._abilityCdReplayAnchorMs = null;
     }
   }
 
@@ -3466,6 +3575,8 @@ export default class BattleScene extends Phaser.Scene {
     const core = coreUnitLike ?? null;
     const vu = this.unitSys?.findUnit?.(core?.id);
     if (!core || !vu) return;
+    const runtime = this.attachUnitRuntime(vu, core);
+    if (!runtime) return;
     const cooldownSec = Math.max(0, Number(core.abilityCooldown ?? 0));
     const cooldownMs = cooldownSec * 1000;
     const hasCooldownAbility =
@@ -3473,25 +3584,27 @@ export default class BattleScene extends Phaser.Scene {
       this.isWormSwallowAbilityCore?.(core);
     if (!hasCooldownAbility || cooldownMs <= 0) return;
     const nowMs = Number(this.time?.now ?? 0);
-    vu._abilityCdDurationMs = cooldownMs;
-    vu._abilityCdStartAtMs = nowMs;
-    vu._abilityCdReadyAtMs = nowMs + cooldownMs;
-    vu._abilityCdReplayAnchorMs = Number(this.serverReplayPlayback?.startTimeMs ?? nowMs);
-    vu._abilityCdUiEnabled = true;
-    vu._abilityCdReadyFxArmed = false;
-    vu._abilityCdReadyFxPlayed = false;
-    vu._abilityCdReadyFlashUntilMs = 0;
-    vu._abilityCastStartAtMs = null;
-    vu._abilityCastEndAtMs = null;
-    vu._abilityCastStartFill = null;
-    vu._castAnimPlaying = false;
-    vu._castAnimForceReplay = false;
+    runtime._abilityCdDurationMs = cooldownMs;
+    runtime._abilityCdStartAtMs = nowMs;
+    runtime._abilityCdReadyAtMs = nowMs + cooldownMs;
+    runtime._abilityCdReplayAnchorMs = Number(this.serverReplayPlayback?.startTimeMs ?? nowMs);
+    runtime._abilityCdUiEnabled = true;
+    runtime._abilityCdReadyFxArmed = false;
+    runtime._abilityCdReadyFxPlayed = false;
+    runtime._abilityCdReadyFlashUntilMs = 0;
+    runtime._abilityCastStartAtMs = null;
+    runtime._abilityCastEndAtMs = null;
+    runtime._abilityCastStartFill = null;
+    runtime._castAnimPlaying = false;
+    runtime._castAnimForceReplay = false;
   }
 
   startUnitAbilityCastUi(coreUnitLike, castTimeMsRaw = 0) {
     const core = coreUnitLike ?? null;
     const vu = this.unitSys?.findUnit?.(core?.id);
     if (!core || !vu) return;
+    const runtime = this.attachUnitRuntime(vu, core);
+    if (!runtime) return;
     const cooldownSec = Math.max(0, Number(core.abilityCooldown ?? 0));
     const cooldownMs = cooldownSec * 1000;
     if (String(core.abilityType ?? 'none') !== 'active' || cooldownMs <= 0) return;
@@ -3499,25 +3612,26 @@ export default class BattleScene extends Phaser.Scene {
     if (castTimeMs <= 0) return;
 
     const nowMs = Number(this.time?.now ?? 0);
-    const startAtMs = Number(vu._abilityCdStartAtMs ?? NaN);
-    const readyAtMs = Number(vu._abilityCdReadyAtMs ?? NaN);
+    const startAtMs = Number(runtime._abilityCdStartAtMs ?? NaN);
+    const readyAtMs = Number(runtime._abilityCdReadyAtMs ?? NaN);
     let currentFill = 1;
     if (Number.isFinite(startAtMs) && Number.isFinite(readyAtMs) && readyAtMs > startAtMs) {
       currentFill = Phaser.Math.Clamp((nowMs - startAtMs) / (readyAtMs - startAtMs), 0, 1);
     }
 
-    vu._abilityCastStartAtMs = nowMs;
-    vu._abilityCastEndAtMs = nowMs + castTimeMs;
-    vu._abilityCastStartFill = currentFill;
+    runtime._abilityCastStartAtMs = nowMs;
+    runtime._abilityCastEndAtMs = nowMs + castTimeMs;
+    runtime._abilityCastStartFill = currentFill;
   }
 
   getAbilityCooldownFillForUnit(unitLike) {
-    const unitId = Number(unitLike?.id ?? NaN);
-    if (!Number.isFinite(unitId)) return NaN;
-    const core = this.coreUnitsById?.get?.(unitId)
-      ?? (this.battleState?.units ?? []).find((u) => Number(u?.id) === unitId);
+    const unitId = unitLike?.id ?? null;
+    if (unitId == null) return NaN;
+    const core = this.getCoreUnitById?.(unitId);
     const vu = this.unitSys?.findUnit?.(unitId);
     if (!core || !vu) return NaN;
+    const runtime = this.attachUnitRuntime(vu, unitId);
+    if (!runtime) return NaN;
 
     const hasCooldownAbility =
       String(core.abilityType ?? 'none') === 'active' ||
@@ -3536,21 +3650,21 @@ export default class BattleScene extends Phaser.Scene {
     if (this.isWormSwallowAbilityCore?.(core) && !Number.isFinite(Number(core.wormSwallowedUnitId ?? NaN))) return NaN;
 
     const nowMs = Number(this.time?.now ?? 0);
-    const castStartAtMs = Number(vu._abilityCastStartAtMs ?? NaN);
-    const castEndAtMs = Number(vu._abilityCastEndAtMs ?? NaN);
+    const castStartAtMs = Number(runtime._abilityCastStartAtMs ?? NaN);
+    const castEndAtMs = Number(runtime._abilityCastEndAtMs ?? NaN);
     if (Number.isFinite(castStartAtMs) && Number.isFinite(castEndAtMs) && castEndAtMs > castStartAtMs) {
       if (nowMs < castEndAtMs) {
         const castT = Phaser.Math.Clamp((nowMs - castStartAtMs) / (castEndAtMs - castStartAtMs), 0, 1);
-        const startFill = Phaser.Math.Clamp(Number(vu._abilityCastStartFill ?? 1), 0, 1);
+        const startFill = Phaser.Math.Clamp(Number(runtime._abilityCastStartFill ?? 1), 0, 1);
         return Phaser.Math.Clamp(startFill * (1 - castT), 0, 1);
       }
-      vu._abilityCastStartAtMs = null;
-      vu._abilityCastEndAtMs = null;
-      vu._abilityCastStartFill = null;
+      runtime._abilityCastStartAtMs = null;
+      runtime._abilityCastEndAtMs = null;
+      runtime._abilityCastStartFill = null;
     }
 
-    const startAtMs = Number(vu._abilityCdStartAtMs ?? NaN);
-    const readyAtMs = Number(vu._abilityCdReadyAtMs ?? NaN);
+    const startAtMs = Number(runtime._abilityCdStartAtMs ?? NaN);
+    const readyAtMs = Number(runtime._abilityCdReadyAtMs ?? NaN);
     if (!Number.isFinite(startAtMs) || !Number.isFinite(readyAtMs) || readyAtMs <= startAtMs) return 1;
     return Phaser.Math.Clamp((nowMs - startAtMs) / (readyAtMs - startAtMs), 0, 1);
   }
@@ -3760,10 +3874,12 @@ export default class BattleScene extends Phaser.Scene {
   onUnitVisualMoveComplete(unitLike) {
     const vu = this.unitSys?.findUnit?.(unitLike?.id);
     if (!vu?.art?.active) return;
+    const runtime = this.attachUnitRuntime(vu, unitLike?.id);
+    if (!runtime) return;
 
-    const latest = (this.battleState?.units ?? []).find((u) => Number(u?.id) === Number(unitLike?.id));
+    const latest = this.getCoreUnitById?.(unitLike?.id);
     if (!latest || latest.dead || latest.zone !== 'board') return;
-    if (vu._attackAnimPlaying || vu._castAnimPlaying || vu._moveTween) return;
+    if (runtime._attackAnimPlaying || runtime._castAnimPlaying || vu._moveTween) return;
 
     const wormFatActive =
       this.isWormFatCore?.(latest) &&
@@ -3773,7 +3889,7 @@ export default class BattleScene extends Phaser.Scene {
       : UNIT_ANIMS_BY_TYPE[latest.type];
     if (!animDef || !this.anims.exists(animDef.idle)) return;
 
-    vu._staticWalkFrameActive = false;
+    runtime._staticWalkFrameActive = false;
     vu.art.play(animDef.idle, true);
   }
 
@@ -3833,12 +3949,10 @@ export default class BattleScene extends Phaser.Scene {
     }
   }
 
-  refreshPreparedAttackPoseFrames() {
+  refreshPreparedAttackPoseFrames(nowMs = Number(this.time?.now ?? 0)) {
     const phase = this.battleState?.phase ?? 'prep';
     const result = this.battleState?.result ?? null;
     if (phase !== 'battle' || result) return;
-
-    const nowMs = Number(this.time?.now ?? 0);
     for (const core of (this.battleState?.units ?? [])) {
       if (!core || core.dead || core.zone !== 'board') continue;
       const preparedAttackFrames = this.getPreparedAttackStaticFrames(core);
@@ -3846,71 +3960,73 @@ export default class BattleScene extends Phaser.Scene {
 
       const vu = this.unitSys?.findUnit?.(core.id);
       if (!vu?.art?.active) continue;
-      if (vu._moveTween || vu._castAnimPlaying || vu._deathPrepActive) continue;
-      if (Number(vu._skillFrameUntilMs ?? 0) > nowMs) continue;
+      const runtime = this.attachUnitRuntime(vu, core.id);
+      if (!runtime) continue;
+      if (vu._moveTween || runtime._castAnimPlaying || vu._deathPrepActive) continue;
+      if (Number(runtime._skillFrameUntilMs ?? 0) > nowMs) continue;
       const damageFrameInfo = this.getUnitDamageStaticFrame(core);
-      const attackActive = Number(vu._preparedAttackFrameUntilMs ?? 0) > nowMs;
+      const attackActive = Number(runtime._preparedAttackFrameUntilMs ?? 0) > nowMs;
       const damageActive =
         !!damageFrameInfo &&
-        Number(vu._damageFrameUntilMs ?? 0) > nowMs &&
+        Number(runtime._damageFrameUntilMs ?? 0) > nowMs &&
         !attackActive;
       if (damageActive) {
         this.applyUnitStaticArtFrame(vu, damageFrameInfo.atlasCfg.atlasKey, damageFrameInfo.damageFrame);
         continue;
       }
-      if (Number(vu._counterRecoveryUntilMs ?? 0) > nowMs) {
+      if (Number(runtime._counterRecoveryUntilMs ?? 0) > nowMs) {
         this.applyUnitStaticArtFrame(vu, preparedAttackFrames.atlasCfg.atlasKey, preparedAttackFrames.idleAttackFrame);
         continue;
       }
-      const cycleActive = Number(vu._preparedAttackCycleUntilMs ?? 0) > nowMs;
+      const cycleActive = Number(runtime._preparedAttackCycleUntilMs ?? 0) > nowMs;
       const idleAttack2Active =
         cycleActive &&
-        Number(vu._preparedAttackIdleAttack2FromMs ?? Infinity) <= nowMs;
+        Number(runtime._preparedAttackIdleAttack2FromMs ?? Infinity) <= nowMs;
       if (!cycleActive && !attackActive) continue;
 
       const targetFrame = attackActive
         ? preparedAttackFrames.attackFrame
         : preparedAttackFrames.idleAttackFrame;
-      vu._preparedAttackIdleAttack2Active = idleAttack2Active;
+      runtime._preparedAttackIdleAttack2Active = idleAttack2Active;
       this.applyUnitStaticArtFrame(vu, preparedAttackFrames.atlasCfg.atlasKey, targetFrame);
     }
   }
 
-  syncTimedBattleVisualTransitions() {
+  syncTimedBattleVisualTransitions(nowMs = Number(this.time?.now ?? 0)) {
     const phase = this.battleState?.phase ?? 'prep';
     const result = this.battleState?.result ?? null;
     if (phase !== 'battle' || result) return;
-
-      const nowMs = Number(this.time?.now ?? 0);
       let needsRenderSync = false;
 
     for (const core of (this.battleState?.units ?? [])) {
       if (!core || core.dead || core.zone !== 'board') continue;
       const vu = this.unitSys?.findUnit?.(core.id);
       if (!vu?.art?.active) continue;
+      const runtime = this.attachUnitRuntime(vu, core.id);
+      if (!runtime) continue;
 
-      const skillActive = Number(vu._skillFrameUntilMs ?? 0) > nowMs;
-      const attackFrameActive = Number(vu._preparedAttackFrameUntilMs ?? 0) > nowMs;
+      const skillActive = Number(runtime._skillFrameUntilMs ?? 0) > nowMs;
+      const attackFrameActive = Number(runtime._preparedAttackFrameUntilMs ?? 0) > nowMs;
       const damageFrameInfo = this.getUnitDamageStaticFrame(core);
       const damageActive =
         !!damageFrameInfo &&
-        Number(vu._damageFrameUntilMs ?? 0) > nowMs &&
+        Number(runtime._damageFrameUntilMs ?? 0) > nowMs &&
         !skillActive &&
         !attackFrameActive;
       const counterRecoveryActive =
-        Number(vu._counterRecoveryUntilMs ?? 0) > nowMs &&
+        Number(runtime._counterRecoveryUntilMs ?? 0) > nowMs &&
         !skillActive;
 
-      if (Boolean(vu._timedSkillFrameActive) !== skillActive) {
-        vu._timedSkillFrameActive = skillActive;
+      if (Boolean(runtime._timedSkillFrameActive) !== skillActive) {
+        runtime._timedSkillFrameActive = skillActive;
         needsRenderSync = true;
       }
-      if (Boolean(vu._timedCounterRecoveryActive) !== counterRecoveryActive) {
-        vu._timedCounterRecoveryActive = counterRecoveryActive;
+      if (Boolean(runtime._timedCounterRecoveryActive) !== counterRecoveryActive) {
+        runtime._timedCounterRecoveryActive = counterRecoveryActive;
         needsRenderSync = true;
       }
-      if (Boolean(vu._timedDamageFrameActive) !== damageActive) {
-        vu._timedDamageFrameActive = damageActive;
+      if (Boolean(runtime._timedDamageFrameActive) !== damageActive) {
+        runtime._timedDamageFrameActive = damageActive;
         needsRenderSync = true;
       }
     }
@@ -4082,7 +4198,7 @@ export default class BattleScene extends Phaser.Scene {
     overlay.setVisible(false);
   }
 
-  syncUnitFrameBoundVfxState() {
+  syncUnitFrameBoundVfxState(_nowMs = Number(this.time?.now ?? 0)) {
     for (const core of (this.battleState?.units ?? [])) {
       const defs = UNIT_FRAME_BOUND_VFX_DEFS_BY_TYPE[String(core?.type ?? '')] ?? null;
       if (!defs?.length) continue;
@@ -4472,7 +4588,7 @@ export default class BattleScene extends Phaser.Scene {
 
       const unitId = handle.data?.get?.('unitId');
       if (unitId == null) return;
-      const core = (this.battleState?.units ?? []).find((u) => String(u.id) === String(unitId));
+      const core = this.getCoreUnitById?.(unitId);
       if (!core || core.dead) return;
 
       if (core.zone === 'board') {
@@ -4510,7 +4626,7 @@ export default class BattleScene extends Phaser.Scene {
 
       const unitId = handle.data?.get?.('unitId');
       if (unitId == null) return;
-      const core = (this.battleState?.units ?? []).find((u) => String(u.id) === String(unitId));
+      const core = this.getCoreUnitById?.(unitId);
       if (!core || core.dead) return;
       this.toggleUnitInfoForUnit?.(core);
     });
@@ -4818,14 +4934,7 @@ export default class BattleScene extends Phaser.Scene {
     this.showUnitInfoModal?.(core);
   }
 
-  renderFromState() {
-    this.coreUnitsById = new Map((this.battleState?.units ?? []).map((u) => [u.id, u]));
-    const currentVisualById = new Map((this.unitSys?.state?.units ?? []).map((vu) => [vu.id, vu]));
-
-    // 1) кого оставляем
-    const phase = this.battleState?.phase ?? 'prep';
-
-    // в обычном prep скрываем enemy, в test scene prep показываем всех
+  collectVisibleUnitsForRender(phase) {
     const visibleUnits = [];
     const aliveIds = new Set();
     for (const u of (this.battleState?.units ?? [])) {
@@ -4835,24 +4944,10 @@ export default class BattleScene extends Phaser.Scene {
       visibleUnits.push(u);
       aliveIds.add(u.id);
     }
-    if (this.unitInfoVisible) {
-      const infoUnit = visibleUnits.find((u) => String(u.id) === String(this.unitInfoUnitId));
-      if (!infoUnit || infoUnit.dead) {
-        this.hideUnitInfoModal?.();
-      } else {
-        const modalX = Number(this.unitInfoModal?.x ?? NaN);
-        const modalY = Number(this.unitInfoModal?.y ?? NaN);
-        this.showUnitInfoModal?.(infoUnit);
-        if (Number.isFinite(modalX) && Number.isFinite(modalY)) {
-          this.unitInfoModal?.setPosition(modalX, modalY);
-        }
-      }
-    }
+    return { visibleUnits, aliveIds };
+  }
 
-    // Visual-only merge effect: before deleting vanished units, animate 2 donors flying into upgraded unit.
-    this.detectAndAnimateClientMerges(visibleUnits);
-
-    // 2) удалить тех, кого нет в core state
+  reconcileVisualUnits(visibleUnits, aliveIds, currentVisualById) {
     for (const vu of this.unitSys.state.units.slice()) {
       if (!aliveIds.has(vu.id)) {
         const pendingAutoSellFx = this.pendingServerAutoSellFxIds?.has?.(Number(vu.id));
@@ -4860,11 +4955,11 @@ export default class BattleScene extends Phaser.Scene {
           this.playTrashCoinBurstFx?.();
           this.playTrashRemoveFx?.(vu.id, () => {
             this.unitSys?.destroyUnit?.(vu.id);
+            this.clearUnitRuntime?.(vu.id);
             this.pendingServerAutoSellFxIds?.delete?.(Number(vu.id));
           });
           continue;
         }
-        // Keep units alive while trash animation is running (server-side auto-sell / manual sell FX).
         if (this.trashRemoveAnimatingIds?.has?.(vu.id)) continue;
         if (this.mergeAbsorbAnimatingIds?.has(vu.id)) continue;
 
@@ -4875,12 +4970,10 @@ export default class BattleScene extends Phaser.Scene {
         }
 
         this.unitSys.destroyUnit(vu.id);
+        this.clearUnitRuntime?.(vu.id);
       }
     }
 
-    // 3) индекс визуальных юнитов по id (после удаления)
-    // Локальный occupied иногда рассинхронизируется после сложных переходов (bench/board/result/test).
-    // Перед CREATE-проходом пересобираем его из текущих визуалов на доске, чтобы не получать ложный "occupied".
     if (this.unitSys?.state) {
       this.unitSys.state.occupied = new Set(
         (this.unitSys.state.units ?? [])
@@ -4895,19 +4988,356 @@ export default class BattleScene extends Phaser.Scene {
       );
     }
 
-    const byId = new Map();
-    for (const vu of this.unitSys.state.units) {
-      byId.set(vu.id, vu);
+    return new Map((this.unitSys?.state?.units ?? []).map((vu) => [vu.id, vu]));
+  }
+
+  syncBattleVisualFrame(nowMs) {
+    this.syncTimedBattleVisualTransitions?.(nowMs);
+    this.refreshPreparedAttackPoseFrames?.(nowMs);
+    this.syncUnitFrameBoundVfxState?.(nowMs);
+  }
+
+  syncPendingBattleActionAnimations(byId) {
+    if (this.pendingAttackAnimIds?.size) {
+      for (const id of this.pendingAttackAnimIds) {
+        const vu = byId.get(id);
+        if (!vu?.art) continue;
+        const runtime = this.attachUnitRuntime(vu, id);
+        const attackerCore = this.getCoreUnitById?.(id);
+        if (attackerCore && attackerCore.zone === 'board' && !attackerCore.dead) {
+          this.unitSys.setUnitPos(attackerCore.id, attackerCore.q, attackerCore.r, { tweenMs: 0 });
+        }
+        const targetCore = this.findClosestOpponentForFacing(attackerCore);
+        this.faceUnitVisualTowardCoreUnit(vu, targetCore);
+        runtime._attackAnimPlaying = true;
+        runtime._attackAnimForceReplay = true;
+      }
+      this.pendingAttackAnimIds.clear();
     }
 
-    // 4) создать новых и обновить существующих
+    if (this.pendingAbilityCastAnimIds?.size) {
+      for (const id of this.pendingAbilityCastAnimIds) {
+        const vu = byId.get(id);
+        if (!vu?.art) continue;
+        const runtime = this.attachUnitRuntime(vu, id);
+        const casterCore = this.getCoreUnitById?.(id);
+        if (casterCore && casterCore.zone === 'board' && !casterCore.dead) {
+          this.unitSys.setUnitPos(casterCore.id, casterCore.q, casterCore.r, { tweenMs: 0 });
+        }
+        const targetCore = this.findClosestOpponentForFacing(casterCore);
+        this.faceUnitVisualTowardCoreUnit(vu, targetCore);
+        runtime._castAnimPlaying = true;
+        runtime._castAnimForceReplay = true;
+      }
+      this.pendingAbilityCastAnimIds.clear();
+    }
+  }
+
+  syncVisualUnitAnimationState(phase, byId) {
+    const result = this.battleState?.result ?? null;
+    this.syncPendingBattleActionAnimations(byId);
+
+    for (const u of (this.battleState?.units ?? [])) {
+      const vu = byId.get(u.id);
+      if (!vu?.art) continue;
+      const runtime = this.attachUnitRuntime(vu, u.id);
+      if (!runtime) continue;
+      if (this.draggingUnitId != null && String(u.id) === String(this.draggingUnitId)) continue;
+      const wormFatActive =
+        this.isWormFatCore?.(u) &&
+        this.anims.exists(WORM_FAT_ANIMS.idle);
+      const animDef = wormFatActive
+        ? WORM_FAT_ANIMS
+        : UNIT_ANIMS_BY_TYPE[u.type];
+      if (!animDef) continue;
+
+      if ((phase !== 'battle') || !!result) {
+        const baseMirrored = (u.team === 'enemy');
+        vu._artFacingMirrored = baseMirrored;
+        vu.art.setFlipX(baseMirrored);
+        if (vu.artOverlay?.active) vu.artOverlay.setFlipX(baseMirrored);
+        if (result) {
+          runtime._skillFrameUntilMs = 0;
+          runtime._counterRecoveryUntilMs = 0;
+          runtime._damageFrameUntilMs = 0;
+          runtime._preparedAttackCycleUntilMs = 0;
+          runtime._preparedAttackPoseUntilMs = 0;
+          runtime._preparedAttackIdleAttack2FromMs = 0;
+          runtime._preparedAttackIdleAttack2Active = false;
+          runtime._preparedAttackFrameUntilMs = 0;
+        }
+        if (u.zone === 'board' && Number.isFinite(vu.q) && Number.isFinite(vu.r)) {
+          vu.art.setX(this.getUnitArtWorldXByFacing(vu, vu.q, vu.r, baseMirrored));
+          if (vu.artOverlay?.active) vu.artOverlay.setX(vu.art.x);
+        } else {
+          vu.art.setX(this.getUnitArtScreenXByFacing(vu, vu.sprite?.x, baseMirrored));
+          if (vu.artOverlay?.active) vu.artOverlay.setX(vu.art.x);
+        }
+      }
+
+      const castAnimEndAtMs = Number(runtime._abilityCastEndAtMs ?? NaN);
+      if (runtime._castAnimPlaying && Number.isFinite(castAnimEndAtMs) && Number(this.time?.now ?? 0) >= castAnimEndAtMs) {
+        runtime._castAnimPlaying = false;
+        runtime._castAnimForceReplay = false;
+      }
+
+      const wantWalk =
+        (phase === 'battle') &&
+        !result &&
+        (u.zone === 'board') &&
+        !u.dead &&
+        !!vu._moveTween;
+      if (!vu._moveTween && runtime._replayMoveAbilityKey != null) {
+        runtime._replayMoveAbilityKey = null;
+      }
+      const wantKnightChargeMove =
+        wantWalk &&
+        String(runtime._replayMoveAbilityKey ?? '') === 'knight_charge' &&
+        this.anims.exists(KNIGHT_CHARGE_MOVE_ANIM);
+      const wantAttack =
+        !u.dead &&
+        this.anims.exists(animDef.attack) &&
+        !!runtime._attackAnimPlaying;
+      const wantCast =
+        !u.dead &&
+        !!animDef.spell &&
+        this.anims.exists(animDef.spell) &&
+        !!runtime._castAnimPlaying;
+      const skillFrameInfo = this.getUnitSkillStaticFrame(u);
+      const damageFrameInfo = this.getUnitDamageStaticFrame(u);
+      const preparedAttackFrames = this.getPreparedAttackStaticFrames(u);
+      const preparedAttackCycleUntilMs = Number(runtime._preparedAttackCycleUntilMs ?? 0);
+      const preparedAttackIdleAttack2FromMs = Number(runtime._preparedAttackIdleAttack2FromMs ?? Infinity);
+      const preparedAttackFrameUntilMs = Number(runtime._preparedAttackFrameUntilMs ?? 0);
+      const preparedAttackFrameActive =
+        !!preparedAttackFrames &&
+        preparedAttackFrameUntilMs > Number(this.time?.now ?? 0);
+      const damageFrameActive =
+        !!damageFrameInfo &&
+        Number(runtime._damageFrameUntilMs ?? 0) > Number(this.time?.now ?? 0) &&
+        !preparedAttackFrameActive;
+      const preparedAttackIdleAttack2Active =
+        !!preparedAttackFrames &&
+        !preparedAttackFrameActive &&
+        preparedAttackCycleUntilMs > Number(this.time?.now ?? 0) &&
+        preparedAttackIdleAttack2FromMs <= Number(this.time?.now ?? 0);
+      const isPreparedAttackFrameShown = !!(
+        preparedAttackFrames &&
+        (
+          vu.art?.frame?.name === preparedAttackFrames.idleAttackFrame ||
+          vu.art?.frame?.name === preparedAttackFrames.attackFrame
+        )
+      );
+      const isSkillFrameShown = !!(
+        skillFrameInfo &&
+        vu.art?.frame?.name === skillFrameInfo.skillFrame
+      );
+      const atlasFrameType = wormFatActive ? 'WormFat' : u.type;
+      const atlasCfgForFrames = UNIT_ATLAS_DEF_BY_TYPE[atlasFrameType] ?? UNIT_ATLAS_DEF_BY_TYPE[u.type] ?? null;
+      const staticWalkFrame = atlasCfgForFrames
+        ? (
+          this.textures?.get?.(atlasCfgForFrames.atlasKey)?.has?.(atlasWalkFirstFrame(atlasCfgForFrames))
+            ? atlasWalkFirstFrame(atlasCfgForFrames)
+            : atlasWalkFallbackFrame(atlasCfgForFrames)
+        )
+        : null;
+      const deathPrepActive = Boolean(vu._deathPrepActive) && Number(vu._deathPrepUntilMs ?? 0) > Number(this.time?.now ?? 0);
+      if (deathPrepActive) continue;
+      const wantsSkillFrame =
+        !!skillFrameInfo &&
+        Number(runtime._skillFrameUntilMs ?? 0) > Number(this.time?.now ?? 0) &&
+        (phase === 'battle') &&
+        !result &&
+        (u.zone === 'board') &&
+        !u.dead;
+      if (wantsSkillFrame) {
+        runtime._staticWalkFrameActive = false;
+        this.applyUnitStaticArtFrame(vu, skillFrameInfo.atlasCfg.atlasKey, skillFrameInfo.skillFrame);
+        continue;
+      }
+      const wantsDamageFrame =
+        !!damageFrameInfo &&
+        damageFrameActive &&
+        (phase === 'battle') &&
+        !result &&
+        (u.zone === 'board') &&
+        !u.dead;
+      if (wantsDamageFrame) {
+        runtime._staticWalkFrameActive = false;
+        this.applyUnitStaticArtFrame(vu, damageFrameInfo.atlasCfg.atlasKey, damageFrameInfo.damageFrame);
+        continue;
+      }
+      const wantsCounterRecoveryIdle =
+        !!preparedAttackFrames &&
+        Number(runtime._counterRecoveryUntilMs ?? 0) > Number(this.time?.now ?? 0) &&
+        Number(runtime._skillFrameUntilMs ?? 0) < Number(this.time?.now ?? 0) &&
+        (phase === 'battle') &&
+        !result &&
+        (u.zone === 'board') &&
+        !u.dead;
+      if (wantsCounterRecoveryIdle) {
+        runtime._staticWalkFrameActive = false;
+        this.applyUnitStaticArtFrame(vu, preparedAttackFrames.atlasCfg.atlasKey, preparedAttackFrames.idleAttackFrame);
+        continue;
+      }
+      const wantsPreparedAttackReadyIdle =
+        !!preparedAttackFrames &&
+        (phase === 'battle') &&
+        !result &&
+        (u.zone === 'board') &&
+        !u.dead &&
+        !wantWalk &&
+        !wantKnightChargeMove &&
+        !wantCast &&
+        !wantAttack &&
+        (isPreparedAttackFrameShown || isSkillFrameShown);
+      if (wantsPreparedAttackReadyIdle) {
+        runtime._staticWalkFrameActive = false;
+        this.applyUnitStaticArtFrame(vu, preparedAttackFrames.atlasCfg.atlasKey, preparedAttackFrames.idleAttackFrame);
+        continue;
+      }
+      const wantsPreparedAttackPose =
+        !!preparedAttackFrames &&
+        (preparedAttackCycleUntilMs > Number(this.time?.now ?? 0) || preparedAttackFrameActive) &&
+        (phase === 'battle') &&
+        !result &&
+        (u.zone === 'board') &&
+        !u.dead &&
+        !wantWalk &&
+        !wantKnightChargeMove &&
+        !wantCast;
+      if (wantsPreparedAttackPose) {
+        const targetFrame = preparedAttackFrameActive
+          ? preparedAttackFrames.attackFrame
+          : preparedAttackFrames.idleAttackFrame;
+        runtime._staticWalkFrameActive = false;
+        runtime._preparedAttackIdleAttack2Active = preparedAttackIdleAttack2Active;
+        this.applyUnitStaticArtFrame(vu, preparedAttackFrames.atlasCfg.atlasKey, targetFrame);
+        continue;
+      }
+      const isStaticWalkFrameShown = !!(staticWalkFrame && vu.art?.frame?.name === staticWalkFrame);
+      const wantStaticWalkFrame = wantWalk && !wantKnightChargeMove && !wantAttack && !wantCast;
+      if (wantStaticWalkFrame && atlasCfgForFrames && vu.art?.active) {
+        runtime._staticWalkFrameActive = true;
+        vu.art.anims?.stop?.();
+        if (vu.art.texture?.key !== atlasCfgForFrames.atlasKey) {
+          vu.art.setTexture(atlasCfgForFrames.atlasKey, staticWalkFrame);
+        } else if (vu.art.frame?.name !== staticWalkFrame) {
+          vu.art.setFrame(staticWalkFrame);
+        }
+        if (vu.artOverlay?.active) {
+          vu.artOverlay.setTexture(atlasCfgForFrames.atlasKey, staticWalkFrame);
+          vu.artOverlay.setPosition(Number(vu.art.x ?? 0), Number(vu.art.y ?? 0));
+          vu.artOverlay.setScale(Number(vu.art.scaleX ?? 1), Number(vu.art.scaleY ?? 1));
+          vu.artOverlay.setFlipX(Boolean(vu.art.flipX));
+          vu.artOverlay.setAngle(Number(vu.art.angle ?? 0));
+          vu.artOverlay.setOrigin(Number(vu.art.originX ?? 0.5), Number(vu.art.originY ?? 1));
+          vu.artOverlay.setDepth(Number(vu.art.depth ?? 0) + 0.1);
+        }
+        continue;
+      }
+      if (runtime._staticWalkFrameActive) runtime._staticWalkFrameActive = false;
+      const animKey = u.dead
+        ? animDef.dead
+        : (wantCast ? animDef.spell : (wantAttack ? animDef.attack : (wantKnightChargeMove ? KNIGHT_CHARGE_MOVE_ANIM : animDef.idle)));
+      const forceReplayCast = wantCast && !!runtime._castAnimForceReplay;
+      const forceReplayAttack = wantAttack && !!runtime._attackAnimForceReplay;
+
+      if (
+        !runtime._staticWalkFrameActive &&
+        !forceReplayCast &&
+        !forceReplayAttack &&
+        vu.art.anims?.getName?.() === animKey &&
+        !(animKey === animDef.idle && (isStaticWalkFrameShown || isPreparedAttackFrameShown || isSkillFrameShown))
+      ) continue;
+
+      if (this.anims.exists(animKey)) {
+        vu.art.play(animKey, true);
+        if (forceReplayCast) {
+          runtime._castAnimForceReplay = false;
+          const loopingCastAnim = UNIT_ATLAS_DEF_BY_TYPE[u.type]?.loopSpellAnim === true;
+          if (!loopingCastAnim) {
+            vu.art.once(`animationcomplete-${animDef.spell}`, (anim) => {
+              if (!vu?.art?.active) return;
+              if (anim?.key !== animDef.spell) return;
+              const latestRuntime = this.attachUnitRuntime(vu, u.id);
+              latestRuntime._castAnimPlaying = false;
+              latestRuntime._castAnimForceReplay = false;
+
+              const latest = this.getCoreUnitById?.(u.id);
+              if (!latest || latest.dead) return;
+
+              const latestPhase = this.battleState?.phase ?? 'prep';
+              const latestResult = this.battleState?.result ?? null;
+              const shouldWalk =
+                (latestPhase === 'battle') &&
+                !latestResult &&
+                (latest.zone === 'board') &&
+                !!vu._moveTween;
+
+              if (shouldWalk && atlasCfgForFrames) {
+                latestRuntime._staticWalkFrameActive = true;
+                vu.art.anims?.stop?.();
+                vu.art.setTexture(atlasCfgForFrames.atlasKey, staticWalkFrame);
+                if (vu.artOverlay?.active) vu.artOverlay.setTexture(atlasCfgForFrames.atlasKey, staticWalkFrame);
+                return;
+              }
+
+              const fallbackAnimKey = animDef.idle;
+              if (!this.anims.exists(fallbackAnimKey)) return;
+              if (!latestRuntime._staticWalkFrameActive && vu.art.anims?.getName?.() === fallbackAnimKey) return;
+              latestRuntime._staticWalkFrameActive = false;
+              vu.art.play(fallbackAnimKey, true);
+            });
+          }
+        }
+        if (forceReplayAttack) {
+          runtime._attackAnimForceReplay = false;
+          vu.art.once(`animationcomplete-${animDef.attack}`, (anim) => {
+            if (!vu?.art?.active) return;
+            if (anim?.key !== animDef.attack) return;
+            const latestRuntime = this.attachUnitRuntime(vu, u.id);
+            latestRuntime._attackAnimPlaying = false;
+            latestRuntime._attackAnimForceReplay = false;
+
+            const latest = this.getCoreUnitById?.(u.id);
+            if (!latest || latest.dead) return;
+
+            const latestPhase = this.battleState?.phase ?? 'prep';
+            const latestResult = this.battleState?.result ?? null;
+            const shouldWalk =
+              (latestPhase === 'battle') &&
+              !latestResult &&
+              (latest.zone === 'board') &&
+              !!vu._moveTween;
+
+            if (shouldWalk && atlasCfgForFrames) {
+              latestRuntime._staticWalkFrameActive = true;
+              vu.art.anims?.stop?.();
+              vu.art.setTexture(atlasCfgForFrames.atlasKey, staticWalkFrame);
+              if (vu.artOverlay?.active) vu.artOverlay.setTexture(atlasCfgForFrames.atlasKey, staticWalkFrame);
+              return;
+            }
+
+            const fallbackAnimKey = animDef.idle;
+            if (!this.anims.exists(fallbackAnimKey)) return;
+            if (!latestRuntime._staticWalkFrameActive && vu.art.anims?.getName?.() === fallbackAnimKey) return;
+            latestRuntime._staticWalkFrameActive = false;
+            vu.art.play(fallbackAnimKey, true);
+          });
+        }
+      }
+    }
+
+    this.flushPendingMergeTargetBounces();
+  }
+
+  syncVisualUnitPlacementAndState(visibleUnits, phase, byId) {
     for (const u of visibleUnits) {
       if (this.trashRemoveAnimatingIds?.has?.(u.id)) continue;
       const existing = byId.get(u.id);
 
-      // ---- CREATE ----
       if (!existing) {
-        // создаём как раньше (на доске), это нужно для твоей текущей unitSys
         let created = null;
 
         if (u.zone === 'bench') {
@@ -4941,10 +5371,7 @@ export default class BattleScene extends Phaser.Scene {
           });
         }
 
-
         if (!created) {
-          // Fallback for transient local occupancy desync during replay:
-          // create the visual off-board and snap it to authoritative server hex.
           const fallbackPos = this.hexToPixel(u.q, u.r);
           created = this.unitSys.spawnUnitAtScreen(fallbackPos.x, fallbackPos.y, {
             id: u.id,
@@ -4979,14 +5406,12 @@ export default class BattleScene extends Phaser.Scene {
 
         created.dragHandle.setDataEnabled();
         created.dragHandle.data.set('unitId', created.id);
+        this.attachUnitRuntime?.(created, u.id);
         this.bindUnitHoverGlow(created);
-        // если сервер сказал "bench" — сразу переставим на скамейку
         if (u.zone === 'bench') {
           const slot = Number.isInteger(u.benchSlot) ? u.benchSlot : 0;
           const p = this.getBenchUnitScreen(slot);
 
-          // Визуал ушёл с доски на bench: освобождаем его старую клетку в локальном occupied,
-          // иначе следующие спавны/создания визуалов на этой клетке могут падать с "occupied".
           if (created.zone === 'board') {
             for (const c of getBoardCellsForUnit(created)) {
               this.unitSys.state.occupied?.delete?.(`${c.q},${c.r}`);
@@ -5005,7 +5430,6 @@ export default class BattleScene extends Phaser.Scene {
             created.footShadow.setPosition(p.x + shadowCfg.offsetXPx, p.y + shadowCfg.offsetYPx);
           }
 
-          // на скамейке hpBar не показываем
           if (created.hpBar) created.hpBar.setVisible(false);
           if (created.rankIcon) created.rankIcon.setVisible(!u.dead);
           if (created.footShadow) created.footShadow.setVisible(!u.dead);
@@ -5014,8 +5438,6 @@ export default class BattleScene extends Phaser.Scene {
         } else {
           created.zone = 'board';
           created.benchSlot = null;
-          // Новый юнит может появиться сразу на поле из магазина в prep:
-          // сразу выставляем корректную видимость hp/rank, чтобы не мигал HP-бар.
           const canShowEntryEnemyUnitUi =
             phase !== 'entry' ||
             u.team !== 'enemy' ||
@@ -5033,19 +5455,16 @@ export default class BattleScene extends Phaser.Scene {
           this.applyBenchDepthForVisual?.(created, slot);
         }
 
-        // Фидбэк появления: новый юнит игрока слегка bounce-ится
-        // и на поле, и на скамейке.
         if (u.team === 'player' && (u.zone === 'bench' || u.zone === 'board') && !u.dead) {
           this.playUnitFeedbackBounce?.(created, { scaleMul: 1.06, duration: 90 });
         }
 
         this.syncUnitAbilityCooldownUi?.(u, created);
-
         continue;
       }
 
-      // ---- UPDATE ----
       const vu = existing;
+      const runtime = this.attachUnitRuntime?.(vu, u.id);
       vu.cellSpanX = getUnitCellSpanX(u);
       this.bindUnitHoverGlow(vu);
       const prevZone = vu?.zone;
@@ -5053,12 +5472,10 @@ export default class BattleScene extends Phaser.Scene {
       const prevQ = Number(vu?.q);
       const prevR = Number(vu?.r);
 
-      // Пока юнит в локальном drag, не пересаживаем его визуал из state.
       if (this.draggingUnitId != null && String(u.id) === String(this.draggingUnitId)) {
         continue;
       }
 
-      // позиция: доска или скамейка
       if (u.zone === 'bench') {
         const slot = Number.isInteger(u.benchSlot) ? u.benchSlot : 0;
         const p = this.getBenchUnitScreen(slot);
@@ -5101,16 +5518,14 @@ export default class BattleScene extends Phaser.Scene {
       } else {
         const result = this.battleState?.result ?? null;
         const MOVE_TWEEN_MS = STEP_MOVE_TRAVEL_MS;
-        const replayMoveTweenMs = Number(u?._replayMoveTweenMs ?? NaN);
+        const replayMoveTweenMs = Number(runtime?._replayMoveTweenMs ?? NaN);
         const moveTweenMs = (Number.isFinite(replayMoveTweenMs) && replayMoveTweenMs > 0)
           ? replayMoveTweenMs
           : MOVE_TWEEN_MS;
         const tweenMs = (phase === 'battle' && !result) ? moveTweenMs : 0;
-        if (Number.isFinite(replayMoveTweenMs)) delete u._replayMoveTweenMs;
-        if (vu) {
-          vu.zone = 'board';
-          vu.benchSlot = null;
-        }
+        if (Number.isFinite(replayMoveTweenMs)) runtime._replayMoveTweenMs = null;
+        vu.zone = 'board';
+        vu.benchSlot = null;
         const didBoardCellChange =
           prevQ !== Number(u.q) ||
           prevR !== Number(u.r);
@@ -5122,7 +5537,6 @@ export default class BattleScene extends Phaser.Scene {
         }
         this.unitSys.setUnitPos(u.id, u.q, u.r, { tweenMs });
 
-        // На доске показываем HP только вне prep (в prep скрываем по запросу).
         const canShowEntryEnemyUnitUi =
           phase !== 'entry' ||
           u.team !== 'enemy' ||
@@ -5140,357 +5554,45 @@ export default class BattleScene extends Phaser.Scene {
         }
       }
 
-      if (vu) vu.rank = u.rank ?? 1;
+      vu.rank = u.rank ?? 1;
       this.applyIllusionVisualState(u, vu);
       this.syncUnitAbilityCooldownUi?.(u, vu);
-
-      // HP
       this.unitSys.setUnitHp(u.id, u.hp, u.maxHp ?? existing.maxHp);
       this.unitSys.setUnitDead?.(u.id, !!u.dead);
       if (u.zone === 'bench') {
         const slot = Number.isInteger(u.benchSlot) ? u.benchSlot : 0;
         this.applyBenchDepthForVisual?.(vu, slot);
       }
-
-      // draggable всем юнитам игрока в prep + обновление буквы
       if (vu?.label) {
         vu.label.setText(getUnitShortLabel(u.type));
       }
-
     }
+  }
 
-    // ? sync unit anims by phase/zone (+ attack pulses from server attackSeq)
-    const result = this.battleState?.result ?? null;
-    if (this.pendingAttackAnimIds?.size) {
-      for (const id of this.pendingAttackAnimIds) {
-        const vu = byId.get(id);
-        if (!vu?.art) continue;
-        const attackerCore = (this.battleState?.units ?? []).find((x) => x.id === id) ?? null;
-        // Replay parity with server: when attack starts, attacker must stop moving.
-        // Snap to the current logical hex immediately (no glide during attack animation).
-        if (attackerCore && attackerCore.zone === 'board' && !attackerCore.dead) {
-          this.unitSys.setUnitPos(attackerCore.id, attackerCore.q, attackerCore.r, { tweenMs: 0 });
-        }
-        const targetCore = this.findClosestOpponentForFacing(attackerCore);
-        this.faceUnitVisualTowardCoreUnit(vu, targetCore);
-        vu._attackAnimPlaying = true;
-        vu._attackAnimForceReplay = true;
-      }
-      this.pendingAttackAnimIds.clear();
-    }
-
-    if (this.pendingAbilityCastAnimIds?.size) {
-      for (const id of this.pendingAbilityCastAnimIds) {
-        const vu = byId.get(id);
-        if (!vu?.art) continue;
-        const casterCore = (this.battleState?.units ?? []).find((x) => x.id === id) ?? null;
-        if (casterCore && casterCore.zone === 'board' && !casterCore.dead) {
-          this.unitSys.setUnitPos(casterCore.id, casterCore.q, casterCore.r, { tweenMs: 0 });
-        }
-        const targetCore = this.findClosestOpponentForFacing(casterCore);
-        this.faceUnitVisualTowardCoreUnit(vu, targetCore);
-        vu._castAnimPlaying = true;
-        vu._castAnimForceReplay = true;
-      }
-      this.pendingAbilityCastAnimIds.clear();
-    }
-
-    for (const u of (this.battleState?.units ?? [])) {
-      // в prep враги скрыты, но это не важно — просто синкаем тех, кто есть
-      const vu = byId.get(u.id);
-      if (!vu?.art) continue;
-      if (this.draggingUnitId != null && String(u.id) === String(this.draggingUnitId)) continue;
-      const wormFatActive =
-        this.isWormFatCore?.(u) &&
-        this.anims.exists(WORM_FAT_ANIMS.idle);
-      const animDef = wormFatActive
-        ? WORM_FAT_ANIMS
-        : UNIT_ANIMS_BY_TYPE[u.type];
-      if (!animDef) continue;
-
-      // Вне активного боя возвращаем базовый разворот спрайта:
-      // player смотрит вправо, enemy — влево.
-      if ((phase !== 'battle') || !!result) {
-        const baseMirrored = (u.team === 'enemy');
-        vu._artFacingMirrored = baseMirrored;
-        vu.art.setFlipX(baseMirrored);
-        if (vu.artOverlay?.active) vu.artOverlay.setFlipX(baseMirrored);
-        if (result) {
-          vu._skillFrameUntilMs = 0;
-          vu._counterRecoveryUntilMs = 0;
-          vu._damageFrameUntilMs = 0;
-          vu._preparedAttackCycleUntilMs = 0;
-          vu._preparedAttackPoseUntilMs = 0;
-          vu._preparedAttackIdleAttack2FromMs = 0;
-          vu._preparedAttackIdleAttack2Active = false;
-          vu._preparedAttackFrameUntilMs = 0;
-        }
-        if (u.zone === 'board' && Number.isFinite(vu.q) && Number.isFinite(vu.r)) {
-          vu.art.setX(this.getUnitArtWorldXByFacing(vu, vu.q, vu.r, baseMirrored));
-          if (vu.artOverlay?.active) vu.artOverlay.setX(vu.art.x);
-        } else {
-          vu.art.setX(this.getUnitArtScreenXByFacing(vu, vu.sprite?.x, baseMirrored));
-          if (vu.artOverlay?.active) vu.artOverlay.setX(vu.art.x);
-        }
-      }
-
-      const castAnimEndAtMs = Number(vu._abilityCastEndAtMs ?? NaN);
-      if (vu._castAnimPlaying && Number.isFinite(castAnimEndAtMs) && Number(this.time?.now ?? 0) >= castAnimEndAtMs) {
-        vu._castAnimPlaying = false;
-        vu._castAnimForceReplay = false;
-      }
-
-      const wantWalk =
-        (phase === 'battle') &&
-        !result &&
-        (u.zone === 'board') &&
-        !u.dead &&
-        !!vu._moveTween;
-      if (!vu._moveTween && u._replayMoveAbilityKey != null) {
-        delete u._replayMoveAbilityKey;
-      }
-      const wantKnightChargeMove =
-        wantWalk &&
-        String(u._replayMoveAbilityKey ?? '') === 'knight_charge' &&
-        this.anims.exists(KNIGHT_CHARGE_MOVE_ANIM);
-      const wantAttack =
-        !u.dead &&
-        this.anims.exists(animDef.attack) &&
-        !!vu._attackAnimPlaying;
-      const wantCast =
-        !u.dead &&
-        !!animDef.spell &&
-        this.anims.exists(animDef.spell) &&
-        !!vu._castAnimPlaying;
-      const skillFrameInfo = this.getUnitSkillStaticFrame(u);
-      const damageFrameInfo = this.getUnitDamageStaticFrame(u);
-      const preparedAttackFrames = this.getPreparedAttackStaticFrames(u);
-      const preparedAttackCycleUntilMs = Number(vu._preparedAttackCycleUntilMs ?? 0);
-      const preparedAttackPoseUntilMs = Number(vu._preparedAttackPoseUntilMs ?? 0);
-      const preparedAttackIdleAttack2FromMs = Number(vu._preparedAttackIdleAttack2FromMs ?? Infinity);
-      const preparedAttackFrameUntilMs = Number(vu._preparedAttackFrameUntilMs ?? 0);
-      const preparedAttackFrameActive =
-        !!preparedAttackFrames &&
-        preparedAttackFrameUntilMs > Number(this.time?.now ?? 0);
-      const damageFrameActive =
-        !!damageFrameInfo &&
-        Number(vu._damageFrameUntilMs ?? 0) > Number(this.time?.now ?? 0) &&
-        !preparedAttackFrameActive;
-      const preparedAttackIdleAttack2Active =
-        !!preparedAttackFrames &&
-        !preparedAttackFrameActive &&
-        preparedAttackCycleUntilMs > Number(this.time?.now ?? 0) &&
-        preparedAttackIdleAttack2FromMs <= Number(this.time?.now ?? 0);
-      const isPreparedAttackFrameShown = !!(
-        preparedAttackFrames &&
-        (
-          vu.art?.frame?.name === preparedAttackFrames.idleAttackFrame ||
-          vu.art?.frame?.name === preparedAttackFrames.attackFrame
-        )
-      );
-      const isSkillFrameShown = !!(
-        skillFrameInfo &&
-        vu.art?.frame?.name === skillFrameInfo.skillFrame
-      );
-      const atlasFrameType = wormFatActive ? 'WormFat' : u.type;
-      const atlasCfgForFrames = UNIT_ATLAS_DEF_BY_TYPE[atlasFrameType] ?? UNIT_ATLAS_DEF_BY_TYPE[u.type] ?? null;
-      const staticWalkFrame = atlasCfgForFrames
-        ? (
-          this.textures?.get?.(atlasCfgForFrames.atlasKey)?.has?.(atlasWalkFirstFrame(atlasCfgForFrames))
-            ? atlasWalkFirstFrame(atlasCfgForFrames)
-            : atlasWalkFallbackFrame(atlasCfgForFrames)
-        )
-        : null;
-      const deathPrepActive = Boolean(vu._deathPrepActive) && Number(vu._deathPrepUntilMs ?? 0) > Number(this.time?.now ?? 0);
-      if (deathPrepActive) continue;
-      const wantsSkillFrame =
-        !!skillFrameInfo &&
-        Number(vu._skillFrameUntilMs ?? 0) > Number(this.time?.now ?? 0) &&
-        (phase === 'battle') &&
-        !result &&
-        (u.zone === 'board') &&
-        !u.dead;
-      if (wantsSkillFrame) {
-        vu._staticWalkFrameActive = false;
-        this.applyUnitStaticArtFrame(vu, skillFrameInfo.atlasCfg.atlasKey, skillFrameInfo.skillFrame);
-        continue;
-      }
-      const wantsDamageFrame =
-        !!damageFrameInfo &&
-        damageFrameActive &&
-        (phase === 'battle') &&
-        !result &&
-        (u.zone === 'board') &&
-        !u.dead;
-      if (wantsDamageFrame) {
-        vu._staticWalkFrameActive = false;
-        this.applyUnitStaticArtFrame(vu, damageFrameInfo.atlasCfg.atlasKey, damageFrameInfo.damageFrame);
-        continue;
-      }
-      const wantsCounterRecoveryIdle =
-        !!preparedAttackFrames &&
-        Number(vu._counterRecoveryUntilMs ?? 0) > Number(this.time?.now ?? 0) &&
-        Number(vu._skillFrameUntilMs ?? 0) < Number(this.time?.now ?? 0) &&
-        (phase === 'battle') &&
-        !result &&
-        (u.zone === 'board') &&
-        !u.dead;
-      if (wantsCounterRecoveryIdle) {
-        vu._staticWalkFrameActive = false;
-        this.applyUnitStaticArtFrame(vu, preparedAttackFrames.atlasCfg.atlasKey, preparedAttackFrames.idleAttackFrame);
-        continue;
-      }
-      const wantsPreparedAttackReadyIdle =
-        !!preparedAttackFrames &&
-        (phase === 'battle') &&
-        !result &&
-        (u.zone === 'board') &&
-        !u.dead &&
-        !wantWalk &&
-        !wantKnightChargeMove &&
-        !wantCast &&
-        !wantAttack &&
-        (isPreparedAttackFrameShown || isSkillFrameShown);
-      if (wantsPreparedAttackReadyIdle) {
-        vu._staticWalkFrameActive = false;
-        this.applyUnitStaticArtFrame(vu, preparedAttackFrames.atlasCfg.atlasKey, preparedAttackFrames.idleAttackFrame);
-        continue;
-      }
-      const wantsPreparedAttackPose =
-        !!preparedAttackFrames &&
-        (preparedAttackCycleUntilMs > Number(this.time?.now ?? 0) || preparedAttackFrameActive) &&
-        (phase === 'battle') &&
-        !result &&
-        (u.zone === 'board') &&
-        !u.dead &&
-        !wantWalk &&
-        !wantKnightChargeMove &&
-        !wantCast;
-      if (wantsPreparedAttackPose) {
-        const targetFrame = preparedAttackFrameActive
-          ? preparedAttackFrames.attackFrame
-          : preparedAttackFrames.idleAttackFrame;
-        vu._staticWalkFrameActive = false;
-        vu._preparedAttackIdleAttack2Active = preparedAttackIdleAttack2Active;
-        this.applyUnitStaticArtFrame(vu, preparedAttackFrames.atlasCfg.atlasKey, targetFrame);
-        continue;
-      }
-      const isStaticWalkFrameShown = !!(staticWalkFrame && vu.art?.frame?.name === staticWalkFrame);
-      const wantStaticWalkFrame = wantWalk && !wantKnightChargeMove && !wantAttack && !wantCast;
-      if (wantStaticWalkFrame && atlasCfgForFrames && vu.art?.active) {
-        vu._staticWalkFrameActive = true;
-        vu.art.anims?.stop?.();
-        if (vu.art.texture?.key !== atlasCfgForFrames.atlasKey) {
-          vu.art.setTexture(atlasCfgForFrames.atlasKey, staticWalkFrame);
-        } else if (vu.art.frame?.name !== staticWalkFrame) {
-          vu.art.setFrame(staticWalkFrame);
-        }
-        if (vu.artOverlay?.active) {
-          vu.artOverlay.setTexture(atlasCfgForFrames.atlasKey, staticWalkFrame);
-          vu.artOverlay.setPosition(Number(vu.art.x ?? 0), Number(vu.art.y ?? 0));
-          vu.artOverlay.setScale(Number(vu.art.scaleX ?? 1), Number(vu.art.scaleY ?? 1));
-          vu.artOverlay.setFlipX(Boolean(vu.art.flipX));
-          vu.artOverlay.setAngle(Number(vu.art.angle ?? 0));
-          vu.artOverlay.setOrigin(Number(vu.art.originX ?? 0.5), Number(vu.art.originY ?? 1));
-          vu.artOverlay.setDepth(Number(vu.art.depth ?? 0) + 0.1);
-        }
-        continue;
-      }
-      if (vu._staticWalkFrameActive) vu._staticWalkFrameActive = false;
-      const animKey = u.dead
-        ? animDef.dead
-        : (wantCast ? animDef.spell : (wantAttack ? animDef.attack : (wantKnightChargeMove ? KNIGHT_CHARGE_MOVE_ANIM : animDef.idle)));
-      const forceReplayCast = wantCast && !!vu._castAnimForceReplay;
-      const forceReplayAttack = wantAttack && !!vu._attackAnimForceReplay;
-
-      // не дёргаем play каждый тик/рендер если уже играет то же самое
-      if (
-        !vu._staticWalkFrameActive &&
-        !forceReplayCast &&
-        !forceReplayAttack &&
-        vu.art.anims?.getName?.() === animKey &&
-        !(animKey === animDef.idle && (isStaticWalkFrameShown || isPreparedAttackFrameShown || isSkillFrameShown))
-      ) continue;
-
-      if (this.anims.exists(animKey)) {
-        vu.art.play(animKey, true);
-        if (forceReplayCast) {
-          vu._castAnimForceReplay = false;
-          const loopingCastAnim = UNIT_ATLAS_DEF_BY_TYPE[u.type]?.loopSpellAnim === true;
-          if (!loopingCastAnim) {
-            vu.art.once(`animationcomplete-${animDef.spell}`, (anim) => {
-              if (!vu?.art?.active) return;
-              if (anim?.key !== animDef.spell) return;
-              vu._castAnimPlaying = false;
-              vu._castAnimForceReplay = false;
-
-              const latest = (this.battleState?.units ?? []).find((x) => x.id === u.id);
-              if (!latest || latest.dead) return;
-
-              const latestPhase = this.battleState?.phase ?? 'prep';
-              const latestResult = this.battleState?.result ?? null;
-              const shouldWalk =
-                (latestPhase === 'battle') &&
-                !latestResult &&
-                (latest.zone === 'board') &&
-                !!vu._moveTween;
-
-              if (shouldWalk && atlasCfgForFrames) {
-                vu._staticWalkFrameActive = true;
-                vu.art.anims?.stop?.();
-                vu.art.setTexture(atlasCfgForFrames.atlasKey, staticWalkFrame);
-                if (vu.artOverlay?.active) vu.artOverlay.setTexture(atlasCfgForFrames.atlasKey, staticWalkFrame);
-                return;
-              }
-
-              const fallbackAnimKey = animDef.idle;
-              if (!this.anims.exists(fallbackAnimKey)) return;
-              if (!vu._staticWalkFrameActive && vu.art.anims?.getName?.() === fallbackAnimKey) return;
-              vu._staticWalkFrameActive = false;
-              vu.art.play(fallbackAnimKey, true);
-            });
-          }
-        }
-        if (forceReplayAttack) {
-          vu._attackAnimForceReplay = false;
-          vu.art.once(`animationcomplete-${animDef.attack}`, (anim) => {
-            if (!vu?.art?.active) return;
-            if (anim?.key !== animDef.attack) return;
-            vu._attackAnimPlaying = false;
-            vu._attackAnimForceReplay = false;
-
-            // Между state-снапшотами (особенно в test scene) renderFromState может не вызываться,
-            // поэтому вручную возвращаем юнита в idle/walk сразу после завершения атаки.
-            const latest = (this.battleState?.units ?? []).find((x) => x.id === u.id);
-            if (!latest || latest.dead) return;
-
-            const latestPhase = this.battleState?.phase ?? 'prep';
-            const latestResult = this.battleState?.result ?? null;
-            const shouldWalk =
-              (latestPhase === 'battle') &&
-              !latestResult &&
-              (latest.zone === 'board') &&
-              !!vu._moveTween;
-
-            if (shouldWalk && atlasCfgForFrames) {
-              vu._staticWalkFrameActive = true;
-              vu.art.anims?.stop?.();
-              vu.art.setTexture(atlasCfgForFrames.atlasKey, staticWalkFrame);
-              if (vu.artOverlay?.active) vu.artOverlay.setTexture(atlasCfgForFrames.atlasKey, staticWalkFrame);
-              return;
-            }
-
-            const fallbackAnimKey = animDef.idle;
-            if (!this.anims.exists(fallbackAnimKey)) return;
-            if (!vu._staticWalkFrameActive && vu.art.anims?.getName?.() === fallbackAnimKey) return;
-            vu._staticWalkFrameActive = false;
-            vu.art.play(fallbackAnimKey, true);
-          });
+  renderFromState() {
+    this.rebuildCoreUnitIndex?.();
+    const currentVisualById = new Map((this.unitSys?.state?.units ?? []).map((vu) => [vu.id, vu]));
+    const phase = this.battleState?.phase ?? 'prep';
+    const { visibleUnits, aliveIds } = this.collectVisibleUnitsForRender(phase);
+    if (this.unitInfoVisible) {
+      const infoUnit = visibleUnits.find((u) => String(u.id) === String(this.unitInfoUnitId));
+      if (!infoUnit || infoUnit.dead) {
+        this.hideUnitInfoModal?.();
+      } else {
+        const modalX = Number(this.unitInfoModal?.x ?? NaN);
+        const modalY = Number(this.unitInfoModal?.y ?? NaN);
+        this.showUnitInfoModal?.(infoUnit);
+        if (Number.isFinite(modalX) && Number.isFinite(modalY)) {
+          this.unitInfoModal?.setPosition(modalX, modalY);
         }
       }
     }
 
-    this.flushPendingMergeTargetBounces();
+    this.detectAndAnimateClientMerges(visibleUnits);
+    const byId = this.reconcileVisualUnits(visibleUnits, aliveIds, currentVisualById);
+    this.syncVisualUnitPlacementAndState(visibleUnits, phase, byId);
+    this.syncVisualUnitAnimationState(phase, byId);
+    this.pruneUnitRuntime?.((this.unitSys?.state?.units ?? []).map((vu) => vu.id));
   }
 
 
@@ -5853,7 +5955,7 @@ export default class BattleScene extends Phaser.Scene {
       }
     }
 
-    const draggingCoreForPlacement = (this.battleState?.units ?? []).find((u) => String(u.id) === String(this.draggingUnitId));
+    const draggingCoreForPlacement = this.getCoreUnitById?.(this.draggingUnitId);
     const canShowPlacementTargets = !!draggingCoreForPlacement && !this.battleState?.result;
     if (canShowPlacementTargets) {
       const phase = this.battleState?.phase ?? 'prep';
@@ -5875,7 +5977,7 @@ export default class BattleScene extends Phaser.Scene {
       }
     }
 
-    const draggingCore = (this.battleState?.units ?? []).find((u) => String(u.id) === String(this.draggingUnitId));
+    const draggingCore = this.getCoreUnitById?.(this.draggingUnitId);
     const dragAttackRangeMax = Math.max(1, Number(draggingCore?.attackRangeMax ?? 1));
     const dragAttackRangeFull = Math.max(1, Number(draggingCore?.attackRangeFullDamage ?? dragAttackRangeMax));
     const canShowRangeHeatmap =
@@ -5925,7 +6027,7 @@ export default class BattleScene extends Phaser.Scene {
     if (this.hoverPickupCell && this.draggingUnitId == null) {
       const hoverUnitId = this.hoverPickupCell.unitId;
       if (hoverUnitId != null) {
-        const hoverUnit = (this.battleState?.units ?? []).find((u) => String(u.id) === String(hoverUnitId));
+        const hoverUnit = this.getCoreUnitById?.(hoverUnitId);
         if (!hoverUnit || hoverUnit.dead) {
           this.hoverPickupCell = null;
         }
@@ -5940,7 +6042,7 @@ export default class BattleScene extends Phaser.Scene {
       }
       if (p && !this.unitInfoVisible && this.battleState?.phase !== 'battle') {
         if (this.hoverPickupCell.area === 'board' && this.hoverPickupCell.unitId != null) {
-          const hoverUnit = (this.battleState?.units ?? []).find((u) => String(u.id) === String(this.hoverPickupCell.unitId));
+          const hoverUnit = this.getCoreUnitById?.(this.hoverPickupCell.unitId);
           const span = getUnitCellSpanX(hoverUnit);
           if (span > 1) {
             const footprint = [];
@@ -6021,9 +6123,7 @@ export default class BattleScene extends Phaser.Scene {
 
   update(time, delta) {
     this.unitSys.update(delta / 1000);
-    this.syncTimedBattleVisualTransitions?.();
-    this.refreshPreparedAttackPoseFrames?.();
-    this.syncUnitFrameBoundVfxState?.();
+    this.syncBattleVisualFrame?.(Number(this.time?.now ?? 0));
 
     const dt = delta / 1000;
     const lagSpeed = KING_UI.hpLagSpeed;

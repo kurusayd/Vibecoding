@@ -372,8 +372,10 @@ export function installBattleSceneTestScene(BattleScene) {
       this.shadowOverride = null;
       this.pendingAttackAnimIds?.clear?.();
       for (const vu of (this.unitSys?.state?.units ?? [])) {
-        vu._attackAnimPlaying = false;
-        vu._attackAnimForceReplay = false;
+        const runtime = this.attachUnitRuntime?.(vu, vu.id);
+        if (!runtime) continue;
+        runtime._attackAnimPlaying = false;
+        runtime._attackAnimForceReplay = false;
       }
 
       this.hideCoinInfoPopup?.();
@@ -421,8 +423,10 @@ export function installBattleSceneTestScene(BattleScene) {
       this.testSceneQueuedLiveState = null;
 
       for (const vu of (this.unitSys?.state?.units ?? [])) {
-        vu._attackAnimPlaying = false;
-        vu._attackAnimForceReplay = false;
+        const runtime = this.attachUnitRuntime?.(vu, vu.id);
+        if (!runtime) continue;
+        runtime._attackAnimPlaying = false;
+        runtime._attackAnimForceReplay = false;
       }
 
       // Re-sync live mode with a clean server state after leaving test scene.

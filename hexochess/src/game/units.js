@@ -917,17 +917,18 @@ export function createUnitSystem(scene) {
     for (const u of state.units) {
       syncArtOverlay(u);
       syncManagedOverlays(u);
+      const runtime = u?.runtime ?? u;
       const abilityCdFill = Number(scene.getAbilityCooldownFillForUnit?.(u));
       const needsAbilityCdUi = Number.isFinite(abilityCdFill);
       if (u.hpLag > u.hpInstant) {
         u.hpLag = Math.max(u.hpInstant, u.hpLag - lagSpeed * dt);
-        if (needsAbilityCdUi) u._abilityCdLastRenderedFill = abilityCdFill;
+        if (needsAbilityCdUi) runtime._abilityCdLastRenderedFill = abilityCdFill;
         updateHpBar(scene, u);
       } else if (needsAbilityCdUi) {
-        const prevFill = Number(u._abilityCdLastRenderedFill ?? NaN);
-        const flashUntilMs = Number(u._abilityCdReadyFlashUntilMs ?? 0);
+        const prevFill = Number(runtime._abilityCdLastRenderedFill ?? NaN);
+        const flashUntilMs = Number(runtime._abilityCdReadyFlashUntilMs ?? 0);
         const inFlashWindow = flashUntilMs > nowMs;
-        const castEndAtMs = Number(u._abilityCastEndAtMs ?? NaN);
+        const castEndAtMs = Number(runtime._abilityCastEndAtMs ?? NaN);
         const inCastPhase = Number.isFinite(castEndAtMs) && castEndAtMs > nowMs;
         const shouldRedrawCd =
           !Number.isFinite(prevFill) ||
@@ -937,12 +938,12 @@ export function createUnitSystem(scene) {
           inFlashWindow ||
           inCastPhase;
         if (shouldRedrawCd) {
-          u._abilityCdLastRenderedFill = abilityCdFill;
+          runtime._abilityCdLastRenderedFill = abilityCdFill;
           // Ability cooldown bar animates over time even when HP does not change.
           updateHpBar(scene, u);
         }
-      } else if (u._abilityCdLastRenderedFill != null) {
-        u._abilityCdLastRenderedFill = null;
+      } else if (runtime._abilityCdLastRenderedFill != null) {
+        runtime._abilityCdLastRenderedFill = null;
       }
     }
   }

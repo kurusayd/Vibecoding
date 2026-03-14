@@ -47,8 +47,10 @@ export function updateHpBar(scene, unit) {
   const cx = unit.sprite?.x ?? 0;
   const cy = unit.sprite?.y ?? 0;
   const coreUnit =
+    scene.getCoreUnitById?.(unit.id) ??
     scene.coreUnitsById?.get?.(unit.id) ??
     (scene.battleState?.units ?? []).find((u) => u.id === unit.id);
+  const runtime = unit?.runtime ?? unit;
   const cellSpanX = Math.max(1, Math.floor(Number(coreUnit?.cellSpanX ?? (unit?.cellSpanX ?? 1))));
   const w = (cellSpanX > 1)
     ? Math.round(baseW * LARGE_UNIT_HP_BAR_WIDTH_MUL)
@@ -166,16 +168,16 @@ export function updateHpBar(scene, unit) {
     // Guard against false flash on battle start:
     // flash only after bar was previously "not full" in this cooldown cycle.
     if (cdRatio < 0.999) {
-      unit._abilityCdReadyFxArmed = true;
-      unit._abilityCdReadyFxPlayed = false;
-    } else if (unit._abilityCdReadyFxArmed && !unit._abilityCdReadyFxPlayed) {
-      unit._abilityCdReadyFxPlayed = true;
-      unit._abilityCdReadyFxArmed = false;
-      unit._abilityCdReadyFlashUntilMs = nowMs + ABILITY_CD_READY_FLASH_MS;
+      runtime._abilityCdReadyFxArmed = true;
+      runtime._abilityCdReadyFxPlayed = false;
+    } else if (runtime._abilityCdReadyFxArmed && !runtime._abilityCdReadyFxPlayed) {
+      runtime._abilityCdReadyFxPlayed = true;
+      runtime._abilityCdReadyFxArmed = false;
+      runtime._abilityCdReadyFlashUntilMs = nowMs + ABILITY_CD_READY_FLASH_MS;
     }
 
     // Draw flash overlay directly in the same HP/CD graphics layer (guaranteed visible over the bar).
-    const flashUntil = Number(unit._abilityCdReadyFlashUntilMs ?? 0);
+    const flashUntil = Number(runtime._abilityCdReadyFlashUntilMs ?? 0);
     if (flashUntil > nowMs) {
       const leftMs = Math.max(0, flashUntil - nowMs);
       const t = clamp(leftMs / ABILITY_CD_READY_FLASH_MS, 0, 1);
@@ -185,7 +187,7 @@ export function updateHpBar(scene, unit) {
       g.lineStyle(1, 0xffcc55, Math.min(1, a + 0.15));
       g.strokeRect(x - 1, cdY - 1, cdW + 2, cdH + 2);
     } else if (flashUntil > 0) {
-      unit._abilityCdReadyFlashUntilMs = 0;
+      runtime._abilityCdReadyFlashUntilMs = 0;
     }
   }
 }
