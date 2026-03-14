@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { addUnit, attack, computeMitigatedDamage, createBattleState, hexDistance } from '../shared/battleCore.js';
+import { POWER_TYPE_PAWN } from '../shared/unitCatalog.js';
 import { BATTLE_ENTRY_SECONDS } from '../server/battlePhases.js';
 import {
   createSimState,
@@ -38,7 +39,7 @@ function makeUnit(overrides = {}) {
     team: 'player',
     rank: 1,
     type: 'Swordsman',
-    powerType: 'Пешка',
+    powerType: POWER_TYPE_PAWN,
     zone: 'board',
     benchSlot: null,
     attackSpeed: 1,

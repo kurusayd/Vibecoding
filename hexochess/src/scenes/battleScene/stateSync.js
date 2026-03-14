@@ -1,3 +1,5 @@
+import { normalizePowerType } from '../../../shared/unitCatalog.js';
+
 const areKingsEqual = (a, b) => {
   if (a === b) return true;
   if (!a || !b) return false;
@@ -35,7 +37,7 @@ const areShopOffersEqual = (a, b) => {
     }
     if (
       x.type !== y.type ||
-      x.powerType !== y.powerType ||
+      normalizePowerType(x.powerType) !== normalizePowerType(y.powerType) ||
       x.cost !== y.cost ||
       x.hp !== y.hp ||
       (x.maxHp ?? x.hp) !== (y.maxHp ?? y.hp) ||
@@ -69,6 +71,7 @@ const areUnitsEqual = (a, b) => {
       Number(x.wormSwallowedUnitId ?? 0) !== Number(y.wormSwallowedUnitId ?? 0) ||
       x.team !== y.team ||
       x.type !== y.type ||
+      normalizePowerType(x.powerType) !== normalizePowerType(y.powerType) ||
       x.rank !== y.rank ||
       String(x.damageType ?? 'physical') !== String(y.damageType ?? 'physical') ||
       String(x.abilityDamageType ?? '') !== String(y.abilityDamageType ?? '') ||

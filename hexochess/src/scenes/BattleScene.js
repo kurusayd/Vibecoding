@@ -22,6 +22,7 @@ import {
 } from '../game/unitAtlasConfig.js';
 import { getPreparedAttackConfig } from '../../shared/preparedAttackConfig.js';
 import { STEP_MOVE_TRAVEL_MS, getStepMoveWaitMs } from '../../shared/stepMovementConfig.js';
+import { getPowerTypeLabel, normalizePowerType } from '../../shared/unitCatalog.js';
 import { WSClient } from '../net/wsClient.js';
 import { createFullscreenButton, positionFullscreenButton } from '../game/ui.js';
 import { updateHpBar } from '../game/hpbar.js';
@@ -103,16 +104,11 @@ const UNIT_INFO_MODAL_MIN_W = 280;
 const UNIT_INFO_MODAL_MAX_W = 440;
 const UNIT_INFO_MODAL_H = 286;
 const INFO_FIGURE_ICON_BY_POWER_TYPE = {
-  'Пешка': 'figure_pawn_shine',
-  'Конь': 'figure_knight_shine',
-  'Слон': 'figure_bishop_shine',
-  'Ладья': 'figure_rook_shine',
-  'Ферзь': 'figure_queen_shine',
-  PAWN: 'figure_pawn_shine',
-  KNIGHT: 'figure_knight_shine',
-  BISHOP: 'figure_bishop_shine',
-  ROOK: 'figure_rook_shine',
-  QUEEN: 'figure_queen_shine',
+  1: 'figure_pawn_shine',
+  2: 'figure_knight_shine',
+  3: 'figure_bishop_shine',
+  4: 'figure_rook_shine',
+  5: 'figure_queen_shine',
 };
 const MISS_HINT_TEXT = 'miss';
 const MISS_HINT_RISE_PX = 34;
@@ -4847,7 +4843,8 @@ export default class BattleScene extends Phaser.Scene {
     const power = computeUnitPower(core);
 
     this.unitInfoTitle?.setText(String(core.type ?? 'UNKNOWN').toUpperCase());
-    const powerTypeKey = String(core.powerType ?? '').trim();
+    const powerTypeKey = normalizePowerType(core.powerType);
+    const powerTypeLabel = getPowerTypeLabel(powerTypeKey);
     const figureIconKey = INFO_FIGURE_ICON_BY_POWER_TYPE[powerTypeKey] ?? null;
     const hasFigureIcon = !!(this.unitInfoTitleFigureIcon && figureIconKey && this.textures?.exists?.(figureIconKey));
     this.updateUnitInfoModalAdaptiveSize?.(hasFigureIcon);
@@ -4868,6 +4865,7 @@ export default class BattleScene extends Phaser.Scene {
     }
     const statsLines = [
       `HP: ${hp}/${maxHp}`,
+      `RANK: ${powerTypeLabel}`,
       `POWER: ${power}`,
       `ATK: ${atk}`,
       `ATK SPD: ${atkSpd.toFixed(2)}/s`,

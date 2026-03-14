@@ -1,11 +1,37 @@
 ﻿// Shared unit catalog used by the server (authoritative gameplay) and test scene UI/spawn presets.
 // Edit stats here to keep server and local test scene in sync.
 
-const POWER_TYPE_PAWN = '\u041f\u0435\u0448\u043a\u0430';   // Пешка
-const POWER_TYPE_KNIGHT = '\u041a\u043e\u043d\u044c';      // Конь
-const POWER_TYPE_BISHOP = '\u0421\u043b\u043e\u043d';      // Слон
-const POWER_TYPE_ROOK = '\u041b\u0430\u0434\u044c\u044f';  // Ладья
-const POWER_TYPE_QUEEN = '\u0424\u0435\u0440\u0437\u044c'; // Ферзь
+export const POWER_TYPE_PAWN = 1;
+export const POWER_TYPE_KNIGHT = 2;
+export const POWER_TYPE_BISHOP = 3;
+export const POWER_TYPE_ROOK = 4;
+export const POWER_TYPE_QUEEN = 5;
+
+export const POWER_TYPE_LABEL_BY_VALUE = Object.freeze({
+  [POWER_TYPE_PAWN]: '\u041f\u0435\u0448\u043a\u0430',
+  [POWER_TYPE_KNIGHT]: '\u041a\u043e\u043d\u044c',
+  [POWER_TYPE_BISHOP]: '\u0421\u043b\u043e\u043d',
+  [POWER_TYPE_ROOK]: '\u041b\u0430\u0434\u044c\u044f',
+  [POWER_TYPE_QUEEN]: '\u0424\u0435\u0440\u0437\u044c',
+});
+
+const POWER_TYPE_VALUE_BY_ALIAS = Object.freeze({
+  1: POWER_TYPE_PAWN,
+  2: POWER_TYPE_KNIGHT,
+  3: POWER_TYPE_BISHOP,
+  4: POWER_TYPE_ROOK,
+  5: POWER_TYPE_QUEEN,
+  '\u041f\u0435\u0448\u043a\u0430': POWER_TYPE_PAWN,
+  '\u041a\u043e\u043d\u044c': POWER_TYPE_KNIGHT,
+  '\u0421\u043b\u043e\u043d': POWER_TYPE_BISHOP,
+  '\u041b\u0430\u0434\u044c\u044f': POWER_TYPE_ROOK,
+  '\u0424\u0435\u0440\u0437\u044c': POWER_TYPE_QUEEN,
+  PAWN: POWER_TYPE_PAWN,
+  KNIGHT: POWER_TYPE_KNIGHT,
+  BISHOP: POWER_TYPE_BISHOP,
+  ROOK: POWER_TYPE_ROOK,
+  QUEEN: POWER_TYPE_QUEEN,
+});
 
 const ABILITY_NONE = 'none';
 const ABILITY_ACTIVE = 'active';
@@ -27,6 +53,22 @@ function getDefaultAbilityDamageType(abilityKey) {
     default:
       return null;
   }
+}
+
+export function normalizePowerType(powerTypeLike) {
+  if (powerTypeLike == null) return null;
+  const direct = POWER_TYPE_VALUE_BY_ALIAS[powerTypeLike];
+  if (Number.isFinite(Number(direct))) return Number(direct);
+  const numeric = Number(powerTypeLike);
+  if (Number.isFinite(numeric) && POWER_TYPE_LABEL_BY_VALUE[numeric]) return numeric;
+  const text = String(powerTypeLike).trim();
+  const mapped = POWER_TYPE_VALUE_BY_ALIAS[text];
+  return Number.isFinite(Number(mapped)) ? Number(mapped) : null;
+}
+
+export function getPowerTypeLabel(powerTypeLike) {
+  const normalized = normalizePowerType(powerTypeLike);
+  return normalized == null ? '\u2014' : (POWER_TYPE_LABEL_BY_VALUE[normalized] ?? '\u2014');
 }
 
 export const UNIT_CATALOG = [
@@ -54,6 +96,7 @@ export const UNIT_CATALOG = [
   { race: 'DEMON',  type: 'Devil',          label: 'DEVIL',           powerType: POWER_TYPE_ROOK,   hp: 152, atk: 32, attackSpeed: 0.65, moveSpeed: 3.0, attackRangeMax: 1,  attackRangeFullDamage: 1, projectileSpeed: 0, attackMode: ATTACK_MODE_MELEE, armor: 17, magicResist: 20, damageType: DAMAGE_TYPE_PURE },
 ].map((u) => ({
   ...u,
+  powerType: normalizePowerType(u.powerType),
   accuracy: Math.max(0, Math.min(1, Number(u.accuracy ?? DEFAULT_ACCURACY))),
   armor: Math.max(0, Number(u.armor ?? 0)),
   magicResist: Math.max(0, Number(u.magicResist ?? 0)),

@@ -1,4 +1,5 @@
 import { KING_MAX_LEVEL, KING_XP_COST, kingXpToNext } from './kingXpConfig.js';
+import { normalizePowerType } from './unitCatalog.js';
 
 // Pure battle core logic (no Phaser).
 const DEFAULT_ATTACK_RANGE_MAX = 1;
@@ -153,7 +154,7 @@ export function addUnit(state, unit) {
     team: unit.team,
     rank: unit.rank ?? 1,
     type: unit.type ?? null,
-    powerType: unit.powerType ?? null,
+    powerType: normalizePowerType(unit.powerType),
     zone: unit.zone ?? 'board',
     benchSlot: unit.benchSlot ?? null,
     attackSpeed,

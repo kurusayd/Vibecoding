@@ -24,7 +24,7 @@ import {
   makeErrorMessage,
   makeTestBattleReplayMessage,
 } from '../shared/messages.js';
-import { UNIT_CATALOG } from '../shared/unitCatalog.js';
+import { POWER_TYPE_PAWN, UNIT_CATALOG, normalizePowerType } from '../shared/unitCatalog.js';
 import { baseIncomeForRound, interestIncome, streakBonus, COINS_CAP } from '../shared/economy.js';
 import { canManageShopInPhase, canMergeBoardUnitsInPhase, clampCoins } from '../shared/gameRules.js';
 import {
@@ -831,8 +831,8 @@ function randInt(n) {
 function rollShopPowerTypeByKingLevel(level, sourcePool) {
   const availablePowerTypes = new Set(
     (Array.isArray(sourcePool) ? sourcePool : [])
-      .map((unit) => String(unit?.powerType ?? '').trim())
-      .filter(Boolean)
+      .map((unit) => normalizePowerType(unit?.powerType))
+      .filter((powerType) => powerType != null)
   );
   const weightedPowerTypes = SHOP_ODDS_POWER_TYPES
     .map((powerType) => ({
@@ -857,11 +857,11 @@ function rollShopPowerTypeByKingLevel(level, sourcePool) {
 // ---- SHOP + UNIT CATALOG (MVP) ----
 // С†РµРЅР° СЃС‚СЂРѕРіРѕ РїРѕ "СЃРёР»Рµ" (С€Р°С…РјР°С‚РЅРѕРјСѓ С‚РёРїСѓ)
 const COST_BY_POWER_TYPE = {
-  '\u041f\u0435\u0448\u043a\u0430': 1, // Пешка
-  '\u041a\u043e\u043d\u044c': 2, // Конь
-  '\u0421\u043b\u043e\u043d': 3, // Слон
-  '\u041b\u0430\u0434\u044c\u044f': 4, // Ладья
-  '\u0424\u0435\u0440\u0437\u044c': 5, // Ферзь
+  1: 1,
+  2: 2,
+  3: 3,
+  4: 4,
+  5: 5,
 };
 
 const SHOP_OFFER_COUNT = 5;
@@ -883,14 +883,14 @@ function makeRandomOffer() {
   const playerKingLevel = Number(state.kings?.player?.level ?? 1);
   const rolledPowerType = rollShopPowerTypeByKingLevel(playerKingLevel, sourcePool);
   const matchingPool = rolledPowerType
-    ? sourcePool.filter((unit) => String(unit?.powerType ?? '').trim() === rolledPowerType)
+    ? sourcePool.filter((unit) => normalizePowerType(unit?.powerType) === rolledPowerType)
     : [];
   const effectivePool = matchingPool.length > 0 ? matchingPool : sourcePool;
   const base = effectivePool.length
     ? effectivePool[randInt(effectivePool.length)]
     : {
       type: 'Swordsman',
-      powerType: '\u041f\u0435\u0448\u043a\u0430', // Пешка
+      powerType: POWER_TYPE_PAWN,
       hp: 60,
       atk: 20,
       attackSpeed: DEFAULT_UNIT_ATTACK_SPEED,
@@ -935,7 +935,7 @@ function makeRandomOffer() {
 function makeOfferFromCatalogUnit(base) {
   const src = base ?? {
     type: 'Swordsman',
-    powerType: 'Пешка',
+    powerType: POWER_TYPE_PAWN,
     hp: 60,
     atk: 20,
     attackSpeed: DEFAULT_UNIT_ATTACK_SPEED,
@@ -976,14 +976,14 @@ function makeOfferFromCatalogUnit(base) {
 }
 
 function getBaseShopCostForUnit(unitLike) {
-  const powerTypeFromUnit = String(unitLike?.powerType ?? '').trim();
-  if (powerTypeFromUnit && Number.isFinite(COST_BY_POWER_TYPE[powerTypeFromUnit])) {
+  const powerTypeFromUnit = normalizePowerType(unitLike?.powerType);
+  if (powerTypeFromUnit != null && Number.isFinite(COST_BY_POWER_TYPE[powerTypeFromUnit])) {
     return Number(COST_BY_POWER_TYPE[powerTypeFromUnit]);
   }
 
   const catalogEntry = UNIT_CATALOG.find((u) => String(u?.type ?? '') === String(unitLike?.type ?? ''));
-  const powerTypeFromCatalog = String(catalogEntry?.powerType ?? '').trim();
-  if (powerTypeFromCatalog && Number.isFinite(COST_BY_POWER_TYPE[powerTypeFromCatalog])) {
+  const powerTypeFromCatalog = normalizePowerType(catalogEntry?.powerType);
+  if (powerTypeFromCatalog != null && Number.isFinite(COST_BY_POWER_TYPE[powerTypeFromCatalog])) {
     return Number(COST_BY_POWER_TYPE[powerTypeFromCatalog]);
   }
 

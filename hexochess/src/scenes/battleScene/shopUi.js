@@ -1,15 +1,17 @@
-﻿export function installBattleSceneShopUi(BattleScene) {
+﻿import { getPowerTypeLabel, POWER_TYPE_BISHOP, POWER_TYPE_KNIGHT, POWER_TYPE_PAWN, POWER_TYPE_QUEEN, POWER_TYPE_ROOK, normalizePowerType } from '../../../shared/unitCatalog.js';
+
+export function installBattleSceneShopUi(BattleScene) {
   const SHOP_PORTRAIT_ATLAS_KEY = 'unitPortraitsAtlas';
   const SHOP_ODDS_LAST_LEVEL = 11;
   const SHOP_ODDS_BY_POWER_TYPE = Object.freeze({
-    'Пешка': Object.freeze([100, 85, 70, 55, 45, 35, 25, 20, 20, 15, 15]),
-    'Конь': Object.freeze([0, 15, 25, 35, 35, 35, 30, 30, 25, 25, 20]),
-    'Слон': Object.freeze([0, 0, 5, 10, 18, 25, 35, 32, 27, 25, 20]),
-    'Ладья': Object.freeze([0, 0, 0, 0, 2, 5, 10, 17, 25, 29, 36]),
-    'Ферзь': Object.freeze([0, 0, 0, 0, 0, 0, 0, 1, 3, 6, 9]),
+    [POWER_TYPE_PAWN]: Object.freeze([100, 85, 70, 55, 45, 35, 25, 20, 20, 15, 15]),
+    [POWER_TYPE_KNIGHT]: Object.freeze([0, 15, 25, 35, 35, 35, 30, 30, 25, 25, 20]),
+    [POWER_TYPE_BISHOP]: Object.freeze([0, 0, 5, 10, 18, 25, 35, 32, 27, 25, 20]),
+    [POWER_TYPE_ROOK]: Object.freeze([0, 0, 0, 0, 2, 5, 10, 17, 25, 29, 36]),
+    [POWER_TYPE_QUEEN]: Object.freeze([0, 0, 0, 0, 0, 0, 0, 1, 3, 6, 9]),
   });
   const getShopOddsForPowerTypeAtLevel = (powerType, level) => {
-    const byLevel = SHOP_ODDS_BY_POWER_TYPE[String(powerType ?? '')];
+    const byLevel = SHOP_ODDS_BY_POWER_TYPE[normalizePowerType(powerType)];
     if (!byLevel) return 0;
     const safeLevel = Math.max(1, Math.min(SHOP_ODDS_LAST_LEVEL, Math.floor(Number(level ?? 1))));
     return Number(byLevel[safeLevel - 1] ?? 0);
@@ -101,16 +103,11 @@
     },
   };
   const SHOP_CARD_POWER_ART_KEY_BY_POWER_TYPE = Object.freeze({
-    'Пешка': 'shop_card_power_pawn',
-    PAWN: 'shop_card_power_pawn',
-    'Конь': 'shop_card_power_knight',
-    KNIGHT: 'shop_card_power_knight',
-    'Слон': 'shop_card_power_bishop',
-    BISHOP: 'shop_card_power_bishop',
-    'Ладья': 'shop_card_power_rook',
-    ROOK: 'shop_card_power_rook',
-    'Ферзь': 'shop_card_power_queen',
-    QUEEN: 'shop_card_power_queen',
+    [POWER_TYPE_PAWN]: 'shop_card_power_pawn',
+    [POWER_TYPE_KNIGHT]: 'shop_card_power_knight',
+    [POWER_TYPE_BISHOP]: 'shop_card_power_bishop',
+    [POWER_TYPE_ROOK]: 'shop_card_power_rook',
+    [POWER_TYPE_QUEEN]: 'shop_card_power_queen',
   });
   const SHOP_RACE_LABEL_BY_KEY = {
     HUMAN: 'Люди',
@@ -1228,8 +1225,8 @@
         card.enabled = true;
         card.pressed = false;
         card.nameText.setText(String(o.type ?? 'Unknown'));
-        const powerTypeText = String(o.powerType ?? '\u2014');
-        const powerTypeArtKey = SHOP_CARD_POWER_ART_KEY_BY_POWER_TYPE[powerTypeText] ?? null;
+        const powerTypeValue = normalizePowerType(o.powerType);
+        const powerTypeArtKey = SHOP_CARD_POWER_ART_KEY_BY_POWER_TYPE[powerTypeValue] ?? null;
         if (card.powerTypeArt) {
           if (powerTypeArtKey && this.textures?.exists?.(powerTypeArtKey)) {
             card.powerTypeArt.setTexture(powerTypeArtKey);
@@ -1507,6 +1504,4 @@
     },
   });
 }
-
-
 
