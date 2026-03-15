@@ -294,6 +294,21 @@ const UNIT_MOVE_VFX_DEFS = [
 const UNIT_MOVE_VFX_DEF_BY_TYPE = Object.fromEntries(
   UNIT_MOVE_VFX_DEFS.map((def) => [String(def.unitType ?? ''), def])
 );
+const HEAL_TARGET_VFX_DEF = {
+  key: 'heal_target',
+  atlasKey: 'heal_vfx_atlas',
+  atlasPath: '/assets/vfx/heal/heal_vfx_atlas',
+  animKey: 'heal_target_vfx',
+  firstFrame: 'heal2/HealingQuick2_01.png',
+  frameRegex: /^heal2\/HealingQuick2_\d+\.png$/,
+  frameRate: 24,
+  depthOffset: 0.2,
+};
+const HEAL_TARGET_VFX_ATLAS_FRAME_PX = 192;
+const HEAL_TARGET_VFX_ONE_CELL_SIZE_PX = 168;
+const HEAL_TARGET_VFX_TWO_CELL_SIZE_PX = Math.round(HEAL_TARGET_VFX_ONE_CELL_SIZE_PX * 1.5);
+const HEAL_TARGET_VFX_OFFSET_X_PX = -10;
+const HEAL_TARGET_VFX_OFFSET_Y_PX = -20;
 
 function unitTypeToInfoPortraitName(type) {
   const raw = String(type ?? '').trim();
@@ -537,6 +552,11 @@ export default class BattleScene extends Phaser.Scene {
         `${def.atlasPath}.json`,
       );
     }
+    this.load.atlas(
+      HEAL_TARGET_VFX_DEF.atlasKey,
+      `${HEAL_TARGET_VFX_DEF.atlasPath}.png`,
+      `${HEAL_TARGET_VFX_DEF.atlasPath}.json`,
+    );
 
     // дебаг загрузки: покажет ключ и URL, который не смог загрузиться
     this._loadErrorHandler = (file) => {
@@ -1216,6 +1236,21 @@ export default class BattleScene extends Phaser.Scene {
           frames,
           frameRate: Number(def.frameRate ?? 10),
           repeat: Number.isFinite(Number(def.repeat)) ? Number(def.repeat) : 0,
+        });
+      }
+    }
+    if (!this.anims.exists(HEAL_TARGET_VFX_DEF.animKey)) {
+      const texture = this.textures.get(HEAL_TARGET_VFX_DEF.atlasKey);
+      const frames = (texture?.getFrameNames?.() ?? [])
+        .filter((name) => HEAL_TARGET_VFX_DEF.frameRegex.test(name))
+        .sort()
+        .map((frame) => ({ key: HEAL_TARGET_VFX_DEF.atlasKey, frame }));
+      if (frames.length > 0) {
+        this.anims.create({
+          key: HEAL_TARGET_VFX_DEF.animKey,
+          frames,
+          frameRate: Number(HEAL_TARGET_VFX_DEF.frameRate ?? 16),
+          repeat: 0,
         });
       }
     }
@@ -3096,6 +3131,27 @@ export default class BattleScene extends Phaser.Scene {
       return;
     }
 
+    if (ev.type === 'heal') {
+      const attacker = byId.get(ev.attackerId);
+      const target = byId.get(ev.targetId);
+      if (attacker && getPreparedAttackConfig(attacker.type) && !Boolean(ev.skipPreparedAttackVisual)) {
+        const vu = this.unitSys?.findUnit?.(attacker.id);
+        const attackerRuntime = this.attachUnitRuntime(vu, attacker.id);
+        if (vu) {
+          if (target) this.faceUnitVisualTowardCoreUnit(vu, target);
+          attackerRuntime._preparedAttackPoseUntilMs = 0;
+          attackerRuntime._preparedAttackFrameUntilMs = Number(this.time?.now ?? 0) + Math.max(0, Number(attackerRuntime._preparedAttackHoldMs ?? 400));
+        }
+      }
+      if (target) {
+        if (Number.isFinite(Number(ev.targetMaxHp))) target.maxHp = Number(ev.targetMaxHp);
+        if (Number.isFinite(Number(ev.targetHp))) target.hp = Number(ev.targetHp);
+        const targetVu = this.unitSys?.findUnit?.(target.id);
+        if (targetVu) this.startUnitHealVfx?.(targetVu);
+      }
+      return;
+    }
+
     if (ev.type === 'ability_cast') {
       const caster = byId.get(ev.casterId);
       if (caster) {
@@ -4262,6 +4318,40 @@ export default class BattleScene extends Phaser.Scene {
     return overlay;
   }
 
+  startUnitHealVfx(vu) {
+    if (!vu?.art?.active || !this.anims.exists(HEAL_TARGET_VFX_DEF.animKey)) return null;
+    vu._healVfxSprite?.destroy?.();
+    const bounds = vu.art.getBounds?.() ?? null;
+    const coreUnit = this.getCoreUnitById?.(vu.id) ?? null;
+    const cellSpanX = Math.max(1, Number(coreUnit?.cellSpanX ?? vu?.cellSpanX ?? 1));
+    const centerX = Number(bounds?.centerX ?? vu.art.x ?? 0) + HEAL_TARGET_VFX_OFFSET_X_PX;
+    const centerY = Number(bounds?.centerY ?? vu.art.y ?? 0) + HEAL_TARGET_VFX_OFFSET_Y_PX;
+    const desiredSizePx = cellSpanX > 1
+      ? HEAL_TARGET_VFX_TWO_CELL_SIZE_PX
+      : HEAL_TARGET_VFX_ONE_CELL_SIZE_PX;
+    const scale = desiredSizePx / HEAL_TARGET_VFX_ATLAS_FRAME_PX;
+    const overlay = this.add.sprite(
+      centerX,
+      centerY,
+      HEAL_TARGET_VFX_DEF.atlasKey,
+      HEAL_TARGET_VFX_DEF.firstFrame,
+    )
+      .setOrigin(0.5, 0.5)
+      .setScale(scale, scale)
+      .setFlipX(Boolean(vu.art.flipX))
+      .setAngle(Number(vu.art.angle ?? 0))
+      .setDepth(Number(vu.art.depth ?? 0) + Number(HEAL_TARGET_VFX_DEF.depthOffset ?? 0))
+      .setVisible(Boolean(vu.art.visible))
+      .setAlpha(1);
+    overlay.once?.('animationcomplete', () => {
+      if (vu?._healVfxSprite === overlay) vu._healVfxSprite = null;
+      overlay.destroy?.();
+    });
+    vu._healVfxSprite = overlay;
+    overlay.play(HEAL_TARGET_VFX_DEF.animKey);
+    return overlay;
+  }
+
   playUnitDamageFlash(vu) {
     if (!vu?.art?.active) return null;
     const overlay = this.ensureUnitDamageFlashOverlay(vu);
@@ -4824,7 +4914,14 @@ export default class BattleScene extends Phaser.Scene {
       fontStyle: 'bold',
     }).setOrigin(0, 0);
 
-    const abilityDesc = this.add.text(-132, 30, '', {
+    const abilityDamageType = this.add.text(-132, 28, '', {
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
+      fontSize: '12px',
+      color: '#d9c3a2',
+      fontStyle: 'bold',
+    }).setOrigin(0, 0);
+
+    const abilityDesc = this.add.text(-132, 46, '', {
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial',
       fontSize: '13px',
       color: '#f2efe9',
@@ -4849,13 +4946,14 @@ export default class BattleScene extends Phaser.Scene {
     }).setOrigin(0, 0);
 
     const hit = this.add.zone(0, 0, w, h).setOrigin(0.5, 0.5).setInteractive();
-    modal.add([shadow, bg, portraitPanel, portrait, portraitFallback, portraitRankIcon, raceUnderPortrait, title, titleFigureIcon, stats, abilityKind, abilityDesc, funLine1, funLine2, hit]);
+    modal.add([shadow, bg, portraitPanel, portrait, portraitFallback, portraitRankIcon, raceUnderPortrait, title, titleFigureIcon, stats, abilityKind, abilityDamageType, abilityDesc, funLine1, funLine2, hit]);
 
     this.unitInfoModal = modal;
     this.unitInfoModalBg = bg;
     this.unitInfoModalShadow = shadow;
     this.unitInfoHit = hit;
     this.unitInfoPortrait = portrait;
+    this.unitInfoPortraitPanel = portraitPanel;
     this.unitInfoPortraitRankIcon = portraitRankIcon;
     this.unitInfoPortraitFallback = portraitFallback;
     this.unitInfoTitle = title;
@@ -4863,6 +4961,7 @@ export default class BattleScene extends Phaser.Scene {
     this.unitInfoStats = stats;
     this.unitInfoRaceUnderPortrait = raceUnderPortrait;
     this.unitInfoAbilityKind = abilityKind;
+    this.unitInfoAbilityDamageType = abilityDamageType;
     this.unitInfoAbilityDesc = abilityDesc;
     this.unitInfoFunLine1 = funLine1;
     this.unitInfoFunLine2 = funLine2;
@@ -4876,7 +4975,7 @@ export default class BattleScene extends Phaser.Scene {
     this.input.on('pointerdown', this._unitInfoOutsideTapHandler);
   }
 
-  updateUnitInfoModalAdaptiveSize(hasFigureIcon = false) {
+  updateUnitInfoModalAdaptiveSize({ hasFigureIcon = false, contentTopY = null, contentBottomY = null } = {}) {
     const modal = this.unitInfoModal;
     const bg = this.unitInfoModalBg;
     const shadow = this.unitInfoModalShadow;
@@ -4893,12 +4992,21 @@ export default class BattleScene extends Phaser.Scene {
     const leftNeed = 146; // keeps left portrait + text paddings safe
     const nextHalfW = Phaser.Math.Clamp(Math.max(minHalfW, rightNeed, leftNeed), minHalfW, maxHalfW);
     const nextW = nextHalfW * 2;
+    const baseHalfH = Math.floor(UNIT_INFO_MODAL_H / 2);
+    const safeContentTopY = Number.isFinite(Number(contentTopY)) ? Number(contentTopY) : -baseHalfH;
+    const safeContentBottomY = Number.isFinite(Number(contentBottomY)) ? Number(contentBottomY) : baseHalfH;
+    const panelTopY = safeContentTopY - 16;
+    const panelBottomY = safeContentBottomY + 16;
+    const nextH = Math.max(UNIT_INFO_MODAL_H, Math.ceil(panelBottomY - panelTopY));
+    const panelCenterY = (panelTopY + panelBottomY) * 0.5;
 
-    bg.setSize(nextW, UNIT_INFO_MODAL_H);
-    shadow.setSize(nextW, UNIT_INFO_MODAL_H);
-    hit.setSize(nextW, UNIT_INFO_MODAL_H);
+    bg.setPosition(0, panelCenterY).setSize(nextW, nextH);
+    shadow.setPosition(4, panelCenterY + 6).setSize(nextW, nextH);
+    hit.setPosition(0, panelCenterY).setSize(nextW, nextH);
     this.unitInfoModalHalfW = nextHalfW;
-    this.unitInfoModalHalfH = Math.floor(UNIT_INFO_MODAL_H / 2);
+    this.unitInfoModalHalfH = Math.floor(nextH / 2);
+    this.unitInfoModalTopOffset = panelTopY;
+    this.unitInfoModalBottomOffset = panelBottomY;
   }
 
   getUnitAbilityInfo(core) {
@@ -4925,7 +5033,8 @@ export default class BattleScene extends Phaser.Scene {
       : (vu?.sprite?.active ? vu.sprite.getBounds?.() : null);
     const anchor = this.getUnitScreenAnchor(core) ?? { x: this.scale.width * 0.5, y: this.scale.height * 0.5 };
     const halfW = Number(this.unitInfoModalHalfW ?? 140);
-    const halfH = Number(this.unitInfoModalHalfH ?? 143);
+    const topOffset = Number(this.unitInfoModalTopOffset ?? -(this.unitInfoModalHalfH ?? 143));
+    const bottomOffset = Number(this.unitInfoModalBottomOffset ?? (this.unitInfoModalHalfH ?? 143));
     const margin = 14;
     const rightEdge = Number(bounds?.right ?? (anchor.x ?? this.scale.width * 0.5) + this.hexSize);
     const leftEdge = Number(bounds?.left ?? (anchor.x ?? this.scale.width * 0.5) - this.hexSize);
@@ -4933,8 +5042,8 @@ export default class BattleScene extends Phaser.Scene {
     let y = Number(bounds?.centerY ?? anchor.y ?? this.scale.height * 0.5) - 10;
     const minX = halfW + margin;
     const maxX = this.scale.width - halfW - margin;
-    const minY = halfH + margin;
-    const maxY = this.scale.height - halfH - margin;
+    const minY = margin - topOffset;
+    const maxY = this.scale.height - margin - bottomOffset;
     // If it doesn't fit on the right, attach it to the unit's left edge.
     if (x > maxX) {
       x = leftEdge - halfW; // modal right edge touches unit left edge
@@ -4969,13 +5078,15 @@ export default class BattleScene extends Phaser.Scene {
     const abilityCooldown = Math.max(0, Number(core.abilityCooldown ?? 0));
     const attackDamageType = DAMAGE_TYPE_LABEL[String(core.damageType ?? 'physical')] ?? String(core.damageType ?? 'physical').toUpperCase();
     const power = computeUnitPower(core);
+    const armor = Math.max(0, Number(core.armor ?? 0));
+    const magicResist = Math.max(0, Number(core.magicResist ?? 0));
 
     this.unitInfoTitle?.setText(String(core.type ?? 'UNKNOWN').toUpperCase());
     const powerTypeKey = normalizePowerType(core.powerType);
     const powerTypeLabel = getPowerTypeLabel(powerTypeKey);
     const figureIconKey = INFO_FIGURE_ICON_BY_POWER_TYPE[powerTypeKey] ?? null;
     const hasFigureIcon = !!(this.unitInfoTitleFigureIcon && figureIconKey && this.textures?.exists?.(figureIconKey));
-    this.updateUnitInfoModalAdaptiveSize?.(hasFigureIcon);
+    this.updateUnitInfoModalAdaptiveSize?.({ hasFigureIcon });
     if (hasFigureIcon) {
       const titleX = Number(this.unitInfoTitle?.x ?? -18);
       const titleY = Number(this.unitInfoTitle?.y ?? -130);
@@ -4992,10 +5103,11 @@ export default class BattleScene extends Phaser.Scene {
       this.unitInfoTitleFigureIcon?.setVisible(false);
     }
     const statsLines = [
-      `HP: ${hp}/${maxHp}`,
-      `RANK: ${powerTypeLabel}`,
       `POWER: ${power}`,
+      `HP: ${hp}/${maxHp}`,
       `ATK: ${atk}`,
+      `ARMOR: ${armor}`,
+      `MAGIC RESIST: ${magicResist}`,
       `ATK SPD: ${atkSpd.toFixed(2)}/s`,
       `MOVE WAIT: ${moveWaitMs} ms`,
       `ACCURACY: ${Math.round(accuracy * 100)}%`,
@@ -5005,15 +5117,14 @@ export default class BattleScene extends Phaser.Scene {
       if (!isLongRanged) {
         statsLines.push(`FULL DMG RANGE: ${rangeFull}`);
       }
-      statsLines.push(`PROJECTILE SPD: ${projectileSpeed.toFixed(2)}`);
     }
     if (String(core.abilityType ?? 'none') === 'active' && abilityCooldown > 0) {
       statsLines.push(`ABILITY CD: ${abilityCooldown.toFixed(1)}s`);
     }
-    statsLines.push(`ABILITY TYPE: ${ability.damageType ?? '—'}`);
     this.unitInfoStats?.setText(statsLines.join('\n'));
     this.unitInfoRaceUnderPortrait?.setText(String(core.race ?? '-').toUpperCase());
     this.unitInfoAbilityKind?.setText(`[${ability.kind}]`);
+    this.unitInfoAbilityDamageType?.setText(ability.damageType ? `DMG TYPE: ${ability.damageType}` : '');
     this.unitInfoAbilityDesc?.setText(ability.desc);
     this.unitInfoFunLine1?.setText(fun1);
     this.unitInfoFunLine2?.setText(fun2);
@@ -5023,15 +5134,61 @@ export default class BattleScene extends Phaser.Scene {
     const statsY = Number(this.unitInfoStats?.y ?? -106);
     const statsH = Number(this.unitInfoStats?.height ?? 0);
     const abilityKindY = statsY + statsH + 10;
-    const abilityDescY = abilityKindY + Number(this.unitInfoAbilityKind?.height ?? 14) + 4;
+    const abilityDamageTypeY = abilityKindY + Number(this.unitInfoAbilityKind?.height ?? 14) + 2;
+    const abilityDescY = abilityDamageTypeY + Number(this.unitInfoAbilityDamageType?.height ?? 0) + (ability.damageType ? 4 : 0);
     const abilityDescH = Number(this.unitInfoAbilityDesc?.height ?? 0);
     const fun1Y = abilityDescY + abilityDescH + 10;
     const fun2Y = fun1Y + Number(this.unitInfoFunLine1?.height ?? 14) + 2;
 
     this.unitInfoAbilityKind?.setPosition(-132, abilityKindY);
+    this.unitInfoAbilityDamageType?.setPosition(-132, abilityDamageTypeY);
     this.unitInfoAbilityDesc?.setPosition(-132, abilityDescY);
     this.unitInfoFunLine1?.setPosition(-132, fun1Y);
     this.unitInfoFunLine2?.setPosition(-132, fun2Y);
+
+    const getTop = (obj) => {
+      if (!obj) return Infinity;
+      const originY = Number(obj.originY ?? 0);
+      const height = Number(obj.displayHeight ?? obj.height ?? 0);
+      return Number(obj.y ?? 0) - (height * originY);
+    };
+    const getBottom = (obj) => {
+      if (!obj) return -Infinity;
+      const originY = Number(obj.originY ?? 0);
+      const height = Number(obj.displayHeight ?? obj.height ?? 0);
+      return Number(obj.y ?? 0) + (height * (1 - originY));
+    };
+    const contentTopY = Math.min(
+      getTop(this.unitInfoPortraitPanel),
+      getTop(this.unitInfoPortrait),
+      getTop(this.unitInfoPortraitFallback),
+      getTop(this.unitInfoPortraitRankIcon),
+      getTop(this.unitInfoRaceUnderPortrait),
+      getTop(this.unitInfoTitle),
+      hasFigureIcon ? getTop(this.unitInfoTitleFigureIcon) : Infinity,
+      getTop(this.unitInfoStats),
+      getTop(this.unitInfoAbilityKind),
+      getTop(this.unitInfoAbilityDamageType),
+      getTop(this.unitInfoAbilityDesc),
+      getTop(this.unitInfoFunLine1),
+      getTop(this.unitInfoFunLine2),
+    );
+    const contentBottomY = Math.max(
+      getBottom(this.unitInfoPortraitPanel),
+      getBottom(this.unitInfoPortrait),
+      getBottom(this.unitInfoPortraitFallback),
+      getBottom(this.unitInfoPortraitRankIcon),
+      getBottom(this.unitInfoRaceUnderPortrait),
+      getBottom(this.unitInfoTitle),
+      hasFigureIcon ? getBottom(this.unitInfoTitleFigureIcon) : -Infinity,
+      getBottom(this.unitInfoStats),
+      getBottom(this.unitInfoAbilityKind),
+      getBottom(this.unitInfoAbilityDamageType),
+      getBottom(this.unitInfoAbilityDesc),
+      getBottom(this.unitInfoFunLine1),
+      getBottom(this.unitInfoFunLine2),
+    );
+    this.updateUnitInfoModalAdaptiveSize?.({ hasFigureIcon, contentTopY, contentBottomY });
 
     const frame = infoPortraitFrameForUnitType(core.type);
     if (frame && this.textures?.exists?.(INFO_PORTRAIT_ATLAS_KEY) && this.textures.get(INFO_PORTRAIT_ATLAS_KEY)?.has?.(frame)) {

@@ -754,11 +754,7 @@ export function createUnitSystem(scene) {
 
     if (typeof maxHp === 'number') u.maxHp = maxHp;
     u.hp = Math.max(0, Math.min(hp, u.maxHp));
-
-
     u.hpInstant = u.hp;
-
-
 
     if (u.hpLag < u.hpInstant) u.hpLag = u.hpInstant;
 

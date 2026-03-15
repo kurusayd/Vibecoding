@@ -147,7 +147,6 @@ export function updateHpBar(scene, unit) {
   const abilityCdFill = Number(scene.getAbilityCooldownFillForUnit?.(unit));
   if (Number.isFinite(abilityCdFill)) {
     const cdRatio = clamp(abilityCdFill, 0, 1);
-    const nowMs = Number(scene?.time?.now ?? 0);
     const cdY = y + h + ABILITY_CD_BAR_GAP_PX;
     const cdW = w;
     const cdH = ABILITY_CD_BAR_HEIGHT_PX;

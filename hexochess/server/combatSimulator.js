@@ -33,6 +33,7 @@ const KNIGHT_CHARGE_CAST_TIME_MS = 1000;
 const KNIGHT_CHARGE_SPEED_MULT = 2;
 const WORM_SWALLOW_ABILITY_KEY = 'worm_swallow';
 const SWORDSMAN_COUNTER_ABILITY_KEY = 'swordsman_counter';
+const PRIEST_HEAL_ABILITY_KEY = 'priest_heal';
 const SWORDSMAN_COUNTER_TRIGGER_CHANCE = 0.3;
 const SWORDSMAN_COUNTER_WINDOW_MS = 500;
 const SWORDSMAN_COUNTER_SKILL_MS = 300;
@@ -158,6 +159,38 @@ function findClosestOpponentIn(simState, attacker, timeMs) {
   return best;
 }
 
+function findBestPriestHealTargetIn(simState, healer, timeMs) {
+  if (!healer || healer.dead) return null;
+  if (!getCombatHexAtIn(simState, healer, timeMs)) return null;
+
+  let best = null;
+  let bestHpRatio = Infinity;
+  let bestMissingHp = -Infinity;
+  let bestDist = Infinity;
+  for (const u of simState.units ?? []) {
+    if (!u || u.dead || u.zone !== 'board' || u.team !== healer.team) continue;
+    if (Number(u.id) === Number(healer.id)) continue;
+    const maxHp = Math.max(1, Number(u.maxHp ?? u.hp ?? 1));
+    const hp = Math.max(0, Number(u.hp ?? maxHp));
+    if (hp >= maxHp) continue;
+    const hpRatio = hp / maxHp;
+    const missingHp = maxHp - hp;
+    const dist = unitDistanceByFootprintAtTime(simState, healer, u, timeMs);
+    if (
+      hpRatio < bestHpRatio ||
+      (hpRatio === bestHpRatio && missingHp > bestMissingHp) ||
+      (hpRatio === bestHpRatio && missingHp === bestMissingHp && dist < bestDist) ||
+      (hpRatio === bestHpRatio && missingHp === bestMissingHp && dist === bestDist && Number(u.id) < Number(best?.id ?? Infinity))
+    ) {
+      best = u;
+      bestHpRatio = hpRatio;
+      bestMissingHp = missingHp;
+      bestDist = dist;
+    }
+  }
+  return best;
+}
+
 function findFarthestOpponentIn(simState, attacker, timeMs) {
   if (!attacker || attacker.dead) return null;
   const opponentTeam = attacker.team === 'player' ? 'enemy' : 'player';
@@ -248,6 +281,35 @@ function applyDamageToUnitIn(simState, targetId, damageRaw, damageKind = 'physic
   };
 }
 
+function applyHealingToUnitIn(simState, targetId, healRaw) {
+  const target = findUnitByIdIn(simState, targetId);
+  if (!target) return { success: false, reason: 'NO_TARGET' };
+  if (target.zone !== 'board') return { success: false, reason: 'TARGET_NOT_ON_BOARD' };
+  if (target.dead) return { success: false, reason: 'TARGET_DEAD' };
+
+  const maxHp = Math.max(1, Number(target.maxHp ?? target.hp ?? 1));
+  const hpBefore = Math.max(0, Number(target.hp ?? maxHp));
+  const heal = Math.max(0, Math.round(Number(healRaw ?? 0)));
+  const hpAfter = Math.min(maxHp, hpBefore + heal);
+  const healed = Math.max(0, hpAfter - hpBefore);
+  if (healed <= 0) {
+    return {
+      success: false,
+      reason: 'TARGET_FULL_HP',
+      heal: 0,
+      targetHp: hpBefore,
+      targetMaxHp: maxHp,
+    };
+  }
+  target.hp = hpAfter;
+  return {
+    success: true,
+    heal: healed,
+    targetHp: hpAfter,
+    targetMaxHp: maxHp,
+  };
+}
+
 function isRangedAttackUnit(unitLike) {
   return String(unitLike?.attackMode ?? DEFAULT_UNIT_ATTACK_MODE).toLowerCase() === 'ranged';
 }
@@ -256,6 +318,12 @@ function hasCrossbowmanLineShotPassive(unit) {
   return !!unit
     && String(unit.abilityType ?? 'none') === 'passive'
     && String(unit.abilityKey ?? '') === 'crossbowman_line_shot';
+}
+
+function hasPriestHealPassive(unit) {
+  return !!unit
+    && String(unit.abilityType ?? 'none') === 'passive'
+    && String(unit.abilityKey ?? '') === PRIEST_HEAL_ABILITY_KEY;
 }
 
 function getCrossbowmanPierceSecondaryDamageMultiplier(unitLike) {
@@ -479,6 +547,53 @@ export function performAttackIn(simState, attackerId, targetId, timeMs) {
     projectileForceStraight: isCrossbowmanShot,
     projectileTargetQ: Number(lineShotMeta?.targetCell?.q ?? target.q ?? 0),
     projectileTargetR: Number(lineShotMeta?.targetCell?.r ?? target.r ?? 0),
+    preparedAttackIntervalMs: Number(preparedAttackCfg?.attackIntervalMs ?? 0),
+    preparedAttackHitDelayMs: Number(preparedAttackCfg?.hitDelayMs ?? 0),
+    preparedAttackHoldMs: Number(preparedAttackCfg?.attackHoldMs ?? 0),
+    preparedAttackProjectileLaunchDelayMs,
+  };
+}
+
+function performPriestHealIn(simState, healerId, targetId, timeMs) {
+  const healer = findUnitByIdIn(simState, healerId);
+  const target = findUnitByIdIn(simState, targetId);
+  if (!healer || !target) return { success: false, reason: 'NO_UNIT' };
+  if (healer.zone !== 'board') return { success: false, reason: 'HEALER_NOT_ON_BOARD' };
+  if (target.zone !== 'board') return { success: false, reason: 'TARGET_NOT_ON_BOARD' };
+  if (healer.dead) return { success: false, reason: 'HEALER_DEAD' };
+  if (target.dead) return { success: false, reason: 'TARGET_DEAD' };
+  if (healer.team !== target.team) return { success: false, reason: 'WRONG_TEAM' };
+  if (Number(healer.id) === Number(target.id)) return { success: false, reason: 'SELF_TARGET' };
+
+  const dist = unitDistanceByFootprintAtTime(simState, healer, target, timeMs);
+  if (!Number.isFinite(dist)) return { success: false, reason: 'NO_POSITION' };
+  const attackRangeMax = Math.max(1, Number(healer.attackRangeMax ?? 1));
+  const attackRangeFullDamage = Math.max(1, Number(healer.attackRangeFullDamage ?? attackRangeMax));
+  if (dist > attackRangeMax) {
+    return { success: false, reason: 'OUT_OF_RANGE', dist, attackRangeMax };
+  }
+
+  const baseHeal = Math.max(0, Number(healer.atk ?? 0));
+  const healMultiplier = dist > attackRangeFullDamage ? 0.5 : 1;
+  const heal = Math.max(1, Math.round(baseHeal * healMultiplier));
+  const projectileSpeed = Math.max(0, Number(healer.projectileSpeed ?? DEFAULT_UNIT_PROJECTILE_SPEED));
+  const isRanged = isRangedAttackUnit(healer);
+  const preparedAttackCfg = getPreparedAttackConfig(healer.type);
+  const preparedAttackProjectileLaunchDelayMs = isRanged
+    ? Math.max(0, Number(preparedAttackCfg?.projectileLaunchDelayMs ?? 0))
+    : 0;
+  const projectileTravelMs = isRanged && projectileSpeed > 0 ? (dist / projectileSpeed) * 1000 : 0;
+
+  return {
+    success: true,
+    heal,
+    dist,
+    attackRangeMax,
+    attackRangeFullDamage,
+    isRanged,
+    projectileSpeed,
+    projectileTravelMs,
+    projectileTravelMsTotal: projectileTravelMs,
     preparedAttackIntervalMs: Number(preparedAttackCfg?.attackIntervalMs ?? 0),
     preparedAttackHitDelayMs: Number(preparedAttackCfg?.hitDelayMs ?? 0),
     preparedAttackHoldMs: Number(preparedAttackCfg?.attackHoldMs ?? 0),
@@ -1033,6 +1148,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
   const events = [];
   const snapshots = [];
   const pendingDamageEvents = [];
+  const pendingHealEvents = [];
   const pendingCounterEvents = [];
   const pendingSummonEvents = [];
   const pendingDigestEvents = [];
@@ -1166,6 +1282,39 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
 
         if (dmgRes.killed) {
           releaseWormSwallowedVictimIn(simState, liveTarget.id, dueAt, { collectTimeline, events });
+        }
+      }
+    }
+
+    if (pendingHealEvents.length > 0) {
+      pendingHealEvents.sort((a, b) => Number(a?.t ?? 0) - Number(b?.t ?? 0));
+      while (pendingHealEvents.length > 0) {
+        const next = pendingHealEvents[0];
+        const dueAt = Number(next?.t ?? Infinity);
+        if (!Number.isFinite(dueAt) || dueAt > tickTimeMs + 1e-6) break;
+        pendingHealEvents.shift();
+
+        const liveTarget = findUnitByIdIn(simState, next.targetId);
+        if (!liveTarget || liveTarget.dead || liveTarget.zone !== 'board') continue;
+        if (String(liveTarget.team ?? '') !== String(next.attackerTeam ?? '')) continue;
+
+        const healRes = applyHealingToUnitIn(simState, liveTarget.id, next.heal);
+        if (!healRes.success) continue;
+
+        if (collectTimeline) {
+          events.push({
+            t: dueAt,
+            type: 'heal',
+            attackerId: next.attackerId,
+            targetId: Number(liveTarget.id),
+            attackerTeam: next.attackerTeam,
+            attackSeq: Number(next.attackSeq ?? 0),
+            heal: Number(healRes.heal ?? 0),
+            targetHp: Number(healRes.targetHp ?? 0),
+            targetMaxHp: Number(healRes.targetMaxHp ?? 0),
+            healSource: next.healSource ?? 'attack',
+            skipPreparedAttackVisual: Boolean(next.skipPreparedAttackVisual),
+          });
         }
       }
     }
@@ -1463,10 +1612,16 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
       const me = findUnitByIdIn(simState, actor.id);
       if (!me || me.dead || me.zone !== 'board') continue;
 
-      const target = hasCrossbowmanLineShotPassive(me)
-        ? findBestCrossbowmanTargetIn(simState, me, tickTimeMs)
-        : findClosestOpponentIn(simState, me, tickTimeMs);
-      if (!target) continue;
+      const isPriestHealer = hasPriestHealPassive(me);
+      const target = isPriestHealer
+        ? findBestPriestHealTargetIn(simState, me, tickTimeMs)
+        : (
+          hasCrossbowmanLineShotPassive(me)
+            ? findBestCrossbowmanTargetIn(simState, me, tickTimeMs)
+            : findClosestOpponentIn(simState, me, tickTimeMs)
+        );
+      const retreatTarget = isPriestHealer ? findClosestOpponentIn(simState, me, tickTimeMs) : null;
+      if (!target && !retreatTarget) continue;
 
       const attackSpeed = Math.max(0.1, Number(me.attackSpeed ?? DEFAULT_UNIT_ATTACK_SPEED));
       const moveSpeed = Math.max(0.1, Number(me.moveSpeed ?? DEFAULT_UNIT_MOVE_SPEED));
@@ -1492,24 +1647,32 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
 
       let unitActions = 0;
       while (unitActions < MAX_ACTIONS_PER_UNIT_PER_TICK) {
-        const liveTarget = hasCrossbowmanLineShotPassive(me)
-          ? findBestCrossbowmanTargetIn(simState, me, tickTimeMs)
-          : findClosestOpponentIn(simState, me, tickTimeMs);
-        if (!liveTarget) break;
+        const liveTarget = isPriestHealer
+          ? findBestPriestHealTargetIn(simState, me, tickTimeMs)
+          : (
+            hasCrossbowmanLineShotPassive(me)
+              ? findBestCrossbowmanTargetIn(simState, me, tickTimeMs)
+              : findClosestOpponentIn(simState, me, tickTimeMs)
+          );
+        const liveRetreatTarget = isPriestHealer ? findClosestOpponentIn(simState, me, tickTimeMs) : null;
+        if (!liveTarget && !liveRetreatTarget) break;
 
         const mePos = getCombatHexAtIn(simState, me, tickTimeMs);
-        const targetPos = getCombatHexAtIn(simState, liveTarget, tickTimeMs);
-        if (!mePos || !targetPos) break;
-        const dist = hexDistance(mePos.q, mePos.r, targetPos.q, targetPos.r);
+        const targetPos = liveTarget ? getCombatHexAtIn(simState, liveTarget, tickTimeMs) : null;
+        if (!mePos) break;
+        if (liveTarget && !targetPos) break;
+        const dist = liveTarget ? hexDistance(mePos.q, mePos.r, targetPos.q, targetPos.r) : Infinity;
         const attackRangeMax = Math.max(1, Number(me.attackRangeMax ?? 1));
-        const crossbowmanLineShotMeta = hasCrossbowmanLineShotPassive(me)
+        const crossbowmanLineShotMeta = (!isPriestHealer && hasCrossbowmanLineShotPassive(me) && liveTarget)
           ? getCrossbowmanLineShotMetaIn(simState, me, liveTarget, tickTimeMs)
           : null;
         const canAttackTargetNow = isUndertakerSummoner
           ? false
           : (
+            !!liveTarget &&
             dist <= attackRangeMax &&
             (
+              isPriestHealer ||
               !hasCrossbowmanLineShotPassive(me) ||
               crossbowmanLineShotMeta?.canShoot === true
             )
@@ -1657,6 +1820,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
           if (tickTimeMs + 1e-6 < me.nextActionAt || tickTimeMs + 1e-6 < me.nextAttackAt) break;
 
           const canWormSwallowNow =
+            !isPriestHealer &&
             hasWormSwallowPassive(me) &&
             Number.isFinite(Number(liveTarget?.id)) &&
             Number(me.wormSwallowedUnitId ?? NaN) !== Number(liveTarget.id) &&
@@ -1716,7 +1880,9 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
             break;
           }
 
-          const res = performAttackIn(simState, me.id, liveTarget.id, tickTimeMs);
+          const res = isPriestHealer
+            ? performPriestHealIn(simState, me.id, liveTarget.id, tickTimeMs)
+            : performAttackIn(simState, me.id, liveTarget.id, tickTimeMs);
           me.nextAttackAt = Math.max(me.nextAttackAt, tickTimeMs) + attackIntervalMs;
           unitActions += 1;
 
@@ -1757,150 +1923,210 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
               });
             }
 
-            const hasSkeletonArcherBounce =
-              String(me.abilityType ?? 'none') === 'passive' &&
-              String(me.abilityKey ?? '') === 'skeleton_archer_bounce';
-
-            if (Boolean(res.isRanged) && Number(res.projectileTravelMs ?? 0) > 0) {
-              if (collectTimeline && preparedAttackProjectileLaunchDelayMs > 0) {
-                events.push({
-                  t: tickTimeMs + preparedAttackProjectileLaunchDelayMs,
-                  type: 'projectile_launch',
-                  attackerId: me.id,
-                  targetId: liveTarget.id,
-                  attackerTeam: me.team,
-                  attackSeq,
-                  projectileSpeed: Number(res.projectileSpeed ?? 0),
-                  projectileTravelMs: Number(res.projectileTravelMs ?? 0),
-                  projectileTravelMsTotal: Number(res.projectileTravelMsTotal ?? res.projectileTravelMs ?? 0),
-                  projectilePierce: Boolean(res.projectilePierce),
-                  projectileForceStraight: Boolean(res.projectileForceStraight),
-                  projectileTargetQ: Number(res.projectileTargetQ ?? liveTarget.q ?? 0),
-                  projectileTargetR: Number(res.projectileTargetR ?? liveTarget.r ?? 0),
-                  dist: Number(res.dist ?? dist),
-                  attackRangeFullDamage: Number(res.attackRangeFullDamage ?? attackRangeMax),
-                  preparedAttackHoldMs: preparedAttackHoldMs,
-                });
-              }
-              const pierceTargets = Array.isArray(res.pierceTargets) ? res.pierceTargets : [];
-              const projectileRayCells = Array.isArray(res.projectileRayCells) ? res.projectileRayCells : [];
-              if (Boolean(res.projectilePierce) && projectileRayCells.length > 0) {
-                const projectileId = `${me.id}:${attackSeq}:${tickTimeMs}`;
-                const primaryPierceDist = Math.max(0, Number(pierceTargets[0]?.dist ?? Infinity));
-                const secondaryPierceDamageMultiplier = getCrossbowmanPierceSecondaryDamageMultiplier(me);
-                for (const cell of projectileRayCells) {
-                  const hitDist = Math.max(0, Number(cell?.dist ?? res.dist ?? 0));
-                  const hitTravelMs = hasCrossbowmanLineShotPassive(me)
-                    ? CROSSBOWMAN_IMPACT_DELAY_MS
-                    : (
-                      Number(res.projectileSpeed ?? 0) > 0
-                        ? (hitDist / Math.max(0.0001, Number(res.projectileSpeed ?? 0))) * 1000
-                        : Number(res.projectileTravelMs ?? 0)
-                    );
-                  const hitDamageMultiplier = hitDist > Number(res.attackRangeFullDamage ?? attackRangeMax) ? 0.5 : 1;
-                  const pierceDamageMultiplier = hitDist > primaryPierceDist ? secondaryPierceDamageMultiplier : 1;
-                  pendingDamageEvents.push({
-                    t: tickTimeMs + preparedAttackProjectileLaunchDelayMs + hitTravelMs,
+            if (isPriestHealer) {
+              if (Boolean(res.isRanged) && Number(res.projectileTravelMs ?? 0) > 0) {
+                if (collectTimeline && preparedAttackProjectileLaunchDelayMs > 0) {
+                  events.push({
+                    t: tickTimeMs + preparedAttackProjectileLaunchDelayMs,
+                    type: 'projectile_launch',
                     attackerId: me.id,
                     targetId: liveTarget.id,
                     attackerTeam: me.team,
                     attackSeq,
-                    projectileId,
-                    targetCellQ: Number(cell.q),
-                    targetCellR: Number(cell.r),
-                    damage: Math.max(1, Math.round(Number(me.atk ?? 0) * hitDamageMultiplier * pierceDamageMultiplier)),
-                    damageSource: 'projectile_pierce',
-                    damageKind: String(res.damageType ?? 'physical'),
                     projectileSpeed: Number(res.projectileSpeed ?? 0),
-                    missed: res.isHit !== true,
-                    enableSkeletonArcherBounce: false,
-                    skipPreparedAttackVisual: preparedAttackProjectileLaunchDelayMs > 0,
+                    projectileTravelMs: Number(res.projectileTravelMs ?? 0),
+                    projectileTravelMsTotal: Number(res.projectileTravelMsTotal ?? res.projectileTravelMs ?? 0),
+                    projectilePierce: false,
+                    projectileForceStraight: false,
+                    projectileTargetQ: Number(liveTarget.q ?? 0),
+                    projectileTargetR: Number(liveTarget.r ?? 0),
+                    dist: Number(res.dist ?? dist),
+                    attackRangeFullDamage: Number(res.attackRangeFullDamage ?? attackRangeMax),
+                    preparedAttackHoldMs: preparedAttackHoldMs,
                   });
                 }
-              } else {
-                pendingDamageEvents.push({
+                pendingHealEvents.push({
                   t: tickTimeMs + preparedAttackProjectileLaunchDelayMs + Number(res.projectileTravelMs ?? 0),
                   attackerId: me.id,
                   targetId: liveTarget.id,
                   attackerTeam: me.team,
                   attackSeq,
-                  damage: Number(res.damage ?? 1),
-                  damageSource: 'projectile',
-                  damageKind: String(res.damageType ?? 'physical'),
-                  projectileSpeed: Number(res.projectileSpeed ?? 0),
-                  missed: res.isHit !== true,
-                  enableSkeletonArcherBounce: hasSkeletonArcherBounce,
+                  heal: Number(res.heal ?? 1),
+                  healSource: 'projectile',
                   skipPreparedAttackVisual: preparedAttackProjectileLaunchDelayMs > 0,
                 });
-              }
-            } else if (usesPreparedAttackTiming) {
-              pendingDamageEvents.push({
-                t: tickTimeMs + preparedAttackHitDelayMs,
-                attackerId: me.id,
-                targetId: liveTarget.id,
-                attackerTeam: me.team,
-                attackSeq,
-                damage: Number(res.damage ?? 1),
-                damageSource: 'attack',
-                damageKind: String(res.damageType ?? 'physical'),
-                projectileSpeed: 0,
-                missed: res.isHit !== true,
-                enableSkeletonArcherBounce: false,
-              });
-            } else if (res.isHit !== true) {
-              if (collectTimeline) {
-                events.push({
-                  t: tickTimeMs,
-                  type: 'miss',
+              } else if (usesPreparedAttackTiming) {
+                pendingHealEvents.push({
+                  t: tickTimeMs + preparedAttackHitDelayMs,
                   attackerId: me.id,
                   targetId: liveTarget.id,
                   attackerTeam: me.team,
                   attackSeq,
-                  missSource: 'attack',
+                  heal: Number(res.heal ?? 1),
+                  healSource: 'attack',
+                  skipPreparedAttackVisual: false,
                 });
+              } else {
+                const healRes = applyHealingToUnitIn(simState, liveTarget.id, res.heal);
+                if (healRes.success && collectTimeline) {
+                  events.push({
+                    t: tickTimeMs,
+                    type: 'heal',
+                    attackerId: me.id,
+                    targetId: liveTarget.id,
+                    attackerTeam: me.team,
+                    attackSeq,
+                    heal: Number(healRes.heal ?? 0),
+                    targetHp: Number(healRes.targetHp ?? 0),
+                    targetMaxHp: Number(healRes.targetMaxHp ?? 0),
+                    healSource: 'attack',
+                  });
+                }
               }
             } else {
-              if (isAttackDodgedByTarget(liveTarget)) {
-              if (collectTimeline) {
-                events.push({
-                  t: tickTimeMs,
-                  type: 'miss',
+              const hasSkeletonArcherBounce =
+                String(me.abilityType ?? 'none') === 'passive' &&
+                String(me.abilityKey ?? '') === 'skeleton_archer_bounce';
+
+              if (Boolean(res.isRanged) && Number(res.projectileTravelMs ?? 0) > 0) {
+                if (collectTimeline && preparedAttackProjectileLaunchDelayMs > 0) {
+                  events.push({
+                    t: tickTimeMs + preparedAttackProjectileLaunchDelayMs,
+                    type: 'projectile_launch',
+                    attackerId: me.id,
+                    targetId: liveTarget.id,
+                    attackerTeam: me.team,
+                    attackSeq,
+                    projectileSpeed: Number(res.projectileSpeed ?? 0),
+                    projectileTravelMs: Number(res.projectileTravelMs ?? 0),
+                    projectileTravelMsTotal: Number(res.projectileTravelMsTotal ?? res.projectileTravelMs ?? 0),
+                    projectilePierce: Boolean(res.projectilePierce),
+                    projectileForceStraight: Boolean(res.projectileForceStraight),
+                    projectileTargetQ: Number(res.projectileTargetQ ?? liveTarget.q ?? 0),
+                    projectileTargetR: Number(res.projectileTargetR ?? liveTarget.r ?? 0),
+                    dist: Number(res.dist ?? dist),
+                    attackRangeFullDamage: Number(res.attackRangeFullDamage ?? attackRangeMax),
+                    preparedAttackHoldMs: preparedAttackHoldMs,
+                  });
+                }
+                const pierceTargets = Array.isArray(res.pierceTargets) ? res.pierceTargets : [];
+                const projectileRayCells = Array.isArray(res.projectileRayCells) ? res.projectileRayCells : [];
+                if (Boolean(res.projectilePierce) && projectileRayCells.length > 0) {
+                  const projectileId = `${me.id}:${attackSeq}:${tickTimeMs}`;
+                  const primaryPierceDist = Math.max(0, Number(pierceTargets[0]?.dist ?? Infinity));
+                  const secondaryPierceDamageMultiplier = getCrossbowmanPierceSecondaryDamageMultiplier(me);
+                  for (const cell of projectileRayCells) {
+                    const hitDist = Math.max(0, Number(cell?.dist ?? res.dist ?? 0));
+                    const hitTravelMs = hasCrossbowmanLineShotPassive(me)
+                      ? CROSSBOWMAN_IMPACT_DELAY_MS
+                      : (
+                        Number(res.projectileSpeed ?? 0) > 0
+                          ? (hitDist / Math.max(0.0001, Number(res.projectileSpeed ?? 0))) * 1000
+                          : Number(res.projectileTravelMs ?? 0)
+                      );
+                    const hitDamageMultiplier = hitDist > Number(res.attackRangeFullDamage ?? attackRangeMax) ? 0.5 : 1;
+                    const pierceDamageMultiplier = hitDist > primaryPierceDist ? secondaryPierceDamageMultiplier : 1;
+                    pendingDamageEvents.push({
+                      t: tickTimeMs + preparedAttackProjectileLaunchDelayMs + hitTravelMs,
+                      attackerId: me.id,
+                      targetId: liveTarget.id,
+                      attackerTeam: me.team,
+                      attackSeq,
+                      projectileId,
+                      targetCellQ: Number(cell.q),
+                      targetCellR: Number(cell.r),
+                      damage: Math.max(1, Math.round(Number(me.atk ?? 0) * hitDamageMultiplier * pierceDamageMultiplier)),
+                      damageSource: 'projectile_pierce',
+                      damageKind: String(res.damageType ?? 'physical'),
+                      projectileSpeed: Number(res.projectileSpeed ?? 0),
+                      missed: res.isHit !== true,
+                      enableSkeletonArcherBounce: false,
+                      skipPreparedAttackVisual: preparedAttackProjectileLaunchDelayMs > 0,
+                    });
+                  }
+                } else {
+                  pendingDamageEvents.push({
+                    t: tickTimeMs + preparedAttackProjectileLaunchDelayMs + Number(res.projectileTravelMs ?? 0),
+                    attackerId: me.id,
+                    targetId: liveTarget.id,
+                    attackerTeam: me.team,
+                    attackSeq,
+                    damage: Number(res.damage ?? 1),
+                    damageSource: 'projectile',
+                    damageKind: String(res.damageType ?? 'physical'),
+                    projectileSpeed: Number(res.projectileSpeed ?? 0),
+                    missed: res.isHit !== true,
+                    enableSkeletonArcherBounce: hasSkeletonArcherBounce,
+                    skipPreparedAttackVisual: preparedAttackProjectileLaunchDelayMs > 0,
+                  });
+                }
+              } else if (usesPreparedAttackTiming) {
+                pendingDamageEvents.push({
+                  t: tickTimeMs + preparedAttackHitDelayMs,
                   attackerId: me.id,
                   targetId: liveTarget.id,
                   attackerTeam: me.team,
                   attackSeq,
-                  missSource: 'ghost_evasion',
-                });
-              }
-              } else {
-              const dmgRes = applyDamageToUnitIn(simState, liveTarget.id, res.damage, res.damageType ?? 'physical');
-              if (dmgRes.success && collectTimeline) {
-                events.push({
-                  t: tickTimeMs,
-                  type: 'damage',
-                  attackerId: me.id,
-                  targetId: liveTarget.id,
-                  attackerTeam: me.team,
-                  attackSeq,
-                  damage: Number(dmgRes.damage ?? 0),
-                  targetHp: Number(dmgRes.targetHp ?? 0),
-                  targetMaxHp: Number(dmgRes.targetMaxHp ?? 0),
-                  killed: Boolean(dmgRes.killed),
+                  damage: Number(res.damage ?? 1),
                   damageSource: 'attack',
                   damageKind: String(res.damageType ?? 'physical'),
+                  projectileSpeed: 0,
+                  missed: res.isHit !== true,
+                  enableSkeletonArcherBounce: false,
                 });
-              }
-              if (dmgRes.success && !Boolean(dmgRes.killed)) {
-                tryTriggerSwordsmanCounterIn(simState, liveTarget, {
-                  attackerId: me.id,
-                  attackerTeam: me.team,
-                  attackSeq,
-                  damageSource: 'attack',
-                }, tickTimeMs, { collectTimeline, events, pendingCounterEvents });
-              }
-              if (dmgRes.success && dmgRes.killed) {
-                releaseWormSwallowedVictimIn(simState, liveTarget.id, tickTimeMs, { collectTimeline, events });
-              }
+              } else if (res.isHit !== true) {
+                if (collectTimeline) {
+                  events.push({
+                    t: tickTimeMs,
+                    type: 'miss',
+                    attackerId: me.id,
+                    targetId: liveTarget.id,
+                    attackerTeam: me.team,
+                    attackSeq,
+                    missSource: 'attack',
+                  });
+                }
+              } else if (isAttackDodgedByTarget(liveTarget)) {
+                if (collectTimeline) {
+                  events.push({
+                    t: tickTimeMs,
+                    type: 'miss',
+                    attackerId: me.id,
+                    targetId: liveTarget.id,
+                    attackerTeam: me.team,
+                    attackSeq,
+                    missSource: 'ghost_evasion',
+                  });
+                }
+              } else {
+                const dmgRes = applyDamageToUnitIn(simState, liveTarget.id, res.damage, res.damageType ?? 'physical');
+                if (dmgRes.success && collectTimeline) {
+                  events.push({
+                    t: tickTimeMs,
+                    type: 'damage',
+                    attackerId: me.id,
+                    targetId: liveTarget.id,
+                    attackerTeam: me.team,
+                    attackSeq,
+                    damage: Number(dmgRes.damage ?? 0),
+                    targetHp: Number(dmgRes.targetHp ?? 0),
+                    targetMaxHp: Number(dmgRes.targetMaxHp ?? 0),
+                    killed: Boolean(dmgRes.killed),
+                    damageSource: 'attack',
+                    damageKind: String(res.damageType ?? 'physical'),
+                  });
+                }
+                if (dmgRes.success && !Boolean(dmgRes.killed)) {
+                  tryTriggerSwordsmanCounterIn(simState, liveTarget, {
+                    attackerId: me.id,
+                    attackerTeam: me.team,
+                    attackSeq,
+                    damageSource: 'attack',
+                  }, tickTimeMs, { collectTimeline, events, pendingCounterEvents });
+                }
+                if (dmgRes.success && dmgRes.killed) {
+                  releaseWormSwallowedVictimIn(simState, liveTarget.id, tickTimeMs, { collectTimeline, events });
+                }
               }
             }
           }
@@ -1909,7 +2135,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
 
         if (tickTimeMs + 1e-6 < me.nextActionAt || tickTimeMs + 1e-6 < me.nextAttackAt || tickTimeMs + 1e-6 < me.nextMoveAt) break;
 
-        const step = isUndertakerSummoner
+        const step = (isUndertakerSummoner || (isPriestHealer && !liveTarget))
           ? pickBestStepAwayFromClosestEnemyIn(simState, me, tickTimeMs)
           : (
             hasCrossbowmanLineShotPassive(me)

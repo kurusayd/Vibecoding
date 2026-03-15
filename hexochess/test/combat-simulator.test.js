@@ -411,6 +411,165 @@ test('crossbowman piercing falloff damage scales with rank after the first targe
   }
 });
 
+test('priest attacks an injured ally with a healing projectile instead of damaging an enemy', () => {
+  const simState = createSimState([
+    makeUnit({
+      id: 1,
+      type: 'Priest',
+      atk: 20,
+      attackMode: 'ranged',
+      projectileSpeed: 5,
+      attackRangeMax: 20,
+      attackRangeFullDamage: 20,
+      attackSpeed: 1,
+      abilityType: 'passive',
+      abilityKey: 'priest_heal',
+    }),
+    makeUnit({
+      id: 2,
+      q: 2,
+      r: 0,
+      hp: 40,
+      maxHp: 100,
+      atk: 0,
+      moveSpeed: 0.1,
+    }),
+    makeUnit({
+      id: 3,
+      q: 4,
+      r: 0,
+      team: 'enemy',
+      hp: 100,
+      maxHp: 100,
+      atk: 0,
+      moveSpeed: 0.1,
+    }),
+  ]);
+
+  const replay = simulateBattleReplayFromState(simState, {
+    tickMs: SNAPSHOT_STEP_MS,
+    maxBattleMs: 700,
+    collectSnapshots: false,
+  });
+
+  const attackEvent = replay.events.find((e) => e.type === 'attack' && e.attackerId === 1);
+  const healEvent = replay.events.find((e) => e.type === 'heal' && e.attackerId === 1);
+  const damageEvents = replay.events.filter((e) => e.type === 'damage' && e.attackerId === 1);
+
+  assert.ok(attackEvent);
+  assert.equal(attackEvent.targetId, 2);
+  assert.ok(healEvent);
+  assert.equal(healEvent.targetId, 2);
+  assert.equal(healEvent.heal, 20);
+  assert.equal(healEvent.targetHp, 60);
+  assert.equal(damageEvents.length, 0);
+});
+
+test('priest retreats from the nearest enemy when no ally needs healing', () => {
+  const simState = createSimState([
+    makeUnit({
+      id: 1,
+      q: 2,
+      r: 2,
+      type: 'Priest',
+      atk: 20,
+      attackMode: 'ranged',
+      projectileSpeed: 5,
+      attackRangeMax: 20,
+      attackRangeFullDamage: 20,
+      attackSpeed: 1,
+      moveSpeed: 10,
+      abilityType: 'passive',
+      abilityKey: 'priest_heal',
+    }),
+    makeUnit({
+      id: 2,
+      q: 1,
+      r: 2,
+      hp: 100,
+      maxHp: 100,
+      atk: 0,
+      moveSpeed: 0.1,
+    }),
+    makeUnit({
+      id: 3,
+      q: 3,
+      r: 2,
+      team: 'enemy',
+      hp: 100,
+      maxHp: 100,
+      atk: 0,
+      moveSpeed: 0.1,
+    }),
+  ]);
+
+  const replay = simulateBattleReplayFromState(simState, {
+    tickMs: SNAPSHOT_STEP_MS,
+    maxBattleMs: 300,
+    collectSnapshots: false,
+  });
+
+  const moveEvent = replay.events.find((e) => e.type === 'move' && e.unitId === 1);
+  const attackEvent = replay.events.find((e) => e.type === 'attack' && e.attackerId === 1);
+
+  assert.ok(moveEvent);
+  assert.ok(hexDistance(moveEvent.q, moveEvent.r, 3, 2) > hexDistance(2, 2, 3, 2));
+  assert.equal(attackEvent, undefined);
+});
+
+test('priest moves toward an injured ally if it is out of heal range and still does not attack enemies', () => {
+  const simState = createSimState([
+    makeUnit({
+      id: 1,
+      q: 0,
+      r: 0,
+      type: 'Priest',
+      atk: 20,
+      attackMode: 'ranged',
+      projectileSpeed: 5,
+      attackRangeMax: 1,
+      attackRangeFullDamage: 1,
+      attackSpeed: 1,
+      moveSpeed: 10,
+      abilityType: 'passive',
+      abilityKey: 'priest_heal',
+    }),
+    makeUnit({
+      id: 2,
+      q: 3,
+      r: 0,
+      hp: 40,
+      maxHp: 100,
+      atk: 0,
+      moveSpeed: 0.1,
+    }),
+    makeUnit({
+      id: 3,
+      q: 1,
+      r: 1,
+      team: 'enemy',
+      hp: 100,
+      maxHp: 100,
+      atk: 0,
+      moveSpeed: 0.1,
+    }),
+  ]);
+
+  const replay = simulateBattleReplayFromState(simState, {
+    tickMs: SNAPSHOT_STEP_MS,
+    maxBattleMs: 300,
+    collectSnapshots: false,
+  });
+
+  const moveEvent = replay.events.find((e) => e.type === 'move' && e.unitId === 1);
+  const attackEvent = replay.events.find((e) => e.type === 'attack' && e.attackerId === 1);
+
+  assert.ok(moveEvent);
+  assert.equal(moveEvent.q, 1);
+  assert.equal(moveEvent.r, 0);
+  assert.equal(attackEvent, undefined);
+});
+
 test('swordsman counter queues follow-up triggers during the 500ms counter window', () => {
   const simState = createSimState([
     makeUnit({
