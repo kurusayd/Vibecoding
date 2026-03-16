@@ -155,6 +155,15 @@ const UNIT_DAMAGE_FLASH_OUT_MS = 84;
 const UNIT_ATTACK_IMPACT_PULSE_SCALE_MUL = 1.1;
 const UNIT_ATTACK_IMPACT_PULSE_GROW_MS = 70;
 const UNIT_ATTACK_IMPACT_PULSE_SHRINK_MS = 90;
+const PRIEST_HEAL_BEAM_VISUAL_MS = 600;
+const PRIEST_HEAL_BEAM_OUTER_WIDTH_MIN_PX = 4;
+const PRIEST_HEAL_BEAM_OUTER_WIDTH_MAX_PX = 14;
+const PRIEST_HEAL_BEAM_INNER_WIDTH_MIN_PX = 2;
+const PRIEST_HEAL_BEAM_INNER_WIDTH_MAX_PX = 7;
+const PRIEST_HEAL_BEAM_START_INSET_X_PX = 41;
+const PRIEST_HEAL_BEAM_START_INSET_Y_PX = 8;
+const PRIEST_HEAL_BEAM_END_OFFSET_X_PX = 0;
+const PRIEST_HEAL_BEAM_END_OFFSET_Y_PX = 15;
 const UNIT_ATTACK_FRONTMOST_HIT_MS = 220;
 const UNIT_ART_DEPTH_LIVE = 1040;
 const UNIT_ART_DEPTH_DEAD = 990;
@@ -321,7 +330,7 @@ const HEAL_TARGET_VFX_ATLAS_FRAME_PX = 192;
 const HEAL_TARGET_VFX_ONE_CELL_SIZE_PX = 168;
 const HEAL_TARGET_VFX_TWO_CELL_SIZE_PX = Math.round(HEAL_TARGET_VFX_ONE_CELL_SIZE_PX * 1.5);
 const HEAL_TARGET_VFX_OFFSET_X_PX = -10;
-const HEAL_TARGET_VFX_OFFSET_Y_PX = -20;
+const HEAL_TARGET_VFX_OFFSET_Y_PX = -10;
 
 function unitTypeToInfoPortraitName(type) {
   const raw = String(type ?? '').trim();
@@ -3074,6 +3083,7 @@ export default class BattleScene extends Phaser.Scene {
       }
       if (attacker && target) {
         const isCrossbowmanShot = this.isCrossbowmanLineShotUnit?.(attacker) === true;
+        const isPriestBeam = String(attacker.type ?? '') === 'Priest';
         this.pendingRangedBeamFx = this.pendingRangedBeamFx ?? [];
         this.pendingRangedBeamFx.push({
           attackerId: attacker.id,
@@ -3085,6 +3095,8 @@ export default class BattleScene extends Phaser.Scene {
           projectilePierce: Boolean(ev.projectilePierce),
           forceStraight: Boolean(ev.projectileForceStraight) || isCrossbowmanShot,
           textureKey: isCrossbowmanShot ? 'projectile_bolt' : undefined,
+          beamKind: isPriestBeam ? 'priest_heal' : undefined,
+          beamDurationMs: isPriestBeam ? PRIEST_HEAL_BEAM_VISUAL_MS : undefined,
           dist: Number(ev.dist ?? NaN),
           attackRangeFullDamage: Number(ev.attackRangeFullDamage ?? NaN),
         });
@@ -3582,10 +3594,66 @@ export default class BattleScene extends Phaser.Scene {
   playRangedBeamFx(attackerCore, targetCore, fx = null) {
     if (!attackerCore || !targetCore) return;
 
-    const from = this.getUnitVisualCenter(attackerCore);
-    const to = this.getUnitVisualCenter(targetCore);
+    const isPriestHealBeam = String(fx?.beamKind ?? '') === 'priest_heal';
+    const from = isPriestHealBeam
+      ? (this.getPriestHealBeamStartPoint?.(attackerCore) ?? this.getUnitVisualCenter(attackerCore))
+      : this.getUnitVisualCenter(attackerCore);
+    const to = isPriestHealBeam
+      ? (this.getPriestHealBeamEndPoint?.(targetCore) ?? this.getUnitVisualCenter(targetCore))
+      : this.getUnitVisualCenter(targetCore);
     if (!from || !to) return;
-    const durationMs = Math.max(90, Number(fx?.projectileTravelMs ?? 0));
+    const durationMs = Math.max(90, Number(fx?.beamDurationMs ?? fx?.projectileTravelMs ?? 0));
+
+    if (isPriestHealBeam) {
+      const beam = this.add.graphics().setDepth(1600);
+      const cast = this.add.circle(from.x, from.y, 8, 0xfff0a6, 0.95).setDepth(1601);
+      const hit = this.add.circle(to.x, to.y, 8, 0xfff0a6, 0.95).setDepth(1601);
+      const state = { t: 0 };
+      const drawBeam = () => {
+        const t = Phaser.Math.Clamp(Number(state.t ?? 0), 0, 1);
+        const pulse = Math.sin(Math.PI * t);
+        const outerWidth = Phaser.Math.Linear(PRIEST_HEAL_BEAM_OUTER_WIDTH_MIN_PX, PRIEST_HEAL_BEAM_OUTER_WIDTH_MAX_PX, pulse);
+        const innerWidth = Phaser.Math.Linear(PRIEST_HEAL_BEAM_INNER_WIDTH_MIN_PX, PRIEST_HEAL_BEAM_INNER_WIDTH_MAX_PX, pulse);
+        const alphaFade = 1 - (t * 0.55);
+        beam.clear();
+        beam.lineStyle(outerWidth, 0xf2cf4a, 0.26 * alphaFade);
+        beam.beginPath();
+        beam.moveTo(from.x, from.y);
+        beam.lineTo(to.x, to.y);
+        beam.strokePath();
+        beam.lineStyle(innerWidth, 0xfff3a1, 0.96 * alphaFade);
+        beam.beginPath();
+        beam.moveTo(from.x, from.y);
+        beam.lineTo(to.x, to.y);
+        beam.strokePath();
+      };
+      drawBeam();
+      this.tweens.add({
+        targets: state,
+        t: 1,
+        duration: durationMs,
+        ease: 'Linear',
+        onUpdate: drawBeam,
+        onComplete: () => beam.destroy(),
+      });
+      this.tweens.add({
+        targets: cast,
+        alpha: 0,
+        scale: 1.9,
+        duration: Math.max(180, Math.floor(durationMs * 0.75)),
+        ease: 'Quad.Out',
+        onComplete: () => cast.destroy(),
+      });
+      this.tweens.add({
+        targets: hit,
+        alpha: 0,
+        scale: 1.9,
+        duration: Math.max(180, Math.floor(durationMs * 0.75)),
+        ease: 'Quad.Out',
+        onComplete: () => hit.destroy(),
+      });
+      return;
+    }
 
     const beam = this.add.graphics().setDepth(1600);
     beam.lineStyle(6, 0x6ecfff, 0.30);
@@ -4341,14 +4409,47 @@ export default class BattleScene extends Phaser.Scene {
     return overlay;
   }
 
+  getHealTargetVfxCenter(coreUnitLike, fallbackVu = null) {
+    const vu = fallbackVu ?? this.unitSys?.findUnit?.(coreUnitLike?.id);
+    if (!vu?.art?.active) return null;
+    const bounds = vu.art.getBounds?.() ?? null;
+    return {
+      x: Number(bounds?.centerX ?? vu.art.x ?? 0) + HEAL_TARGET_VFX_OFFSET_X_PX,
+      y: Number(bounds?.centerY ?? vu.art.y ?? 0) + HEAL_TARGET_VFX_OFFSET_Y_PX,
+    };
+  }
+
+  getPriestHealBeamEndPoint(coreUnitLike, fallbackVu = null) {
+    const base = this.getHealTargetVfxCenter?.(coreUnitLike, fallbackVu);
+    if (!base) return null;
+    return {
+      x: Number(base.x ?? 0) + PRIEST_HEAL_BEAM_END_OFFSET_X_PX,
+      y: Number(base.y ?? 0) + PRIEST_HEAL_BEAM_END_OFFSET_Y_PX,
+    };
+  }
+
+  getPriestHealBeamStartPoint(coreUnitLike, fallbackVu = null) {
+    const vu = fallbackVu ?? this.unitSys?.findUnit?.(coreUnitLike?.id);
+    if (!vu?.art?.active) return null;
+    const bounds = vu.art.getBounds?.() ?? null;
+    if (!bounds) return this.getUnitVisualCenter(coreUnitLike, fallbackVu);
+    const flipX = Boolean(vu.art.flipX);
+    return {
+      x: flipX
+        ? Number(bounds.right ?? vu.art.x ?? 0) - PRIEST_HEAL_BEAM_START_INSET_X_PX
+        : Number(bounds.left ?? vu.art.x ?? 0) + PRIEST_HEAL_BEAM_START_INSET_X_PX,
+      y: Number(bounds.top ?? vu.art.y ?? 0) + PRIEST_HEAL_BEAM_START_INSET_Y_PX,
+    };
+  }
+
   startUnitHealVfx(vu) {
     if (!vu?.art?.active || !this.anims.exists(HEAL_TARGET_VFX_DEF.animKey)) return null;
     vu._healVfxSprite?.destroy?.();
-    const bounds = vu.art.getBounds?.() ?? null;
     const coreUnit = this.getCoreUnitById?.(vu.id) ?? null;
     const cellSpanX = Math.max(1, Number(coreUnit?.cellSpanX ?? vu?.cellSpanX ?? 1));
-    const centerX = Number(bounds?.centerX ?? vu.art.x ?? 0) + HEAL_TARGET_VFX_OFFSET_X_PX;
-    const centerY = Number(bounds?.centerY ?? vu.art.y ?? 0) + HEAL_TARGET_VFX_OFFSET_Y_PX;
+    const center = this.getHealTargetVfxCenter?.(coreUnit ?? vu, vu);
+    const centerX = Number(center?.x ?? vu.art.x ?? 0);
+    const centerY = Number(center?.y ?? vu.art.y ?? 0);
     const desiredSizePx = cellSpanX > 1
       ? HEAL_TARGET_VFX_TWO_CELL_SIZE_PX
       : HEAL_TARGET_VFX_ONE_CELL_SIZE_PX;
