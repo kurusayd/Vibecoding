@@ -51,6 +51,7 @@ export function updateHpBar(scene, unit) {
     scene.coreUnitsById?.get?.(unit.id) ??
     (scene.battleState?.units ?? []).find((u) => u.id === unit.id);
   const runtime = unit?.runtime ?? unit;
+  const nowMs = Number(scene?.time?.now ?? 0);
   const cellSpanX = Math.max(1, Math.floor(Number(coreUnit?.cellSpanX ?? (unit?.cellSpanX ?? 1))));
   const w = (cellSpanX > 1)
     ? Math.round(baseW * LARGE_UNIT_HP_BAR_WIDTH_MUL)

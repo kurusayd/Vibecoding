@@ -768,10 +768,12 @@ export function createUnitSystem(scene) {
 
     const wasDead = Boolean(u.dead);
     const nextDead = Boolean(dead);
+    const skipDeathPrep = Boolean(u._skipDeathPrepOnce);
     if (wasDead === nextDead) return;
     u.dead = nextDead;
 
     if (nextDead) {
+      u._skipDeathPrepOnce = false;
       if (u.hpBar) u.hpBar.setVisible(false);
       if (u.rankIcon) u.rankIcon.setVisible(false);
       if (u.label) u.label.setVisible(false);
@@ -807,7 +809,7 @@ export function createUnitSystem(scene) {
           try { u._shadowMoveTween.stop(); } catch {}
           u._shadowMoveTween = null;
         }
-        if (usesNewDeathFlow && hasPrepareToDieFrame) {
+        if (!skipDeathPrep && usesNewDeathFlow && hasPrepareToDieFrame) {
           u._deathPrepActive = true;
           u._deathPrepUntilMs = Number(scene?.time?.now ?? 0) + 300;
           u.art.anims?.stop?.();
@@ -837,6 +839,7 @@ export function createUnitSystem(scene) {
         u._deathPrepTimer = null;
         u._deathPrepActive = false;
         u._deathPrepUntilMs = 0;
+        u._skipDeathPrepOnce = false;
       }
       updateArtDepth(u);
       updateFootShadowDepth(u);

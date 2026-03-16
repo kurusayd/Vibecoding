@@ -512,9 +512,94 @@ test('priest retreats from the nearest enemy when no ally needs healing', () => 
   const moveEvent = replay.events.find((e) => e.type === 'move' && e.unitId === 1);
   const attackEvent = replay.events.find((e) => e.type === 'attack' && e.attackerId === 1);
 
-  assert.ok(moveEvent);
-  assert.ok(hexDistance(moveEvent.q, moveEvent.r, 3, 2) > hexDistance(2, 2, 3, 2));
+  assert.equal(moveEvent, undefined);
   assert.equal(attackEvent, undefined);
+});
+
+test('zombie primes self destruct below half hp, stops acting, then explodes after 3 seconds', () => {
+  const simState = createSimState([
+    makeUnit({
+      id: 1,
+      type: 'Zombie',
+      q: 0,
+      r: 0,
+      hp: 40,
+      maxHp: 100,
+      atk: 24,
+      moveSpeed: 2,
+      attackSpeed: 2,
+      abilityType: 'passive',
+      abilityKey: 'zombie_self_destruct',
+      abilityCooldown: 3,
+      abilityDamageType: 'physical',
+    }),
+    makeUnit({
+      id: 2,
+      q: 1,
+      r: 0,
+      team: 'enemy',
+      hp: 100,
+      maxHp: 100,
+      atk: 0,
+      moveSpeed: 0.1,
+    }),
+  ]);
+
+  const replay = simulateBattleReplayFromState(simState, {
+    tickMs: SNAPSHOT_STEP_MS,
+    maxBattleMs: 3200,
+    collectSnapshots: false,
+  });
+
+  const primeEvent = replay.events.find((e) => e.type === 'ability_cast' && e.casterId === 1 && e.abilityKey === 'zombie_self_destruct');
+  const explodeEvent = replay.events.find((e) => e.type === 'zombie_explode' && e.zombieId === 1);
+  const damageEvent = replay.events.find((e) => e.type === 'damage' && e.attackerId === 1 && e.targetId === 2 && e.damageSource === 'zombie_self_destruct');
+  const moveEvent = replay.events.find((e) => e.type === 'move' && e.unitId === 1);
+  const attackEvent = replay.events.find((e) => e.type === 'attack' && e.attackerId === 1);
+
+  assert.ok(primeEvent);
+  assert.equal(primeEvent.t, 0);
+  assert.ok(explodeEvent);
+  assert.equal(explodeEvent.t, 3000);
+  assert.ok(damageEvent);
+  assert.equal(damageEvent.damage, 50);
+  assert.equal(moveEvent, undefined);
+  assert.equal(attackEvent, undefined);
+});
+
+test('zombie explosion radius increases to 2 cells on rank 2', () => {
+  const simState = createSimState([
+    makeUnit({
+      id: 1,
+      type: 'Zombie',
+      q: 0,
+      r: 0,
+      hp: 40,
+      maxHp: 100,
+      rank: 2,
+      atk: 24,
+      abilityType: 'passive',
+      abilityKey: 'zombie_self_destruct',
+      abilityCooldown: 3,
+      abilityDamageType: 'physical',
+    }),
+    makeUnit({ id: 2, q: 1, r: 0, team: 'enemy', hp: 100, maxHp: 100, atk: 0, moveSpeed: 0.1 }),
+    makeUnit({ id: 3, q: 2, r: 0, team: 'enemy', hp: 100, maxHp: 100, atk: 0, moveSpeed: 0.1 }),
+    makeUnit({ id: 4, q: 5, r: 5, team: 'enemy', hp: 100, maxHp: 100, atk: 0, moveSpeed: 0.1 }),
+  ]);
+
+  const replay = simulateBattleReplayFromState(simState, {
+    tickMs: SNAPSHOT_STEP_MS,
+    maxBattleMs: 3200,
+    collectSnapshots: false,
+  });
+
+  const damageEvents = replay.events
+    .filter((e) => e.type === 'damage' && e.attackerId === 1 && e.damageSource === 'zombie_self_destruct')
+    .map((e) => e.targetId)
+    .sort((a, b) => a - b);
+
+  assert.deepEqual(damageEvents, [2, 3]);
 });
 
 test('priest moves toward an injured ally if it is out of heal range and still does not attack enemies', () => {

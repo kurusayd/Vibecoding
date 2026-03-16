@@ -145,6 +145,7 @@ const TRASH_COIN_BURST_SCALE_START = 0.11;
 const TRASH_COIN_BURST_SCALE_END = 0.035;
 const TRASH_COIN_BURST_ALPHA = 0.95;
 const WORM_SWALLOW_ABILITY_KEY = 'worm_swallow';
+const ZOMBIE_SELF_DESTRUCT_ABILITY_KEY = 'zombie_self_destruct';
 const SWORDSMAN_COUNTER_ABILITY_KEY = 'swordsman_counter';
 const SWORDSMAN_COUNTER_SKILL_DEFAULT_MS = 300;
 const UNIT_RECEIVE_DAMAGE_FRAME_MS = 300;
@@ -331,6 +332,18 @@ const HEAL_TARGET_VFX_ONE_CELL_SIZE_PX = 168;
 const HEAL_TARGET_VFX_TWO_CELL_SIZE_PX = Math.round(HEAL_TARGET_VFX_ONE_CELL_SIZE_PX * 1.5);
 const HEAL_TARGET_VFX_OFFSET_X_PX = -10;
 const HEAL_TARGET_VFX_OFFSET_Y_PX = -10;
+const ZOMBIE_EXPLODE_VFX_DEF = {
+  key: 'zombie_explode',
+  atlasKey: 'explose_vfx_atlas',
+  atlasPath: '/assets/vfx/explose/explose_vfx_atlas',
+  animKey: 'zombie_explode_vfx',
+  firstFrame: '256/01.png',
+  frameRegex: /^256\/\d+\.png$/,
+  frameRate: 24,
+  depthOffset: 0.24,
+};
+const ZOMBIE_EXPLODE_VFX_ATLAS_FRAME_PX = 256;
+const ZOMBIE_EXPLODE_VFX_SIZE_PX = 660;
 
 function unitTypeToInfoPortraitName(type) {
   const raw = String(type ?? '').trim();
@@ -578,6 +591,11 @@ export default class BattleScene extends Phaser.Scene {
       HEAL_TARGET_VFX_DEF.atlasKey,
       `${HEAL_TARGET_VFX_DEF.atlasPath}.png`,
       `${HEAL_TARGET_VFX_DEF.atlasPath}.json`,
+    );
+    this.load.atlas(
+      ZOMBIE_EXPLODE_VFX_DEF.atlasKey,
+      `${ZOMBIE_EXPLODE_VFX_DEF.atlasPath}.png`,
+      `${ZOMBIE_EXPLODE_VFX_DEF.atlasPath}.json`,
     );
 
     // дебаг загрузки: покажет ключ и URL, который не смог загрузиться
@@ -1272,6 +1290,21 @@ export default class BattleScene extends Phaser.Scene {
           key: HEAL_TARGET_VFX_DEF.animKey,
           frames,
           frameRate: Number(HEAL_TARGET_VFX_DEF.frameRate ?? 16),
+          repeat: 0,
+        });
+      }
+    }
+    if (!this.anims.exists(ZOMBIE_EXPLODE_VFX_DEF.animKey)) {
+      const texture = this.textures.get(ZOMBIE_EXPLODE_VFX_DEF.atlasKey);
+      const frames = (texture?.getFrameNames?.() ?? [])
+        .filter((name) => ZOMBIE_EXPLODE_VFX_DEF.frameRegex.test(name))
+        .sort()
+        .map((frame) => ({ key: ZOMBIE_EXPLODE_VFX_DEF.atlasKey, frame }));
+      if (frames.length > 0) {
+        this.anims.create({
+          key: ZOMBIE_EXPLODE_VFX_DEF.animKey,
+          frames,
+          frameRate: Number(ZOMBIE_EXPLODE_VFX_DEF.frameRate ?? 24),
           repeat: 0,
         });
       }
@@ -3183,10 +3216,33 @@ export default class BattleScene extends Phaser.Scene {
       return;
     }
 
+    if (ev.type === 'zombie_explode') {
+      const zombie = byId.get(ev.zombieId);
+      if (zombie) {
+        const zombieVu = this.unitSys?.findUnit?.(zombie.id);
+        if (zombieVu) this.startZombieExplodeVfx?.(zombieVu);
+        zombie.hp = 0;
+        zombie.dead = true;
+        zombie.zombieSelfDestructPrimed = false;
+        zombie.zombieExploded = true;
+        zombie.zombieExplodesAt = null;
+        zombie.nextAbilityAt = 0;
+      }
+      return;
+    }
+
     if (ev.type === 'ability_cast') {
       const caster = byId.get(ev.casterId);
       if (caster) {
         const abilityKey = String(ev?.abilityKey ?? '');
+        if (abilityKey === ZOMBIE_SELF_DESTRUCT_ABILITY_KEY) {
+          caster.zombieSelfDestructPrimed = true;
+          caster.zombieExploded = false;
+          caster.zombieExplodesAt = Number(ev.castTimeMs ?? 3000);
+          caster.nextAbilityAt = Number(ev.castTimeMs ?? 3000);
+          this.restartUnitAbilityCooldownUi?.(caster);
+          return;
+        }
         if (abilityKey === SWORDSMAN_COUNTER_ABILITY_KEY) {
           const vu = this.unitSys?.findUnit?.(caster.id);
           const runtime = this.attachUnitRuntime(vu, caster.id);
@@ -3707,9 +3763,7 @@ export default class BattleScene extends Phaser.Scene {
     const runtime = this.attachUnitRuntime(vu, core);
     if (!runtime) return;
 
-    const hasCooldownAbility =
-      String(core.abilityType ?? 'none') === 'active' ||
-      this.isWormSwallowAbilityCore?.(core);
+    const hasCooldownAbility = this.hasUnitAbilityCooldownUiCore?.(core);
     const cooldownSec = Math.max(0, Number(core.abilityCooldown ?? 0));
     const cooldownMs = cooldownSec * 1000;
     if (!hasCooldownAbility || cooldownMs <= 0) {
@@ -3796,6 +3850,25 @@ export default class BattleScene extends Phaser.Scene {
       && String(core.abilityKey ?? '') === WORM_SWALLOW_ABILITY_KEY;
   }
 
+  isZombieSelfDestructPrimedCore(core) {
+    if (!core) return false;
+    return String(core.abilityType ?? 'none') === 'passive'
+      && String(core.abilityKey ?? '') === ZOMBIE_SELF_DESTRUCT_ABILITY_KEY
+      && Boolean(core.zombieSelfDestructPrimed);
+  }
+
+  getZombieSelfDestructRadius(core) {
+    const rank = Math.max(1, Math.min(3, Number(core?.rank ?? 1)));
+    return rank >= 2 ? 2 : 1;
+  }
+
+  hasUnitAbilityCooldownUiCore(core) {
+    if (!core) return false;
+    return String(core.abilityType ?? 'none') === 'active'
+      || this.isWormSwallowAbilityCore?.(core)
+      || this.isZombieSelfDestructPrimedCore?.(core);
+  }
+
   isWormFatCore(core) {
     if (!core) return false;
     if (String(core.type ?? '') !== 'Worm') return false;
@@ -3811,9 +3884,7 @@ export default class BattleScene extends Phaser.Scene {
     if (!runtime) return;
     const cooldownSec = Math.max(0, Number(core.abilityCooldown ?? 0));
     const cooldownMs = cooldownSec * 1000;
-    const hasCooldownAbility =
-      String(core.abilityType ?? 'none') === 'active' ||
-      this.isWormSwallowAbilityCore?.(core);
+    const hasCooldownAbility = this.hasUnitAbilityCooldownUiCore?.(core);
     if (!hasCooldownAbility || cooldownMs <= 0) return;
     const nowMs = Number(this.time?.now ?? 0);
     runtime._abilityCdDurationMs = cooldownMs;
@@ -3865,9 +3936,7 @@ export default class BattleScene extends Phaser.Scene {
     const runtime = this.attachUnitRuntime(vu, unitId);
     if (!runtime) return NaN;
 
-    const hasCooldownAbility =
-      String(core.abilityType ?? 'none') === 'active' ||
-      this.isWormSwallowAbilityCore?.(core);
+    const hasCooldownAbility = this.hasUnitAbilityCooldownUiCore?.(core);
     const cooldownSec = Math.max(0, Number(core.abilityCooldown ?? 0));
     const cooldownMs = cooldownSec * 1000;
     const phase = this.battleState?.phase ?? 'prep';
@@ -4473,6 +4542,33 @@ export default class BattleScene extends Phaser.Scene {
     });
     vu._healVfxSprite = overlay;
     overlay.play(HEAL_TARGET_VFX_DEF.animKey);
+    return overlay;
+  }
+
+  startZombieExplodeVfx(vu) {
+    if (!vu?.art?.active || !this.anims.exists(ZOMBIE_EXPLODE_VFX_DEF.animKey)) return null;
+    vu._zombieExplodeVfxSprite?.destroy?.();
+    const bounds = vu.art.getBounds?.() ?? null;
+    const centerX = Number(bounds?.centerX ?? vu.art.x ?? 0);
+    const centerY = Number(bounds?.centerY ?? vu.art.y ?? 0);
+    const scale = ZOMBIE_EXPLODE_VFX_SIZE_PX / ZOMBIE_EXPLODE_VFX_ATLAS_FRAME_PX;
+    const overlay = this.add.sprite(
+      centerX,
+      centerY,
+      ZOMBIE_EXPLODE_VFX_DEF.atlasKey,
+      ZOMBIE_EXPLODE_VFX_DEF.firstFrame,
+    )
+      .setOrigin(0.5, 0.5)
+      .setScale(scale, scale)
+      .setDepth(Number(vu.art.depth ?? 0) + Number(ZOMBIE_EXPLODE_VFX_DEF.depthOffset ?? 0))
+      .setVisible(Boolean(vu.art.visible))
+      .setAlpha(1);
+    overlay.once?.('animationcomplete', () => {
+      if (vu?._zombieExplodeVfxSprite === overlay) vu._zombieExplodeVfxSprite = null;
+      overlay.destroy?.();
+    });
+    vu._zombieExplodeVfxSprite = overlay;
+    overlay.play(ZOMBIE_EXPLODE_VFX_DEF.animKey);
     return overlay;
   }
 
@@ -5569,6 +5665,24 @@ export default class BattleScene extends Phaser.Scene {
         !result &&
         (u.zone === 'board') &&
         !u.dead;
+      const wantsZombiePrimedSkillFrame =
+        !!skillFrameInfo &&
+        this.isZombieSelfDestructPrimedCore?.(u) &&
+        (phase === 'battle') &&
+        !result &&
+        (u.zone === 'board') &&
+        !u.dead;
+      if (wantsZombiePrimedSkillFrame) {
+        const nowMs = Number(this.time?.now ?? 0);
+        const lastPulseAtMs = Number(runtime._zombieSelfDestructPulseAtMs ?? -Infinity);
+        if ((nowMs - lastPulseAtMs) >= 1000) {
+          runtime._zombieSelfDestructPulseAtMs = nowMs;
+          this.playUnitAttackImpactPulse?.(vu);
+        }
+        runtime._staticWalkFrameActive = false;
+        this.applyUnitStaticArtFrame(vu, skillFrameInfo.atlasCfg.atlasKey, skillFrameInfo.skillFrame);
+        continue;
+      }
       if (wantsSkillFrame) {
         runtime._staticWalkFrameActive = false;
         this.applyUnitStaticArtFrame(vu, skillFrameInfo.atlasCfg.atlasKey, skillFrameInfo.skillFrame);
@@ -5881,6 +5995,7 @@ export default class BattleScene extends Phaser.Scene {
 
         byId.set(created.id, created);
         this.applyIllusionVisualState(u, created);
+        created._skipDeathPrepOnce = Boolean(u.zombieExploded);
         this.unitSys.setUnitDead?.(u.id, !!u.dead);
         if (u.zone === 'bench') {
           const slot = Number.isInteger(u.benchSlot) ? u.benchSlot : 0;
@@ -5994,6 +6109,7 @@ export default class BattleScene extends Phaser.Scene {
       this.applyIllusionVisualState(u, vu);
       this.syncUnitAbilityCooldownUi?.(u, vu);
       this.unitSys.setUnitHp(u.id, u.hp, u.maxHp ?? existing.maxHp);
+      vu._skipDeathPrepOnce = Boolean(u.zombieExploded);
       this.unitSys.setUnitDead?.(u.id, !!u.dead);
       if (u.zone === 'bench') {
         const slot = Number.isInteger(u.benchSlot) ? u.benchSlot : 0;
@@ -6324,6 +6440,29 @@ export default class BattleScene extends Phaser.Scene {
     strokeOuterEdges(1, 0xfff4cd, 0.95);
   }
 
+  drawZombieSelfDestructTelegraphOn(g, zombieCore, nowMs) {
+    if (!g || !zombieCore || zombieCore.dead || zombieCore.zone !== 'board') return;
+    if (!this.isZombieSelfDestructPrimedCore?.(zombieCore)) return;
+
+    const radius = this.getZombieSelfDestructRadius?.(zombieCore);
+    const zombieCells = getBoardCellsForUnit(zombieCore);
+    if (!Array.isArray(zombieCells) || zombieCells.length <= 0) return;
+
+    const cycleT = Phaser.Math.Clamp((Number(nowMs ?? 0) % 1000) / 1000, 0, 1);
+    const pulse = 0.5 - 0.5 * Math.cos(cycleT * Math.PI * 2);
+    const fillAlpha = Phaser.Math.Linear(0.08, 0.2, pulse);
+
+    for (const cell of (this.cachedBoardHexCenters ?? [])) {
+      let minDist = Infinity;
+      for (const zc of zombieCells) {
+        minDist = Math.min(minDist, hexDistance(Number(zc.q), Number(zc.r), Number(cell.q), Number(cell.r)));
+      }
+      if (!Number.isFinite(minDist) || minDist > radius) continue;
+
+      this.drawHexFilledOn(g, cell.x, cell.y, 0xff4b4b, fillAlpha);
+    }
+  }
+
   drawGridStatic() {
     const g = this.gStatic ?? this.g;
     g.clear();
@@ -6349,6 +6488,7 @@ export default class BattleScene extends Phaser.Scene {
     const g = this.gDynamic ?? this.g;
     g.clear();
     this.resetRangePenaltyIcons?.();
+    const nowMs = Number(this.time?.now ?? 0);
     const isEntryPhase = !this.testSceneActive && this.battleState?.phase === 'entry';
     const isBattlePhase = !this.testSceneActive && this.battleState?.phase === 'battle';
     const isReplayBattle =
@@ -6514,7 +6654,6 @@ export default class BattleScene extends Phaser.Scene {
       this.battleState?.phase === 'battle' &&
       !this.battleState?.result;
     if (showCombatHexOverlay) {
-      const nowMs = Number(this.time?.now ?? 0);
       for (const u of (this.battleState?.units ?? [])) {
         if (!u || u.zone !== 'board' || u.dead) continue;
 
@@ -6527,6 +6666,12 @@ export default class BattleScene extends Phaser.Scene {
         if (!combatHex) continue;
         const combat = this.hexToPixel(combatHex.q, combatHex.r);
         this.drawHexOn(g, combat.x, combat.y, 0xffa954, 0.95);
+      }
+    }
+
+    if (this.battleState?.phase === 'battle' && !this.battleState?.result) {
+      for (const u of (this.battleState?.units ?? [])) {
+        this.drawZombieSelfDestructTelegraphOn?.(g, u, nowMs);
       }
     }
   }

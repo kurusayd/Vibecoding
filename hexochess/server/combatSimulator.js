@@ -34,6 +34,7 @@ const KNIGHT_CHARGE_SPEED_MULT = 2;
 const WORM_SWALLOW_ABILITY_KEY = 'worm_swallow';
 const SWORDSMAN_COUNTER_ABILITY_KEY = 'swordsman_counter';
 const PRIEST_HEAL_ABILITY_KEY = 'priest_heal';
+const ZOMBIE_SELF_DESTRUCT_ABILITY_KEY = 'zombie_self_destruct';
 const SWORDSMAN_COUNTER_TRIGGER_CHANCE = 0.3;
 const SWORDSMAN_COUNTER_WINDOW_MS = 500;
 const SWORDSMAN_COUNTER_SKILL_MS = 300;
@@ -43,6 +44,9 @@ const WORM_DIGEST_SPEED_MULT = 0.7;
 const MAX_ACTIONS_PER_UNIT_PER_TICK = 8;
 const CROSSBOWMAN_IMPACT_DELAY_MS = 200;
 const PRIEST_HEAL_BEAM_DELAY_MS = 200;
+const ZOMBIE_SELF_DESTRUCT_THRESHOLD = 0.5;
+const ZOMBIE_SELF_DESTRUCT_DELAY_MS = 3000;
+const ZOMBIE_SELF_DESTRUCT_DAMAGE_PCT = 0.5;
 
 export const SNAPSHOT_STEP_MS = 100;
 
@@ -657,6 +661,115 @@ function hasSwordsmanCounterPassive(unit) {
   return !!unit
     && String(unit.abilityType ?? 'none') === 'passive'
     && String(unit.abilityKey ?? '') === SWORDSMAN_COUNTER_ABILITY_KEY;
+}
+
+function hasZombieSelfDestructPassive(unit) {
+  return !!unit
+    && String(unit.abilityType ?? 'none') === 'passive'
+    && String(unit.abilityKey ?? '') === ZOMBIE_SELF_DESTRUCT_ABILITY_KEY;
+}
+
+function getZombieSelfDestructRadius(unit) {
+  const rank = Math.max(1, Math.min(3, Number(unit?.rank ?? 1)));
+  return rank >= 2 ? 2 : 1;
+}
+
+function canPrimeZombieSelfDestruct(unit) {
+  if (!hasZombieSelfDestructPassive(unit)) return false;
+  if (!unit || unit.dead || unit.zone !== 'board') return false;
+  if (Boolean(unit.zombieSelfDestructPrimed)) return false;
+  const maxHp = Math.max(1, Number(unit.maxHp ?? unit.hp ?? 1));
+  const hp = Math.max(0, Number(unit.hp ?? maxHp));
+  return (hp / maxHp) < ZOMBIE_SELF_DESTRUCT_THRESHOLD;
+}
+
+function armZombieSelfDestructIn(simState, zombieId, timeMs, { collectTimeline = false, events = [] } = {}) {
+  const zombie = findUnitByIdIn(simState, zombieId);
+  if (!canPrimeZombieSelfDestruct(zombie)) return false;
+  const explodeAt = Math.max(0, Number(timeMs ?? 0)) + ZOMBIE_SELF_DESTRUCT_DELAY_MS;
+  zombie.zombieSelfDestructPrimed = true;
+  zombie.zombieExplodesAt = explodeAt;
+  zombie.zombieExploded = false;
+  zombie.nextAbilityAt = ZOMBIE_SELF_DESTRUCT_DELAY_MS;
+  zombie.nextAttackAt = Math.max(Number(zombie.nextAttackAt ?? 0), explodeAt);
+  zombie.nextMoveAt = Math.max(Number(zombie.nextMoveAt ?? 0), explodeAt);
+  zombie.nextActionAt = Math.max(Number(zombie.nextActionAt ?? 0), explodeAt);
+  zombie.preparedAttackIdleAttack2At = 0;
+  if (collectTimeline) {
+    events.push({
+      t: Number(timeMs ?? 0),
+      type: 'ability_cast',
+      casterId: Number(zombie.id),
+      abilityKey: ZOMBIE_SELF_DESTRUCT_ABILITY_KEY,
+      castTimeMs: ZOMBIE_SELF_DESTRUCT_DELAY_MS,
+    });
+  }
+  return true;
+}
+
+function detonateZombieSelfDestructIn(simState, zombieId, timeMs, { collectTimeline = false, events = [] } = {}) {
+  const zombie = findUnitByIdIn(simState, zombieId);
+  if (!zombie || zombie.dead || zombie.zone !== 'board') return false;
+  if (!Boolean(zombie.zombieSelfDestructPrimed)) return false;
+  if (Number(timeMs ?? 0) + 1e-6 < Number(zombie.zombieExplodesAt ?? Infinity)) return false;
+
+  const radius = getZombieSelfDestructRadius(zombie);
+  const damage = Math.max(1, Math.round(Math.max(1, Number(zombie.maxHp ?? zombie.hp ?? 1)) * ZOMBIE_SELF_DESTRUCT_DAMAGE_PCT));
+  const damageKind = String(zombie.abilityDamageType ?? zombie.damageType ?? 'physical');
+
+  zombie.zombieSelfDestructPrimed = false;
+  zombie.zombieExploded = true;
+  zombie.zombieExplodesAt = null;
+  zombie.nextAbilityAt = 0;
+  zombie.nextAttackAt = Math.max(Number(zombie.nextAttackAt ?? 0), Number(timeMs ?? 0));
+  zombie.nextMoveAt = Math.max(Number(zombie.nextMoveAt ?? 0), Number(timeMs ?? 0));
+  zombie.nextActionAt = Math.max(Number(zombie.nextActionAt ?? 0), Number(timeMs ?? 0));
+  zombie.preparedAttackIdleAttack2At = 0;
+  zombie.hp = 0;
+  zombie.dead = true;
+
+  if (collectTimeline) {
+    events.push({
+      t: Number(timeMs ?? 0),
+      type: 'zombie_explode',
+      zombieId: Number(zombie.id),
+      q: Number(zombie.q ?? 0),
+      r: Number(zombie.r ?? 0),
+      radius,
+      damage,
+      damageKind,
+    });
+  }
+
+  const enemyTeam = zombie.team === 'player' ? 'enemy' : 'player';
+  for (const target of simState.units ?? []) {
+    if (!target || target.dead || target.zone !== 'board' || target.team !== enemyTeam) continue;
+    const dist = unitDistanceByFootprintAtTime(simState, zombie, target, Number(timeMs ?? 0));
+    if (!Number.isFinite(dist) || dist > radius) continue;
+    const dmgRes = applyDamageToUnitIn(simState, target.id, damage, damageKind);
+    if (!dmgRes.success) continue;
+    if (collectTimeline) {
+      events.push({
+        t: Number(timeMs ?? 0),
+        type: 'damage',
+        attackerId: Number(zombie.id),
+        targetId: Number(target.id),
+        attackerTeam: zombie.team,
+        attackSeq: Number(zombie.attackSeq ?? 0),
+        damage: Number(dmgRes.damage ?? 0),
+        targetHp: Number(dmgRes.targetHp ?? 0),
+        targetMaxHp: Number(dmgRes.targetMaxHp ?? 0),
+        killed: Boolean(dmgRes.killed),
+        damageSource: ZOMBIE_SELF_DESTRUCT_ABILITY_KEY,
+        damageKind,
+        skipPreparedAttackVisual: true,
+      });
+    }
+    if (Boolean(dmgRes.killed)) {
+      releaseWormSwallowedVictimIn(simState, target.id, timeMs, { collectTimeline, events });
+    }
+  }
+  return true;
 }
 
 function getPreparedAttackIdleAttack2At(unit) {
@@ -1615,6 +1728,18 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
       const me = findUnitByIdIn(simState, actor.id);
       if (!me || me.dead || me.zone !== 'board') continue;
 
+      const isZombieBomber = hasZombieSelfDestructPassive(me);
+      if (isZombieBomber) {
+        armZombieSelfDestructIn(simState, me.id, tickTimeMs, { collectTimeline, events });
+        if (detonateZombieSelfDestructIn(simState, me.id, tickTimeMs, { collectTimeline, events })) {
+          releaseSwallowedVictimsFromDeadWormsIn(simState, tickTimeMs, { collectTimeline, events });
+          result = computeResultIn(simState);
+          if (result) break;
+          continue;
+        }
+        if (Boolean(me.zombieSelfDestructPrimed)) continue;
+      }
+
       const isPriestHealer = hasPriestHealPassive(me);
       const meMaxHp = Math.max(1, Number(me.maxHp ?? me.hp ?? 1));
       const priestCanRetreat = isPriestHealer && Math.max(0, Number(me.hp ?? meMaxHp)) < meMaxHp;
@@ -2252,6 +2377,9 @@ export function sanitizeUnitForBattleStart(unit) {
   unit.wormDigestEndsAt = null;
   unit.swallowedByUnitId = null;
   unit.swallowedAtHp = null;
+  unit.zombieSelfDestructPrimed = false;
+  unit.zombieExplodesAt = null;
+  unit.zombieExploded = false;
 }
 
 export function createSimState(units = [], kings = null) {
