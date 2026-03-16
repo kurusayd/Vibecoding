@@ -342,6 +342,11 @@ export function installBattleSceneDrag(BattleScene) {
             return;
           }
 
+          core.q = hit.q;
+          core.r = hit.r;
+          core.zone = 'board';
+          core.benchSlot = null;
+          this.renderFromState();
           restoreHoverAfterDrop(pointer, uid, { area: 'board', q: hit.q, r: hit.r });
           this.drawGrid();
           this.dragMainCellOffsetX = 0;
@@ -359,7 +364,9 @@ export function installBattleSceneDrag(BattleScene) {
     setSpriteDraggable(sprite, enabled) {
       if (!sprite || !sprite.active) return;
       this.input.setDraggable(sprite, !!enabled);
-      if (sprite.input) sprite.input.enabled = !!enabled;
+      // Keep pointer input alive even when dragging is disabled:
+      // unit info modal in entry/battle is opened from dragHandle pointerup.
+      if (sprite.input) sprite.input.enabled = true;
     },
 
     tryPickBoard(x, y, opts = {}) {

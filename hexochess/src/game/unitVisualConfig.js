@@ -162,9 +162,9 @@ export const UNIT_VISUAL_CONFIG_BY_TYPE = {
     artTargetPx: 150,
     artOffsetXPx: 5,
     hpUiLiftPx: 45,
-    footShadowWidthPx: 56,
-    footShadowHeightPx: 16,
-    footShadowOffsetXPx: 0,
+    footShadowWidthPx: 70,
+    footShadowHeightPx: 18,
+    footShadowOffsetXPx: 2,
     footShadowOffsetYPx: 15,
   },
   Skeleton: {

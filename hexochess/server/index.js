@@ -630,7 +630,7 @@ function resetGameToStart() {
   state.loseStreak = 0;
 
   state.kings = {
-    player: { hp: 100, maxHp: 100, coins: 100, level: 1, xp: 0 },
+    player: { hp: 100, maxHp: 100, coins: 100, level: 3, xp: 0 },
     enemy:  {
       hp: 100, maxHp: 100, coins: 0, visible: false, level: 1, xp: 0,
       name: 'bot 1',

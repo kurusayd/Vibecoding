@@ -10,6 +10,13 @@ const PREPARED_ATTACK_CONFIG_BY_TYPE = Object.freeze({
     attackHoldMs: 400,
     projectileLaunchDelayMs: 400,
   }),
+  Priest: Object.freeze({
+    attackIntervalMs: Math.round(1000 / 0.6),
+    hitDelayMs: 400,
+    attackHoldMs: 400,
+    recoveryDelayMs: 200,
+    projectileLaunchDelayMs: 400,
+  }),
 });
 
 export function getPreparedAttackConfig(type) {

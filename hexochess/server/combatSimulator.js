@@ -42,6 +42,7 @@ const WORM_SWALLOW_CHANCE = 0.5;
 const WORM_DIGEST_SPEED_MULT = 0.7;
 const MAX_ACTIONS_PER_UNIT_PER_TICK = 8;
 const CROSSBOWMAN_IMPACT_DELAY_MS = 200;
+const PRIEST_HEAL_BEAM_DELAY_MS = 200;
 
 export const SNAPSHOT_STEP_MS = 100;
 
@@ -582,7 +583,9 @@ function performPriestHealIn(simState, healerId, targetId, timeMs) {
   const preparedAttackProjectileLaunchDelayMs = isRanged
     ? Math.max(0, Number(preparedAttackCfg?.projectileLaunchDelayMs ?? 0))
     : 0;
-  const projectileTravelMs = isRanged && projectileSpeed > 0 ? (dist / projectileSpeed) * 1000 : 0;
+  const projectileTravelMs = isRanged
+    ? PRIEST_HEAL_BEAM_DELAY_MS
+    : 0;
 
   return {
     success: true,
@@ -1613,6 +1616,8 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
       if (!me || me.dead || me.zone !== 'board') continue;
 
       const isPriestHealer = hasPriestHealPassive(me);
+      const meMaxHp = Math.max(1, Number(me.maxHp ?? me.hp ?? 1));
+      const priestCanRetreat = isPriestHealer && Math.max(0, Number(me.hp ?? meMaxHp)) < meMaxHp;
       const target = isPriestHealer
         ? findBestPriestHealTargetIn(simState, me, tickTimeMs)
         : (
@@ -1620,7 +1625,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
             ? findBestCrossbowmanTargetIn(simState, me, tickTimeMs)
             : findClosestOpponentIn(simState, me, tickTimeMs)
         );
-      const retreatTarget = isPriestHealer ? findClosestOpponentIn(simState, me, tickTimeMs) : null;
+      const retreatTarget = priestCanRetreat ? findClosestOpponentIn(simState, me, tickTimeMs) : null;
       if (!target && !retreatTarget) continue;
 
       const attackSpeed = Math.max(0.1, Number(me.attackSpeed ?? DEFAULT_UNIT_ATTACK_SPEED));
@@ -1654,7 +1659,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
               ? findBestCrossbowmanTargetIn(simState, me, tickTimeMs)
               : findClosestOpponentIn(simState, me, tickTimeMs)
           );
-        const liveRetreatTarget = isPriestHealer ? findClosestOpponentIn(simState, me, tickTimeMs) : null;
+        const liveRetreatTarget = priestCanRetreat ? findClosestOpponentIn(simState, me, tickTimeMs) : null;
         if (!liveTarget && !liveRetreatTarget) break;
 
         const mePos = getCombatHexAtIn(simState, me, tickTimeMs);
@@ -1891,10 +1896,11 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
             const attackSeq = Number(me.attackSeq ?? 0);
             const preparedAttackHitDelayMs = Math.max(0, Number(res.preparedAttackHitDelayMs ?? 0));
             const preparedAttackHoldMs = Math.max(0, Number(res.preparedAttackHoldMs ?? 0));
+            const preparedAttackRecoveryDelayMs = Math.max(0, Number(getPreparedAttackConfig(me.type)?.recoveryDelayMs ?? 0));
             const preparedAttackProjectileLaunchDelayMs = Math.max(0, Number(res.preparedAttackProjectileLaunchDelayMs ?? 0));
             const usesPreparedAttackTiming = preparedAttackHitDelayMs > 0;
             me.preparedAttackIdleAttack2At = usesPreparedAttackTiming
-              ? tickTimeMs + preparedAttackHitDelayMs + preparedAttackHoldMs
+              ? tickTimeMs + preparedAttackHitDelayMs + preparedAttackHoldMs + preparedAttackRecoveryDelayMs
               : 0;
             if (collectTimeline) {
               events.push({
@@ -1953,7 +1959,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
                   attackSeq,
                   heal: Number(res.heal ?? 1),
                   healSource: 'projectile',
-                  skipPreparedAttackVisual: preparedAttackProjectileLaunchDelayMs > 0,
+                  skipPreparedAttackVisual: false,
                 });
               } else if (usesPreparedAttackTiming) {
                 pendingHealEvents.push({
@@ -2135,7 +2141,7 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
 
         if (tickTimeMs + 1e-6 < me.nextActionAt || tickTimeMs + 1e-6 < me.nextAttackAt || tickTimeMs + 1e-6 < me.nextMoveAt) break;
 
-        const step = (isUndertakerSummoner || (isPriestHealer && !liveTarget))
+        const step = (isUndertakerSummoner || (priestCanRetreat && !liveTarget))
           ? pickBestStepAwayFromClosestEnemyIn(simState, me, tickTimeMs)
           : (
             hasCrossbowmanLineShotPassive(me)

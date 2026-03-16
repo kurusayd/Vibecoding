@@ -1,6 +1,6 @@
 {
   "frames": {
-    "heal2/HealingQuick2_01.png": {
+    "psd_anim/heal_01.png": {
       "frame": {
         "x": 3,
         "y": 3,
@@ -24,7 +24,7 @@
         "y": 0.5
       }
     },
-    "heal2/HealingQuick2_02.png": {
+    "psd_anim/heal_02.png": {
       "frame": {
         "x": 3,
         "y": 201,
@@ -48,7 +48,7 @@
         "y": 0.5
       }
     },
-    "heal2/HealingQuick2_03.png": {
+    "psd_anim/heal_03.png": {
       "frame": {
         "x": 3,
         "y": 399,
@@ -72,7 +72,7 @@
         "y": 0.5
       }
     },
-    "heal2/HealingQuick2_04.png": {
+    "psd_anim/heal_04.png": {
       "frame": {
         "x": 3,
         "y": 597,
@@ -96,7 +96,7 @@
         "y": 0.5
       }
     },
-    "heal2/HealingQuick2_05.png": {
+    "psd_anim/heal_05.png": {
       "frame": {
         "x": 3,
         "y": 795,
@@ -120,7 +120,7 @@
         "y": 0.5
       }
     },
-    "heal2/HealingQuick2_06.png": {
+    "psd_anim/heal_06.png": {
       "frame": {
         "x": 3,
         "y": 993,
@@ -144,7 +144,7 @@
         "y": 0.5
       }
     },
-    "heal2/HealingQuick2_07.png": {
+    "psd_anim/heal_07.png": {
       "frame": {
         "x": 3,
         "y": 1191,
@@ -168,7 +168,7 @@
         "y": 0.5
       }
     },
-    "heal2/HealingQuick2_08.png": {
+    "psd_anim/heal_08.png": {
       "frame": {
         "x": 3,
         "y": 1389,
@@ -192,7 +192,7 @@
         "y": 0.5
       }
     },
-    "heal2/HealingQuick2_09.png": {
+    "psd_anim/heal_09.png": {
       "frame": {
         "x": 3,
         "y": 1587,
@@ -216,7 +216,7 @@
         "y": 0.5
       }
     },
-    "heal2/HealingQuick2_10.png": {
+    "psd_anim/heal_10.png": {
       "frame": {
         "x": 3,
         "y": 1785,
@@ -240,7 +240,7 @@
         "y": 0.5
       }
     },
-    "heal2/HealingQuick2_11.png": {
+    "psd_anim/heal_11.png": {
       "frame": {
         "x": 201,
         "y": 3,
@@ -264,7 +264,7 @@
         "y": 0.5
       }
     },
-    "heal2/HealingQuick2_12.png": {
+    "psd_anim/heal_12.png": {
       "frame": {
         "x": 399,
         "y": 3,
@@ -288,7 +288,7 @@
         "y": 0.5
       }
     },
-    "heal2/HealingQuick2_13.png": {
+    "psd_anim/heal_13.png": {
       "frame": {
         "x": 597,
         "y": 3,
@@ -312,7 +312,7 @@
         "y": 0.5
       }
     },
-    "heal2/HealingQuick2_14.png": {
+    "psd_anim/heal_14.png": {
       "frame": {
         "x": 795,
         "y": 3,
@@ -336,7 +336,7 @@
         "y": 0.5
       }
     },
-    "heal2/HealingQuick2_15.png": {
+    "psd_anim/heal_15.png": {
       "frame": {
         "x": 993,
         "y": 3,
@@ -360,7 +360,7 @@
         "y": 0.5
       }
     },
-    "heal2/HealingQuick2_16.png": {
+    "psd_anim/heal_16.png": {
       "frame": {
         "x": 1191,
         "y": 3,

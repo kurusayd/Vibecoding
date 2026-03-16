@@ -9,6 +9,7 @@ import {
   atlasIdleFrame,
   atlasDeadFrame,
   atlasIdleAttackFrame,
+  atlasPreparedAttackRecoveryFrame,
   atlasSkillFrame,
   atlasWalkFirstFrame,
   atlasWalkFallbackFrame,
@@ -289,6 +290,18 @@ const UNIT_MOVE_VFX_DEFS = [
     repeat: 1,
     depthOffset: 0.18,
   },
+  {
+    key: 'priest_move',
+    unitType: 'Priest',
+    atlasKey: 'priest_move_vfx_atlas',
+    atlasPath: '/assets/units/human/priest/atlas/priest_vfx_move_atlas',
+    animKey: 'priest_move_vfx',
+    firstFrame: 'walk/1.png',
+    frameRegex: /^walk\/\d+\.png$/,
+    frameRate: 10,
+    repeat: 1,
+    depthOffset: 0.18,
+  },
 ];
 
 const UNIT_MOVE_VFX_DEF_BY_TYPE = Object.fromEntries(
@@ -299,8 +312,8 @@ const HEAL_TARGET_VFX_DEF = {
   atlasKey: 'heal_vfx_atlas',
   atlasPath: '/assets/vfx/heal/heal_vfx_atlas',
   animKey: 'heal_target_vfx',
-  firstFrame: 'heal2/HealingQuick2_01.png',
-  frameRegex: /^heal2\/HealingQuick2_\d+\.png$/,
+  firstFrame: 'psd_anim/heal_01.png',
+  frameRegex: /^psd_anim\/heal_\d+\.png$/,
   frameRate: 24,
   depthOffset: 0.2,
 };
@@ -3016,9 +3029,10 @@ export default class BattleScene extends Phaser.Scene {
           const nowMs = Number(this.time?.now ?? 0);
           const hitDelayMs = Math.max(0, Number(ev.preparedAttackHitDelayMs ?? attackerRuntime._preparedAttackHitDelayMs ?? 0));
           const attackHoldMs = Math.max(0, Number(ev.preparedAttackHoldMs ?? attackerRuntime._preparedAttackHoldMs ?? 0));
+          const recoveryDelayMs = Math.max(0, Number(preparedAttackCfg?.recoveryDelayMs ?? 0));
           runtime._preparedAttackCycleUntilMs = nowMs + Math.max(0, Number(ev.preparedAttackIntervalMs ?? attackerRuntime._preparedAttackIntervalMs ?? 0));
           runtime._preparedAttackPoseUntilMs = nowMs + hitDelayMs;
-          runtime._preparedAttackIdleAttack2FromMs = nowMs + hitDelayMs + attackHoldMs;
+          runtime._preparedAttackIdleAttack2FromMs = nowMs + hitDelayMs + attackHoldMs + recoveryDelayMs;
           runtime._preparedAttackIdleAttack2Active = false;
           runtime._preparedAttackFrameUntilMs = 0;
         }
@@ -3134,7 +3148,12 @@ export default class BattleScene extends Phaser.Scene {
     if (ev.type === 'heal') {
       const attacker = byId.get(ev.attackerId);
       const target = byId.get(ev.targetId);
-      if (attacker && getPreparedAttackConfig(attacker.type) && !Boolean(ev.skipPreparedAttackVisual)) {
+      if (
+        attacker &&
+        getPreparedAttackConfig(attacker.type) &&
+        String(attacker.type ?? '') !== 'Priest' &&
+        !Boolean(ev.skipPreparedAttackVisual)
+      ) {
         const vu = this.unitSys?.findUnit?.(attacker.id);
         const attackerRuntime = this.attachUnitRuntime(vu, attacker.id);
         if (vu) {
@@ -4047,11 +4066,15 @@ export default class BattleScene extends Phaser.Scene {
       ? atlasIdleAttackFrame(atlasCfg)
       : (texture?.has?.(atlasIdleFrame(atlasCfg)) ? atlasIdleFrame(atlasCfg) : null);
     const attackFrame = atlasAttackFallbackFrame(atlasCfg);
+    const recoveryFrame = texture?.has?.(atlasPreparedAttackRecoveryFrame(atlasCfg))
+      ? atlasPreparedAttackRecoveryFrame(atlasCfg)
+      : idleAttackFrame;
     if (!idleAttackFrame || !texture?.has?.(attackFrame)) return null;
     return {
       atlasCfg,
       idleAttackFrame,
       attackFrame,
+      recoveryFrame,
       config: preparedCfg,
     };
   }
@@ -4131,7 +4154,7 @@ export default class BattleScene extends Phaser.Scene {
 
       const targetFrame = attackActive
         ? preparedAttackFrames.attackFrame
-        : preparedAttackFrames.idleAttackFrame;
+        : (idleAttack2Active ? preparedAttackFrames.recoveryFrame : preparedAttackFrames.idleAttackFrame);
       runtime._preparedAttackIdleAttack2Active = idleAttack2Active;
       this.applyUnitStaticArtFrame(vu, preparedAttackFrames.atlasCfg.atlasKey, targetFrame);
     }
@@ -5287,6 +5310,8 @@ export default class BattleScene extends Phaser.Scene {
   syncBattleVisualFrame(nowMs) {
     this.syncTimedBattleVisualTransitions?.(nowMs);
     this.refreshPreparedAttackPoseFrames?.(nowMs);
+    const byId = new Map((this.unitSys?.state?.units ?? []).map((vu) => [vu.id, vu]));
+    this.syncVisualUnitAnimationState?.(this.battleState?.phase ?? 'prep', byId);
     this.syncUnitFrameBoundVfxState?.(nowMs);
   }
 
@@ -5349,7 +5374,7 @@ export default class BattleScene extends Phaser.Scene {
         vu._artFacingMirrored = baseMirrored;
         vu.art.setFlipX(baseMirrored);
         if (vu.artOverlay?.active) vu.artOverlay.setFlipX(baseMirrored);
-        if (result) {
+        if ((phase !== 'battle') || result) {
           runtime._skillFrameUntilMs = 0;
           runtime._counterRecoveryUntilMs = 0;
           runtime._damageFrameUntilMs = 0;
@@ -5479,6 +5504,7 @@ export default class BattleScene extends Phaser.Scene {
         !result &&
         (u.zone === 'board') &&
         !u.dead &&
+        !preparedAttackFrameActive &&
         !wantWalk &&
         !wantKnightChargeMove &&
         !wantCast &&
@@ -5502,13 +5528,17 @@ export default class BattleScene extends Phaser.Scene {
       if (wantsPreparedAttackPose) {
         const targetFrame = preparedAttackFrameActive
           ? preparedAttackFrames.attackFrame
-          : preparedAttackFrames.idleAttackFrame;
+          : (preparedAttackIdleAttack2Active ? preparedAttackFrames.recoveryFrame : preparedAttackFrames.idleAttackFrame);
         runtime._staticWalkFrameActive = false;
         runtime._preparedAttackIdleAttack2Active = preparedAttackIdleAttack2Active;
         this.applyUnitStaticArtFrame(vu, preparedAttackFrames.atlasCfg.atlasKey, targetFrame);
         continue;
       }
       const isStaticWalkFrameShown = !!(staticWalkFrame && vu.art?.frame?.name === staticWalkFrame);
+      const isDamageFrameShown = !!(
+        damageFrameInfo &&
+        vu.art?.frame?.name === damageFrameInfo.damageFrame
+      );
       const wantStaticWalkFrame = wantWalk && !wantKnightChargeMove && !wantAttack && !wantCast;
       if (wantStaticWalkFrame && atlasCfgForFrames && vu.art?.active) {
         runtime._staticWalkFrameActive = true;
@@ -5541,7 +5571,15 @@ export default class BattleScene extends Phaser.Scene {
         !forceReplayCast &&
         !forceReplayAttack &&
         vu.art.anims?.getName?.() === animKey &&
-        !(animKey === animDef.idle && (isStaticWalkFrameShown || isPreparedAttackFrameShown || isSkillFrameShown))
+        !(
+          animKey === animDef.idle &&
+          (
+            isStaticWalkFrameShown ||
+            isDamageFrameShown ||
+            isPreparedAttackFrameShown ||
+            isSkillFrameShown
+          )
+        )
       ) continue;
 
       if (this.anims.exists(animKey)) {

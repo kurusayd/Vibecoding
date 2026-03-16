@@ -417,6 +417,10 @@ export function installBattleSceneDebugUi(BattleScene) {
           this.debugUnitsMenuRace = null;
           this.refreshDebugUnitsMenuContent?.();
           this.syncDebugUI?.();
+          this.time?.delayedCall?.(0, () => {
+            this.shopCollapsed = false;
+            this.syncShopUI?.();
+          });
         });
         this.debugUnitTypeButtons.push(btn);
         this.debugUnitsMenu.add(btn);

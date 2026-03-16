@@ -28,6 +28,11 @@ export function atlasIdleAttackFrame(def) {
   return atlasFrameName(def, 'idle_attack.png');
 }
 
+export function atlasPreparedAttackRecoveryFrame(def) {
+  const recoveryFrameBaseName = String(def?.preparedAttackRecoveryFrameBaseName ?? 'idle_attack');
+  return atlasFrameName(def, `${recoveryFrameBaseName}.png`);
+}
+
 export function atlasSkillFrame(def) {
   return atlasFrameName(def, 'skill.png');
 }
@@ -98,6 +103,7 @@ export const UNIT_ATLAS_DEFS = [
     attackAnim: 'crossbowman_attack',
     attackFrameBaseName: 'hit',
     deadAnim: 'crossbowman_dead',
+    preparedAttackRecoveryFrameBaseName: 'idle',
     prepareToDieFrameBaseName: 'die0',
     deadFrameBaseName: 'die1',
     framePrefix: 'psd_anim',
@@ -127,11 +133,15 @@ export const UNIT_ATLAS_DEFS = [
   {
     type: 'Priest',
     atlasKey: 'priest_atlas',
-    atlasPath: '/assets/units/human/priest/atlas/priest_atlas',
+    atlasPath: '/assets/units/human/priest/atlas/priest_atlas_new',
     idleAnim: 'priest_idle',
     walkAnim: 'priest_walk',
     attackAnim: 'priest_attack',
+    attackFrameBaseName: 'hit',
     deadAnim: 'priest_dead',
+    preparedAttackRecoveryFrameBaseName: 'idle',
+    prepareToDieFrameBaseName: 'die0',
+    deadFrameBaseName: 'die1',
     framePrefix: 'psd_anim',
   },
   {
