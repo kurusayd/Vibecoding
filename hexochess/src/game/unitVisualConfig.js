@@ -241,14 +241,14 @@ export const UNIT_VISUAL_CONFIG_BY_TYPE = {
     footShadowOffsetYPx: 19,
   },
   Zombie: {
-    groundLiftPx: 90,
-    artTargetPx: 150,
-    artOffsetXPx: 5,
+    groundLiftPx: 100,
+    artTargetPx: 160,
+    artOffsetXPx: 0,
     hpUiLiftPx: 40,
-    footShadowWidthPx: 64,
-    footShadowHeightPx: 20,
+    footShadowWidthPx: 70,
+    footShadowHeightPx: 23,
     footShadowOffsetXPx: 0,
-    footShadowOffsetYPx: 11,
+    footShadowOffsetYPx: 14,
   },
 };
 

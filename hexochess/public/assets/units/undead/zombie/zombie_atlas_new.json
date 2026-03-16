@@ -1,6 +1,6 @@
 {
   "frames": {
-    "psd_anim/attack0001.png": {
+    "psd_anim/die0.png": {
       "frame": {
         "x": 3,
         "y": 3,
@@ -24,7 +24,7 @@
         "y": 0.5
       }
     },
-    "psd_anim/attack0002.png": {
+    "psd_anim/die1.png": {
       "frame": {
         "x": 3,
         "y": 265,
@@ -48,7 +48,7 @@
         "y": 0.5
       }
     },
-    "psd_anim/dead.png": {
+    "psd_anim/dmg.png": {
       "frame": {
         "x": 3,
         "y": 527,
@@ -72,7 +72,7 @@
         "y": 0.5
       }
     },
-    "psd_anim/idle.png": {
+    "psd_anim/hit.png": {
       "frame": {
         "x": 3,
         "y": 789,
@@ -96,7 +96,7 @@
         "y": 0.5
       }
     },
-    "psd_anim/walk0001.png": {
+    "psd_anim/idle.png": {
       "frame": {
         "x": 3,
         "y": 1051,
@@ -120,7 +120,7 @@
         "y": 0.5
       }
     },
-    "psd_anim/walk0002.png": {
+    "psd_anim/idle_attack.png": {
       "frame": {
         "x": 3,
         "y": 1313,
@@ -144,9 +144,33 @@
         "y": 0.5
       }
     },
-    "psd_anim/attack0003.png": {
+    "psd_anim/skill.png": {
       "frame": {
         "x": 3,
+        "y": 1575,
+        "w": 256,
+        "h": 256
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 256,
+        "h": 256
+      },
+      "sourceSize": {
+        "w": 256,
+        "h": 256
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    "psd_anim/walk.png": {
+      "frame": {
+        "x": 265,
         "y": 3,
         "w": 256,
         "h": 256
@@ -172,11 +196,11 @@
   "meta": {
     "app": "http://free-tex-packer.com",
     "version": "0.6.7",
-    "image": "zombie_atlas.png",
+    "image": "zombie_atlas_new.png",
     "format": "RGBA8888",
     "size": {
-      "w": 262,
-      "h": 1572
+      "w": 524,
+      "h": 1834
     },
     "scale": 1
   }

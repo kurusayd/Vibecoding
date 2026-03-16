@@ -270,11 +270,14 @@ export const UNIT_ATLAS_DEFS = [
   {
     type: 'Zombie',
     atlasKey: 'zombie_atlas',
-    atlasPath: '/assets/units/undead/zombie/zombie_atlas',
+    atlasPath: '/assets/units/undead/zombie/zombie_atlas_new',
     idleAnim: 'zombie_idle',
     walkAnim: 'zombie_walk',
     attackAnim: 'zombie_attack',
+    attackFrameBaseName: 'hit',
     deadAnim: 'zombie_dead',
+    prepareToDieFrameBaseName: 'die0',
+    deadFrameBaseName: 'die1',
     framePrefix: 'psd_anim',
   },
   {
