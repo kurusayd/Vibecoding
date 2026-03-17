@@ -11,6 +11,11 @@ import { UNIT_CATALOG } from '../shared/unitCatalog.js';
 import { getPreparedAttackConfig } from '../shared/preparedAttackConfig.js';
 import { STEP_MOVE_TRAVEL_MS, getStepMoveTimings } from '../shared/stepMovementConfig.js';
 import { BATTLE_DURATION_SECONDS } from './battlePhases.js';
+import { getPassiveAbilityHandler } from './abilities/registry.js';
+import {
+  swordsmanCounterAbility,
+  SWORDSMAN_COUNTER_ABILITY_KEY,
+} from './abilities/passives/swordsmanCounter.js';
 
 const GRID_COLS = 12;
 const GRID_ROWS = 8;
@@ -20,7 +25,6 @@ const DEFAULT_UNIT_PROJECTILE_SPEED = 0;
 const DEFAULT_UNIT_ACCURACY = 0.8;
 const DEFAULT_UNIT_ABILITY_COOLDOWN = 0;
 const DEFAULT_UNIT_ATTACK_MODE = 'melee';
-const GHOST_EVASION_DODGE_CHANCE = 0.5;
 const SIREN_ILLUSION_DODGE_CHANCE = 0.3;
 const UNDERTAKER_SUMMON_TYPE = 'SimpleSkeleton';
 const UNDERTAKER_ABILITY_KEY = 'undertaker_active';
@@ -32,12 +36,8 @@ const KNIGHT_CHARGE_ABILITY_KEY = 'knight_charge';
 const KNIGHT_CHARGE_CAST_TIME_MS = 1000;
 const KNIGHT_CHARGE_SPEED_MULT = 2;
 const WORM_SWALLOW_ABILITY_KEY = 'worm_swallow';
-const SWORDSMAN_COUNTER_ABILITY_KEY = 'swordsman_counter';
 const PRIEST_HEAL_ABILITY_KEY = 'priest_heal';
 const ZOMBIE_SELF_DESTRUCT_ABILITY_KEY = 'zombie_self_destruct';
-const SWORDSMAN_COUNTER_TRIGGER_CHANCE = 0.3;
-const SWORDSMAN_COUNTER_WINDOW_MS = 500;
-const SWORDSMAN_COUNTER_SKILL_MS = 300;
 const WORM_SWALLOW_DIGEST_MS = 6000;
 const WORM_SWALLOW_CHANCE = 0.5;
 const WORM_DIGEST_SPEED_MULT = 0.7;
@@ -628,12 +628,6 @@ function findBounceTargetIn(simState, fromQ, fromR, attackerTeam, excludedIds = 
   return best;
 }
 
-function hasGhostEvasionPassive(unit) {
-  return !!unit
-    && String(unit.abilityType ?? 'none') === 'passive'
-    && String(unit.abilityKey ?? '') === 'ghost_evasion';
-}
-
 function hasSirenIllusionDodge(unit) {
   return !!unit
     && Boolean(unit.isIllusion)
@@ -641,7 +635,9 @@ function hasSirenIllusionDodge(unit) {
 }
 
 function getAttackDodgeChance(unit) {
-  if (hasGhostEvasionPassive(unit)) return GHOST_EVASION_DODGE_CHANCE;
+  const passiveAbility = getPassiveAbilityHandler(unit);
+  const passiveDodgeChance = Number(passiveAbility?.getAttackDodgeChance?.(unit) ?? 0);
+  if (passiveDodgeChance > 0) return passiveDodgeChance;
   if (hasSirenIllusionDodge(unit)) return SIREN_ILLUSION_DODGE_CHANCE;
   return 0;
 }
@@ -658,9 +654,7 @@ function hasWormSwallowPassive(unit) {
 }
 
 function hasSwordsmanCounterPassive(unit) {
-  return !!unit
-    && String(unit.abilityType ?? 'none') === 'passive'
-    && String(unit.abilityKey ?? '') === SWORDSMAN_COUNTER_ABILITY_KEY;
+  return swordsmanCounterAbility.matches(unit);
 }
 
 function hasZombieSelfDestructPassive(unit) {
@@ -777,38 +771,16 @@ function getPreparedAttackIdleAttack2At(unit) {
 }
 
 function tryTriggerSwordsmanCounterIn(simState, defender, incomingEvent, timeMs, { collectTimeline = false, events = [], pendingCounterEvents = null } = {}) {
-  if (!hasSwordsmanCounterPassive(defender)) return false;
-  if (!defender || defender.dead || defender.zone !== 'board') return false;
-  const incomingDamageSource = String(incomingEvent?.damageSource ?? '');
-  if (incomingDamageSource === SWORDSMAN_COUNTER_ABILITY_KEY) return false;
-  if (incomingDamageSource !== 'attack') return false;
-
   const attacker = findUnitByIdIn(simState, incomingEvent?.attackerId);
   if (!attacker || attacker.dead || attacker.zone !== 'board') return false;
   if (String(attacker.team ?? '') === String(defender.team ?? '')) return false;
-  if (Math.random() >= SWORDSMAN_COUNTER_TRIGGER_CHANCE) return false;
-  if (!Array.isArray(pendingCounterEvents)) return false;
-  const counterWindowMs = Math.max(0, Number(SWORDSMAN_COUNTER_WINDOW_MS ?? 0));
-  const dueAt = Math.max(
-    Number(timeMs ?? 0),
-    Number(defender.nextActionAt ?? 0),
-    getPreparedAttackIdleAttack2At(defender),
-  );
-  defender.nextActionAt = Math.max(
-    Number(defender.nextActionAt ?? 0),
-    dueAt + counterWindowMs,
-  );
-  pendingCounterEvents.push({
-    t: dueAt,
-    casterId: Number(defender.id),
-    targetId: Number(attacker.id),
-    casterTeam: defender.team,
-    damage: Math.max(1, Math.round(Number(defender.atk ?? 1))),
-    damageKind: String(defender.abilityDamageType ?? defender.damageType ?? 'physical'),
-    windowMs: counterWindowMs,
-    displayMs: Math.max(0, Number(SWORDSMAN_COUNTER_SKILL_MS ?? 0)),
+  return swordsmanCounterAbility.tryQueueTrigger({
+    defender,
+    incomingEvent,
+    timeMs,
+    pendingCounterEvents,
+    getPreparedAttackIdleAttack2At,
   });
-  return true;
 }
 
 function releaseWormSwallowedVictimIn(simState, wormId, timeMs, { collectTimeline = false, events = [] } = {}) {
@@ -1442,91 +1414,20 @@ export function simulateBattleReplayFromState(sourceState, opts = {}) {
         const dueAt = Number(next?.t ?? Infinity);
         if (!Number.isFinite(dueAt) || dueAt > tickTimeMs + 1e-6) break;
         pendingCounterEvents.shift();
-
-        const caster = findUnitByIdIn(simState, next.casterId);
-        const target = findUnitByIdIn(simState, next.targetId);
-        if (!caster || caster.dead || caster.zone !== 'board') continue;
-        if (!target || target.dead || target.zone !== 'board') continue;
-        if (String(caster.team ?? '') === String(target.team ?? '')) continue;
-        const counterWindowMs = Math.max(0, Number(next.windowMs ?? SWORDSMAN_COUNTER_WINDOW_MS));
-        caster.nextActionAt = Math.max(
-          Number(caster.nextActionAt ?? 0),
-          dueAt + counterWindowMs,
-        );
-
-        caster.attackSeq = Number(caster.attackSeq ?? 0) + 1;
-        const attackSeq = Number(caster.attackSeq ?? 0);
-
-        if (collectTimeline) {
-          events.push({
-            t: dueAt,
-            type: 'ability_cast',
-            casterId: Number(caster.id),
-            targetId: Number(target.id),
-            abilityKey: SWORDSMAN_COUNTER_ABILITY_KEY,
-            castTimeMs: 0,
-            windowMs: counterWindowMs,
-            displayMs: Math.max(0, Number(next.displayMs ?? SWORDSMAN_COUNTER_SKILL_MS)),
-          });
-        }
-
-        const counterAccuracy = Math.max(0, Math.min(1, Number(caster.accuracy ?? DEFAULT_UNIT_ACCURACY)));
-        const counterIsHit = Math.random() < counterAccuracy;
-        if (!counterIsHit) {
-          if (collectTimeline) {
-            events.push({
-              t: dueAt,
-              type: 'miss',
-              attackerId: Number(caster.id),
-              targetId: Number(target.id),
-              attackerTeam: caster.team,
-              attackSeq,
-              missSource: SWORDSMAN_COUNTER_ABILITY_KEY,
-              skipPreparedAttackVisual: true,
-            });
-          }
-          continue;
-        }
-        if (isAttackDodgedByTarget(target)) {
-          if (collectTimeline) {
-            events.push({
-              t: dueAt,
-              type: 'miss',
-              attackerId: Number(caster.id),
-              targetId: Number(target.id),
-              attackerTeam: caster.team,
-              attackSeq,
-              missSource: 'ghost_evasion',
-              skipPreparedAttackVisual: true,
-            });
-          }
-          continue;
-        }
-
-        const counterDmgRes = applyDamageToUnitIn(simState, target.id, next.damage, next.damageKind ?? 'physical');
-        if (!counterDmgRes.success) continue;
-
-        if (collectTimeline) {
-          events.push({
-            t: dueAt,
-            type: 'damage',
-            attackerId: Number(caster.id),
-            targetId: Number(target.id),
-            attackerTeam: caster.team,
-            attackSeq,
-            damage: Number(counterDmgRes.damage ?? 0),
-            targetHp: Number(counterDmgRes.targetHp ?? 0),
-            targetMaxHp: Number(counterDmgRes.targetMaxHp ?? 0),
-            killed: Boolean(counterDmgRes.killed),
-            damageSource: SWORDSMAN_COUNTER_ABILITY_KEY,
-            damageKind: String(next.damageKind ?? 'physical'),
-            skipPreparedAttackVisual: true,
-          });
-        }
-
-        if (counterDmgRes.killed) {
-          releaseWormSwallowedVictimIn(simState, target.id, dueAt, { collectTimeline, events });
-        }
+        swordsmanCounterAbility.resolvePendingEvent({
+          simState,
+          next,
+          dueAt,
+          collectTimeline,
+          events,
+          findUnitById: findUnitByIdIn,
+          isAttackDodgedByTarget,
+          applyDamageToUnit: applyDamageToUnitIn,
+          onKilledTarget(targetId, killAt) {
+            releaseWormSwallowedVictimIn(simState, targetId, killAt, { collectTimeline, events });
+          },
+          defaultAccuracy: DEFAULT_UNIT_ACCURACY,
+        });
       }
     }
 
